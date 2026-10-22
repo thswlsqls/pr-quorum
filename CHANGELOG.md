@@ -1,5 +1,9 @@
 # 변경 기록
 
+## 0.1.1
+
+- `pr-quorum.sh` 가 `config.json` 의 `repos` 에 없는 저장소 이름과 16진수 7~40자가 아닌 SHA 를 GitHub 를 부르기 전에 종료 1 로 거절한다.
+
 ## 0.1.0
 
 첫 공개판이다. tech-n-ai-backend 의 `tools/pr-eval/` 에서 돌던 리뷰 하니스를 Claude Code 플러그인으로 옮겼다.
