@@ -55,6 +55,8 @@ run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <�
       [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
     done
   done
+  # 이 PR 의 run 폴더도 연다 — 상태 폴더가 작업 폴더 밖이라 Bash 의 ls·wc 가 거부됐다(PR #61)
+  [ -d "$RUN" ] && add_dirs+=("$RUN")
   # --setting-sources "": 대상 저장소의 .claude/settings*.json 과 ~/.claude/settings.json 을 읽지 않는다. --settings 는 이 값과 상관없이 읽힌다.
   # 스킬·에이전트는 --plugin-dir 로 실려 이 값과 상관없이 불린다(실측). 저장소 CLAUDE.md 도 안 실려 스킬이 직접 읽는다
   # dontAsk: allow 에 없는 것은 묻지 않고 거부한다. acceptEdits 는 작업 폴더 안 편집과 mkdir·rm·mv 등을 allow 와 상관없이 승인했다(실측)
