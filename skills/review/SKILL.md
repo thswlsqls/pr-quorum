@@ -71,7 +71,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh ranges $1 $2 <기준SHA>
 ### 3. Phase 0 ~ 6 을 `01-stages.md` §3 표대로 돈다
 
 - 위원 4인은 **한 메시지에서 동시에** 띄운다. 순차로 돌리면 뒤 위원이 앞 결과에 오염된다.
-- 위원·반박자·V1~V3 를 띄울 때 Agent 도구의 `subagent_type` 은 `pr-quorum:judge` 로 준다. 이 에이전트는 파일을 쓰지 않도록 도구가 제한돼 있다(`agents/judge.md`).
+- 위원·반박자·V1~V3 를 띄울 때 Agent 도구의 `subagent_type` 은 `pr-quorum:judge` 로 준다. 이 에이전트에는 Write·Edit 도구가 없고, 본문 불변식이 파일 쓰기를 금한다(`agents/judge.md`). Bash 는 조회용으로만 열려 있다.
 - 규칙·무효 조건·동결 목록·축 절은 **프롬프트 본문에 붙여 넣는다.** 링크로 주면 안 읽는다.
   평가 대상 저장소 안의 파일만 절대 경로 + "첫 행동으로 `Read` 하라" 로 갈음한다.
 - **적대적 검증을 건너뛰지 않는다.** 반박을 넘긴 지적만 확정한다.
