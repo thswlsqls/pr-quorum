@@ -1,0 +1,18 @@
+{
+  "disableAllHooks": true,
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob"
+    ],
+    "deny": [
+      "Read(/docs/**)",
+      "Read(~/.config/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.claude/**)",
+      "Read(//**/.env*)"
+    ]
+  }
+}
