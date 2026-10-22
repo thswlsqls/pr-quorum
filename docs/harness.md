@@ -91,6 +91,8 @@ watcher 는 저장소 소유자가 연 PR(`authorAssociation=OWNER`)만 체인�
 
 게시 서브커맨드(`post-review`·`reply`·`patch`·`patch-review`·`comment`)는 본문 파일로 `~/.pr-quorum/runs/` 아래 일반 파일만 받는다. 링크이거나 다른 경로면 종료 1 이다.
 
+`<repo>` 는 `config.json` 의 `repos` 에 있는 이름이어야 하고, `<pr>` 는 양의 정수, `<comment_id>`·`<review_id>` 는 숫자, `<sha>` 는 16진수 7~40자여야 한다. 아니면 봇 토큰을 읽거나 GitHub 를 부르기 전에 종료 1 로 끝난다.
+
 **종료 코드** — 0 성공 · 1 사용법·인자 오류 · 2 환경(봇 토큰 파일 없음, `meta.json` 이나 그 안의 `base_sha` 없음) · 3 게이트 위반(PG1 실패, PG5 필수 항목 누락, PG6 대조 실패, 대형 PR 컷, **스테이지 순서 위반**) · 4 GitHub API 또는 리스크 계산(`risk.jq`) 실패 · 5 락 점유 중.
 
 ## 4. 산출물 규격

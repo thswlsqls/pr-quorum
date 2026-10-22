@@ -590,20 +590,24 @@ cmd_comment() {
 
 # 코멘트·리뷰 id 는 gh api 경로에 그대로 들어간다. 숫자가 아니면 다른 API 경로를 부를 수 있다
 need_id() { [[ "$2" =~ ^[0-9]+$ ]] || die "$E_USAGE" "$1 는 숫자여야 한다: $2"; }
+# 기준 SHA 도 compare 경로에 들어간다. 16진수 7~40자만 받는다
+need_sha() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]] || die "$E_USAGE" "SHA 는 16진수 7~40자여야 한다: $1"; }
 
 [ $# -ge 1 ] || usage
 sub="$1"; shift
-# PR 번호는 runs/ 아래 경로가 된다. 숫자가 아니면 init 이 runs/ 밖에 폴더와 frozen.md 를 만들 수 있다
+# 저장소 이름과 PR 번호는 gh api 경로와 runs/ 아래 경로가 된다. 저장소는 config.json 의 repos 에 있는 이름만 받는다.
+# PR 번호가 숫자가 아니면 init 이 runs/ 밖에 폴더와 frozen.md 를 만들 수 있다
 case "$sub" in
   pg5|pg6|snapshot) ;;
-  *) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR 번호는 양의 정수여야 한다: ${2:-}" ;;
+  *) profile_of "${1:-}" >/dev/null
+     [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR 번호는 양의 정수여야 한다: ${2:-}" ;;
 esac
 case "$sub" in
   sha)         [ $# -eq 2 ] || usage; cmd_sha "$@" ;;
   meta)        [ $# -eq 2 ] || usage; cmd_meta "$@" ;;
   precheck)    [ $# -eq 2 ] || usage; cmd_precheck "$@" ;;
-  ranges)      [ $# -eq 3 ] || usage; cmd_ranges "$@" ;;
-  gate1)       [ $# -eq 4 ] || usage; cmd_gate1 "$@" ;;
+  ranges)      [ $# -eq 3 ] || usage; need_sha "$3"; cmd_ranges "$@" ;;
+  gate1)       [ $# -eq 4 ] || usage; need_sha "$3"; cmd_gate1 "$@" ;;
   risk)        [ $# -eq 2 ] || usage; cmd_risk "$@" ;;
   pg5)         [ $# -ge 2 ] && [ $# -le 3 ] || usage; cmd_pg5 "$@" ;;
   pg6)         [ $# -eq 1 ] || usage; cmd_pg6 "$@" ;;
@@ -613,7 +617,7 @@ case "$sub" in
   unlock)      [ $# -eq 2 ] || usage; cmd_unlock "$@" ;;
   status)      [ $# -eq 3 ] || usage; cmd_status "$@" ;;
   attempt)     [ $# -eq 3 ] || usage; cmd_attempt "$@" ;;
-  post-review) [ $# -ge 5 ] || usage; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
+  post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; cmd_patch_review "$@" ;;
