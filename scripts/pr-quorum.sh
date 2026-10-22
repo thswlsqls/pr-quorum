@@ -232,8 +232,10 @@ cmd_risk() {
                                                                then .risk.commented_sha else null end)})' \
     --slurpfile r "$tmp/risk.json"
 
-  jq -r '
-    def action: {low: "다른 머지 게이트를 모두 통과하면 자동으로 머지합니다.",
+  # 점수표 문구는 auto_merge 설정을 따른다. 꺼져 있으면 low 라도 체인은 머지하지 않는다
+  jq -r --arg am "$(cfg '.auto_merge == true')" '
+    def action: {low: (if $am == "true" then "다른 머지 게이트를 모두 통과하면 자동으로 머지합니다."
+                       else "자동 머지가 꺼져 있습니다. 다른 머지 게이트를 모두 통과하면 사람이 머지합니다." end),
                  medium: "자동 머지하지 않습니다. 사람 1명이 확인한 뒤 직접 머지합니다.",
                  high: "자동 머지하지 않습니다. 걸린 항목을 아는 사람이 리뷰한 뒤 머지합니다.",
                  critical: "자동 머지하지 않습니다. 사람이 PR 을 쪼갤지부터 판단합니다."}[.level];
@@ -244,8 +246,10 @@ cmd_risk() {
     "| 항목 | 점수 | 걸린 신호 |", "|---|---|---|",
     (.categories[] | "| \(.title) | \(.points) / \(.max) | \([.signals[] | select(.points > 0) | "\(.name) \(.points)\(.hits | files)"] | join("<br>") | if . == "" then "-" else . end) |"),
     "| **합계** | **\(.score)** / 100 | |\n",
-    "low 0–14 자동 머지 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. low 가 아니면 체인은 머지하지 않고 사람에게 넘깁니다.",
-    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `rules/03-risk.md` 에 있습니다."
+    (if $am == "true"
+     then "low 0–14 자동 머지 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. low 가 아니면 체인은 머지하지 않고 사람에게 넘깁니다."
+     else "low 0–14 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. 자동 머지가 꺼져 있어 등급과 상관없이 체인은 머지하지 않고 사람에게 넘깁니다." end),
+    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 [rules/03-risk.md](https://github.com/thswlsqls/pr-quorum/blob/main/rules/03-risk.md) 에 있습니다."
   ' "$tmp/risk.json" > "$d/outputs/risk.md"
   cat "$d/outputs/risk.md"
 
@@ -584,6 +588,9 @@ cmd_comment() {
 
 # ---------- 진입점 ----------
 
+# 코멘트·리뷰 id 는 gh api 경로에 그대로 들어간다. 숫자가 아니면 다른 API 경로를 부를 수 있다
+need_id() { [[ "$2" =~ ^[0-9]+$ ]] || die "$E_USAGE" "$1 는 숫자여야 한다: $2"; }
+
 [ $# -ge 1 ] || usage
 sub="$1"; shift
 # PR 번호는 runs/ 아래 경로가 된다. 숫자가 아니면 init 이 runs/ 밖에 폴더와 frozen.md 를 만들 수 있다
@@ -607,9 +614,9 @@ case "$sub" in
   status)      [ $# -eq 3 ] || usage; cmd_status "$@" ;;
   attempt)     [ $# -eq 3 ] || usage; cmd_attempt "$@" ;;
   post-review) [ $# -ge 5 ] || usage; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
-  reply)       [ $# -eq 4 ] || usage; need_run_file "$4"; cmd_reply "$@" ;;
-  patch)       [ $# -eq 4 ] || usage; need_run_file "$4"; cmd_patch "$@" ;;
-  patch-review) [ $# -eq 4 ] || usage; need_run_file "$4"; cmd_patch_review "$@" ;;
+  reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_reply "$@" ;;
+  patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;
+  patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; cmd_patch_review "$@" ;;
   comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; cmd_comment "$@" ;;
   *) usage ;;
 esac
