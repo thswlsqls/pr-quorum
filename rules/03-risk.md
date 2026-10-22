@@ -19,14 +19,14 @@
 
 | 항목 | 상한 | 신호 (점수) | 왜 |
 |---|---|---|---|
-| **보안** | 30 | 인증·인가 코드 (15) — `common/security/` 아래, 또는 이름에 `Security`·`Auth`·`Jwt`·`OAuth`·`Cors`·`Password`·`Permission`·`Role`·`Bcrypt`·`Principal`·`Credential`·`Refresh/Access/SecureToken`·`ApiKey` 가 든 운영 코드, Gateway 의 `filter/`, 프론트의 `middleware`·`proxy`·`lib/auth*`·`cookie-config`·`/api/bff/auth/`<br>자격증명·비밀값 (30) — `.env`·`.pem`·`.key` 파일, 설정 파일(`.yml`·`.json`·`.properties` 등)에 새로 들어간 `password: 값`·`secret-key: 값` 류<br>자동 머지 게이트·하니스 (15) — `tools/pr-quorum/` 아래 전부(규칙 문서 포함)<br>에이전트 지시·CI·빌드 스크립트 (15) — `CLAUDE.md`·`AGENTS.md`(어느 폴더든), `.claude/` 아래 전부, `.github/workflows/`·`Jenkinsfile*`, `*.gradle`·`gradle.properties`·`gradle/wrapper/`·`gradlew`<br>의존성 (10) — `*.gradle`·`package.json`·lock 파일<br>인프라 권한 (15) — IAM 을 바꾼 `.tf` | 사고가 나면 데이터가 새거나 계정이 뚫린다. 가장 무겁게 잡는다 |
+| **보안** | 30 | 인증·인가 코드 (15) — `common/security/` 아래, 또는 이름에 `Security`·`Auth`·`Jwt`·`OAuth`·`Cors`·`Password`·`Permission`·`Role`·`Bcrypt`·`Principal`·`Credential`·`Refresh/Access/SecureToken`·`ApiKey` 가 든 운영 코드, Gateway 의 `filter/`, 프론트의 `middleware`·`proxy`·`lib/auth*`·`cookie-config`·`/api/bff/auth/`<br>자격증명·비밀값 (30) — `.env`·`.pem`·`.key` 파일, 설정 파일(`.yml`·`.json`·`.properties` 등)에 새로 들어간 `password: 값`·`secret-key: 값` 류<br>자동 머지 게이트·하니스 (15) — 저장소 맨 위의 `skills/`·`agents/`·`rules/`·`scripts/`·`templates/`·`.claude-plugin/` 아래 전부(규칙 문서 포함). 깊은 폴더의 같은 이름(`src/main/resources/templates/` 등)은 세지 않는다<br>에이전트 지시·CI·빌드 스크립트 (15) — `CLAUDE.md`·`AGENTS.md`(어느 폴더든), `.claude/` 아래 전부, `.github/workflows/`·`Jenkinsfile*`, `*.gradle`·`gradle.properties`·`gradle/wrapper/`·`gradlew`<br>의존성 (10) — `*.gradle`·`package.json`·lock 파일<br>인프라 권한 (15) — IAM 을 바꾼 `.tf` | 사고가 나면 데이터가 새거나 계정이 뚫린다. 가장 무겁게 잡는다 |
 | **호환성 깨짐** | 25 | API 계약 (15) — 컨트롤러·요청/응답 DTO<br>DB 스키마 (15) — `*Entity`·`entity/`·`document/`<br>설정·환경 변수 (10) — `application*.yml`·`docker-compose`·`Jenkinsfile*`·워크플로<br>이벤트 계약 (10) — `common/kafka/`·`*Event` | 다른 서비스나 배포 환경이 이 PR 의 가정을 모른 채 깨진다 |
 | **되돌리기 어려운 변경** | 15 | DB 마이그레이션 (15) — `.sql`·`migration/`<br>인프라 (15) — `.tf`·`.tfvars` | 머지를 되돌려도 이미 적용된 스키마·인프라는 안 돌아온다 |
 | **테스트** | 15 | 테스트를 붙일 수 있는 운영 코드(`.java`·`.ts` 등. `.tf`·`.sql`·`.sh` 는 뺀다)가 바뀌었는데 테스트 파일 변경이 없다 (15) | 같은 것이 다시 깨져도 잡을 장치가 없다 |
 | **범위** | 15 | 테스트·문서·lock 파일을 뺀 변경 줄 수 — 100 이하 0 · 300 이하 5 · 800 이하 10 · 그 이상 15 | 큰 PR 은 리뷰가 끝까지 같은 밀도로 못 본다. 작은 PR 을 쓰게 만든다 |
 
 항목마다 신호 점수를 더하되 상한을 넘지 않는다. 다섯 항목 상한의 합이 100 이다.
-문서(`*.md`·이미지·`.drawio`·`docs/`·`contents/`)는 어느 항목에도 세지 않는다. 예외가 셋 있다. 비밀값은 문서 경로에 있어도 센다. `tools/pr-quorum/` 의 규칙 문서는 세션이 그대로 따르는 실행 규칙이라 하니스 신호로 센다. `CLAUDE.md`·`AGENTS.md`·`.claude/` 아래 문서도 같은 이유로 에이전트 지시 신호로 센다.
+문서(`*.md`·이미지·`.drawio`·`docs/`·`contents/`)는 어느 항목에도 세지 않는다. 예외가 셋 있다. 비밀값은 문서 경로에 있어도 센다. 하니스 경로(`rules/`·`skills/` 등) 아래 규칙 문서는 세션이 그대로 따르는 실행 규칙이라 하니스 신호로 센다. `CLAUDE.md`·`AGENTS.md`·`.claude/` 아래 문서도 같은 이유로 에이전트 지시 신호로 센다.
 
 하니스 신호는 게이트가 자기 자신을 느슨하게 만드는 PR 을 막으려고 둔다. 저자 세션은 PR 브랜치에 push 할 수 있어서, 이 신호가 없으면 `risk.jq` 를 고친 작은 PR 이 0점 `low` 로 자동 머지된다. 15점이라 이 신호 하나만으로도 `low` 를 벗어난다.
 

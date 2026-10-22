@@ -319,7 +319,7 @@ cmd_lock() {
     kill -0 "$pid" 2>/dev/null && alive=1
     # started_at 이 TTL 안인가
     local s_epoch now_epoch
-    s_epoch="$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$started" +%s 2>/dev/null || echo 0)"
+    s_epoch="$(jq -rn --arg s "$started" '$s | fromdateiso8601' 2>/dev/null || echo 0)"
     now_epoch="$(date -u +%s)"
     [ "$s_epoch" -gt 0 ] && [ $((now_epoch - s_epoch)) -lt "$LOCK_TTL_SEC" ] && fresh=1
     if [ "$alive" = 1 ] && [ "$fresh" = 1 ]; then

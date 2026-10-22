@@ -25,7 +25,7 @@ lock_valid() {
   [ -n "$pid" ] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   started="$(jq -r '.lock.started_at // empty' "$m")"
-  s_epoch="$(date -j -u -f '%Y-%m-%dT%H:%M:%SZ' "$started" +%s 2>/dev/null || echo 0)"
+  s_epoch="$(jq -rn --arg s "$started" '$s | fromdateiso8601' 2>/dev/null || echo 0)"
   [ "$s_epoch" -gt 0 ] || return 1
   [ $(( $(date -u +%s) - s_epoch )) -lt 10800 ]
 }
