@@ -9,8 +9,8 @@
 | Stage | 질문 | 트리거 |
 |---|---|---|
 | **1 review** | 이 PR에 무슨 결함이 있나 | 봇을 리뷰어로 지정 → watcher가 체인(`scripts/chain.sh`)을 띄운다 |
-| **2 followup** | 리뷰가 시킨 것을 했나 | 체인이 저자 반영 뒤에 부른다. 단독으로는 `/pr-eval stage2 <저장소> <PR번호>` |
-| **3 measured** | 실측하면 리뷰가 버티나, 리뷰가 놓친 게 있나 | 체인이 첫 Stage 2 뒤에 부른다. 단독으로는 `/pr-eval stage3 <저장소> <PR번호>` |
+| **2 followup** | 리뷰가 시킨 것을 했나 | 체인이 저자 반영 뒤에 부른다. 단독으로는 `/pr-quorum:review stage2 <저장소> <PR번호>` |
+| **3 measured** | 실측하면 리뷰가 버티나, 리뷰가 놓친 게 있나 | 체인이 첫 Stage 2 뒤에 부른다. 단독으로는 `/pr-quorum:review stage3 <저장소> <PR번호>` |
 
 **기본 동작은 머지까지다.** 체인은 세 스테이지와 저자 반영을 이어 돈 뒤 머지 게이트와 리스크 게이트(`03-risk.md`)를 보고,
 둘 다 통과한 PR 만 머지한다. Stage 1 재실행은 사람이 부른다.
@@ -84,9 +84,9 @@
 - `00-criteria.md` §0 불변식 · §1 무효 조건 · §2 계수 규칙 · §3 등급 · §4 출처 등급 · §5 유형별 조정표
 - `02-judges.md` §1 위원 공통 규칙과 §2 출력 형식
 - `profiles/<프로파일>.md`의 **해당 축 절 전문** (볼 것 / 보지 않을 것 / 등급 예시)
-- **앵커를 달 수 있는 줄 범위와 줄 번호를 붙인 diff** — `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-eval/scripts/pr-eval.sh ranges <저장소> <PR번호> <기준SHA>` 출력. **위원이 diff 밖을 앵커로 잡으면 리뷰가 통째로 게시되지 않으므로 사후 검사(PG1)보다 이걸 먼저 준다**
+- **앵커를 달 수 있는 줄 범위와 줄 번호를 붙인 diff** — `pr-quorum.sh ranges <저장소> <PR번호> <기준SHA>` 출력. **위원이 diff 밖을 앵커로 잡으면 리뷰가 통째로 게시되지 않으므로 사후 검사(PG1)보다 이걸 먼저 준다**
 - `runs/<…>/frozen.md` 전문 — **확정 결함표 바로 앞에 배치한다**
-- `_memory/learnings.md`에서 그 축 + `공통` 항목
+- `~/.pr-quorum/learnings.md`에서 그 축 + `공통` 항목
 - **바뀐 파일 경로의 `CLAUDE.md`** — 바뀐 파일마다 상위 폴더를 루트까지 올라가며 `git show <base_sha>:<폴더>/CLAUDE.md`(루트는 `<base_sha>:CLAUDE.md`, 없으면 건너뜀)로 **base 커밋** 의 것을 읽어
   원본 경로와 함께 A 등급 근거로 싣는다. 하위 폴더 규칙은 그 폴더 아래 파일에만 적용한다. PR 이 `CLAUDE.md` 를 바꿨으면 그 변경은 근거가 아니라 리뷰 대상이다
 - 라운드 프롬프트의 축별 추가 지시
@@ -113,7 +113,7 @@
 
 **watcher는 PR 하나당 Stage 1 세션을 한 번만 띄운다.** 락이 살아 있는 동안 재호출하지 않으므로
 watcher가 라운드 2를 부를 수 없다. `prompts/round-NN.md`를 파일로 남기는 것은 세션이 죽었을 때
-사람이 `/pr-eval stage1 <저장소> <PR번호> --round 2`로 이어 돌리기 위해서다.
+사람이 `/pr-quorum:review stage1 <저장소> <PR번호> --round 2`로 이어 돌리기 위해서다.
 
 **수렴을 게시 조건으로 걸지 않는다.** 원본 하니스에서 완전 수렴한 라운드는 0회였다.
 상한에 닿으면 미충족 항목을 요약에 적고 게시한다.
@@ -163,7 +163,7 @@ outputs/<stage>/pre-polish/            위 전부의 윤문 전 사본. 같은 �
 1. 이번에 올릴 것을 전부 사본으로 뜬다. PG6 이 대조할 원본이고, 뜻을 깎았을 때 되돌릴 자리다.
 
    ```bash
-   /Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-eval/scripts/pr-eval.sh snapshot tools/pr-eval/runs/<repo>-pr<N>/outputs/<stage>     # 회차 폴더면 …/<stage>/round-NN
+   pr-quorum.sh snapshot ~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>     # 회차 폴더면 …/<stage>/round-NN
    ```
 
 2. `00-criteria.md` §6 "게시 전 윤문" 의 지울 것 / 남길 것 대로 고쳐 쓴다.
@@ -236,13 +236,12 @@ outputs/<stage>/pre-polish/            위 전부의 윤문 전 사본. 같은 �
 저자 반영 커밋은 같은 저장소 객체라 fetch 없이 있다.
 
 ```
-git worktree add --detach ../tech-n-ai-backend-worktrees/pr-eval-<PR번호>-<sha7> <sha>
-git worktree add --detach ../tech-n-ai-frontend-worktrees/pr-eval-<PR번호>-<sha7> <sha>
+git worktree add --detach ../<저장소>-worktrees/pr-quorum-<PR번호>-<sha7> <sha>
 ```
 
-각 줄은 그 저장소 루트에서 부른다. frontend 는 `cd /Users/m1/workspace/tech-n-ai/tech-n-ai-frontend` 를 먼저 따로 부른다(`cd … && git` 한 줄 묶기는 거부된다).
+그 저장소 루트(`~/.pr-quorum/config.json` 의 `repos.<저장소>.path`)에서 부른다. 작업 폴더가 그 저장소가 아니면 `cd <그 경로>` 를 먼저 따로 부른다(`cd … && git` 한 줄 묶기는 거부된다).
 
-부모 폴더는 `tools/pipeline/impl-config.yml`이 이미 쓰는 곳과 같다. **leaf 이름 `pr-eval-`이 유일한 구분**이므로
+부모 폴더는 `tools/pipeline/impl-config.yml`이 이미 쓰는 곳과 같다. **leaf 이름 `pr-quorum-`이 유일한 구분**이므로
 impl 쪽 정리 작업이 이 폴더를 지우지 않는지 먼저 확인한다.
 
 ---
@@ -257,7 +256,7 @@ stage_sha       = Stage 2/3 시작 시점 head
 
 | 상황 | 동작 |
 |---|---|
-| Stage 1 라운드 중 head 이동 | 그 라운드를 무효로 하고 새 `eval_sha`로 재시작. **세션이 라운드를 시작할 때마다 `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-eval/scripts/pr-eval.sh sha`로 직접 확인한다** — watcher는 락이 걸린 동안 건너뛰므로 이걸 봐 줄 수 없다 |
+| Stage 1 라운드 중 head 이동 | 그 라운드를 무효로 하고 새 `eval_sha`로 재시작. **세션이 라운드를 시작할 때마다 `pr-quorum.sh sha`로 직접 확인한다** — watcher는 락이 걸린 동안 건너뛰므로 이걸 봐 줄 수 없다 |
 | Stage 1 게시 후 head 이동 | 정상. 사람이 Stage 2를 부를 때까지 기다린다 |
 | Stage 1 재실행 | 사람이 수동으로 부른다. **기존 `stage1` 기록을 덮어쓰지 않는다** — `stage1`은 배열이고 새 회차를 뒤에 붙인다. `comments[].id`가 사라지면 Stage 2가 스레드를 못 찾는다. 새 head 를 기준으로 다시 돌리려면 `init <저장소> <PR번호> --reset-eval` 로 `eval_sha` 를 올린다 |
 | Stage 2·3 에서 `init` 호출 | **안전하다.** Stage 1 게시 기록이 있으면 `init` 이 `base_sha`·`eval_sha` 를 보존한다. 게시 기준 SHA 는 `stage1[].eval_sha`·`stage2[].stage_sha`·`stage3.stage_sha` 에도 함께 남아 `meta.eval_sha` 하나에만 매달리지 않는다 |
@@ -268,7 +267,7 @@ stage_sha       = Stage 2/3 시작 시점 head
 
 ```jsonc
 {
-  "owner": "thswlsqls", "repo": "tech-n-ai-backend",   // repo 가 곧 프로파일 키
+  "owner": "your-github-login", "repo": "your-repo",   // repo 가 곧 프로파일 키
   "pr": 12, "base_sha": "…", "eval_sha": "…", "profile": "backend",
   "lock": {"pid": 4821, "started_at": "…", "stage": 1},   // 3시간 경과 또는 pid 사망이면 무효
   "attempts": 0,                   // Stage 1 연속 실패 횟수. 2면 status 를 보류(실패) 로
@@ -296,14 +295,14 @@ stage_sha       = Stage 2/3 시작 시점 head
 
 | # | 게이트 | 어떻게 | 적용 |
 |---|---|---|---|
-| **PG1** | 앵커가 diff 안인가 | `pr-eval.sh gate1`이 `compare/{base}...{게시 기준 SHA}` **단일 호출**로 `files[].patch`의 `@@` hunk 범위를 파싱해 줄 단위로 판정. 밖인 것은 요약 본문으로 옮긴다 | 신규 inline 코멘트를 올릴 때마다 (Stage 1 전건, Stage 2·3은 신규만) |
+| **PG1** | 앵커가 diff 안인가 | `pr-quorum.sh gate1`이 `compare/{base}...{게시 기준 SHA}` **단일 호출**로 `files[].patch`의 `@@` hunk 범위를 파싱해 줄 단위로 판정. 밖인 것은 요약 본문으로 옮긴다 | 신규 inline 코멘트를 올릴 때마다 (Stage 1 전건, Stage 2·3은 신규만) |
 | **PG2** | 요약↔본문 전건 대조 | `grep -c`로 blocking 수를 세고 요약 표가 전건을 담았는지 확인 | 요약을 쓰는 게시 (Stage 1, Stage 3의 `P` 리뷰) |
 | **PG3** | 처방끼리 충돌하지 않는가 | 저자가 두 코멘트를 다 따르면 헛일이 되거나 새 결함이 생기는 자리를 찾는다 | 전 스테이지 |
 | **PG4** | V1 근거 · V2 인용 · V3 저자 반박 | V1·V2가 잡은 사실 오류는 전부 고치고, V3은 보강·하향·삭제 중 택일 | 전 스테이지 |
 | **PG5** | 필수 항목 | `praise` 최소 1건 · 모든 코멘트에 앵커/라벨/축 · 점수 미포함 | Stage 1 |
 | **PG6** | 윤문이 뜻을 깎지 않았나 | `outputs/pre-polish/` 의 사본과 대조 — **JSON**은 건수·`path`·`line`·`side`·`code`·`axis`·`grade`·본문 첫 줄이 전부 같은가, **마크다운**은 앵커·수치·인용문이 그대로 남았는가. 그리고 코멘트마다 영향(②)과 방향(④)이 남아 있는가 | 전 스테이지 — 게시 직전 1회 (§3-4) |
 
-**PG6 의 기계로 셀 수 있는 부분**은 `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-eval/scripts/pr-eval.sh pg6 <outputs/<stage>[/round-NN]>` 한 줄로 돌린다. 어긋나면 종료 3 이다.
+**PG6 의 기계로 셀 수 있는 부분**은 `pr-quorum.sh pg6 <outputs/<stage>[/round-NN]>` 한 줄로 돌린다. 어긋나면 종료 3 이다.
 세션이 아래 두 줄을 직접 조립하면 권한에서 거부된다(L0-42·L0-51). 아래는 스크립트가 하는 일의 설명이다.
 산출물 형태가 둘이라 검사도 둘이다.
 
@@ -383,7 +382,7 @@ A/B 비교는 쓰지 않는다 — 그 자리는 §6 "문단 쓰기 전 두 줄 
 ## 10. Phase 5 자기 점검 — 신호표
 
 한 줄씩 대조한다. 잡히면 고칠 내용을 `runs/<repo>-pr<N>/learning-candidates.md` 에 후보로 남긴다 —
-세션은 규칙 문서·`profiles/`·`scripts/`·`_memory/` 를 고칠 수 없다(권한 deny). 후보는 `scripts/dream.sh` 가 여러 PR 을 모아 정리안을 내고, 사람이 하니스 PR 로 learnings·규칙 문서에 반영한다.
+세션은 규칙 문서·`profiles/`·`scripts/`·`learnings.md` 를 고칠 수 없다(권한 deny). 후보는 `scripts/dream.sh` 가 여러 PR 을 모아 정리안을 내고, 사람이 하니스 PR 로 learnings·규칙 문서에 반영한다.
 후보 파일 형식은 아래 한 표다. **출처 칸은 다른 행을 가리키는 말("같은 실행")로 쓰지 않는다** — 행이 옮겨지면 무엇을 가리키는지 사라진다.
 
 ```markdown
@@ -409,7 +408,7 @@ A/B 비교는 쓰지 않는다 — 그 자리는 §6 "문단 쓰기 전 두 줄 
 | V3(저자 반박) 성공이 2라운드 연속 늘었다 **또는 2회 연속 5건 이상이다** | 근거 없이 세게 쓰고 있다. 무효 조건 I-8을 위원 프롬프트 앞으로. 그리고 `00-criteria.md` §7 의 판 전체 대조를 게시 전에 돌린다 — 성공이 높게 **유지**되는 국면은 "늘어남" 만으로는 안 잡힌다 |
 | 위원이 평가 대상을 고치려 했다 / 파일을 썼다 | 불변식이 안 먹혔다. 에이전트 정의와 프롬프트 맨 앞 블록을 강화한다 |
 | PG1이 앵커를 반복해서 되돌린다 | 위원이 diff 밖을 보고 있다. Phase 0에서 변경 파일 목록을 본문으로 싣는다 |
-| 이번 실패가 `_memory/learnings.md` 첫 표에 이미 있는 유형이다 | 후보 행의 "다음에 어떻게 쓰나" 에 그 행 번호(`L0-n`)와 옮길 규칙 절(`00`·`01`·`02` 나 커맨드 `install-entrypoints.sh`)을 적는다. learnings 에 적고 읽히기만 해서는 같은 실패가 되풀이됐다(L0-39 → L0-41 → L0-51). 규칙 문서의 해당 절에 있어야 점검 대상이 된다 |
+| 이번 실패가 `~/.pr-quorum/learnings.md` 첫 표에 이미 있는 유형이다 | 후보 행의 "다음에 어떻게 쓰나" 에 그 행 번호(`L0-n`)와 옮길 규칙 절(`00`·`01`·`02` 나 커맨드 `install-entrypoints.sh`)을 적는다. learnings 에 적고 읽히기만 해서는 같은 실패가 되풀이됐다(L0-39 → L0-41 → L0-51). 규칙 문서의 해당 절에 있어야 점검 대상이 된다 |
 
 고칠 게 없으면 **"이번 라운드에는 하니스 결함 없음"** 이라고 기록에 적는다. 안 적으면 점검을 안 한 것으로 본다.
 

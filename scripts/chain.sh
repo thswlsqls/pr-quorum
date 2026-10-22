@@ -5,14 +5,12 @@
 # 사람에게 물을 자리는 세션 쪽에서 권장안으로 정한다(--auto). 머지 여부만은 세션이 아니라 여기서 판정한다.
 set -euo pipefail
 
-OWNER="${PR_EVAL_OWNER:-thswlsqls}"
-# 봇 로그인은 watch.sh 와 같은 방식으로 bot.env 에서 값만 꺼낸다. 머지 게이트가 봇 리뷰를 찾을 때 쓴다
-BOT_ENV="${PR_EVAL_BOT_ENV:-$HOME/.config/pr-eval/bot.env}"
-BOT="${PR_EVAL_BOT:-$(sed -n 's/^BOT_LOGIN=//p' "$BOT_ENV" 2>/dev/null | tr -d "\"'" | head -1 || true)}"
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"
+# 봇 로그인은 watch.sh 와 같은 방식으로 config.json 의 bot 에서 읽는다. 머지 게이트가 봇 리뷰를 찾을 때 쓴다
+BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
-WS_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
-PR_EVAL="$HARNESS_DIR/scripts/pr-eval.sh"
+PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_AUTHOR_ROUNDS=2   # 저자 반영 회차 상한 — Stage 1 반영 한 번, Stage 3 반영 한 번
 MAX_STEP_TRIES=2      # 한 단계가 기록을 못 남기고 끝나면 한 번 더 돌린다
 
@@ -22,25 +20,24 @@ die() { log "$1"; exit "${2:-1}"; }
 [ $# -eq 2 ] || { echo "usage: chain.sh <repo> <pr>" >&2; exit 1; }
 REPO="$1"; PR="$2"
 [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "PR 번호는 양의 정수여야 한다: $PR" >&2; exit 1; }
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $BOT_ENV 의 BOT_LOGIN 또는 PR_EVAL_BOT 을 설정하라" >&2; exit 2; }
-# 세션 권한과 명령 문서는 스크립트를 이 저장소의 절대 경로로만 부른다(상대 경로는 PR 워크트리 사본을 가리킨다).
-# 다른 위치에 clone 했는데 경로를 안 바꾸면 세션 호출이 모두 권한에서 거부되므로 여기서 먼저 멈춘다
-for f in "$HARNESS_DIR/settings.json" "$HARNESS_DIR/author-settings.json" "$HARNESS_DIR/scripts/install-entrypoints.sh"; do
-  grep -qF "$REPO_ROOT/tools/pr-eval/scripts/" "$f" \
-    || { echo "$f 의 스크립트 절대 경로가 이 저장소($REPO_ROOT)와 다르다 — tools/pr-eval/CLAUDE.md §5-3 대로 바꾼다" >&2; exit 2; }
-done
-RUN="$HARNESS_DIR/runs/$REPO-pr$PR"
+[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
+REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
+[ -n "$REPO_ROOT" ] || { echo "config.json 의 repos 에 없는 저장소다: $REPO" >&2; exit 1; }
+# 세션 권한은 실행할 때마다 템플릿에서 렌더링한다 — 스크립트 절대 경로가 이 플러그인 폴더를 가리킨다
+render_settings "$HARNESS_DIR" settings.json
+render_settings "$HARNESS_DIR" author-settings.json
+RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
 
-meta_set() {  # meta_set <jq 프로그램> [jq 인자...] — pr-eval.sh 와 같은 임시파일 → mv 방식
+meta_set() {  # meta_set <jq 프로그램> [jq 인자...] — pr-quorum.sh 와 같은 임시파일 → mv 방식
   local prog="$1"; shift
   jq "$@" "$prog" "$M" > "$M.tmp.$$" && mv "$M.tmp.$$" "$M"
 }
 chain_state() { meta_set '.chain = ((.chain // {}) + {state:$s, reason:$r, at:$at})' \
                   --arg s "$1" --arg r "${2:-}" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"; log "state=$1 ${2:-}"; }
 
-head_sha() { "$PR_EVAL" sha "$REPO" "$PR"; }
+head_sha() { "$PR_QUORUM" sha "$REPO" "$PR"; }
 stage1_done() { [ "$(jq '[.stage1[]?.review_id | select(. != null)] | length' "$M")" -gt 0 ]; }
 stage2_count() { jq '[.stage2[]? | select(.verdicts != null)] | length' "$M"; }
 stage3_done() { [ "$(jq '.stage3 != null' "$M")" = "true" ]; }
@@ -50,20 +47,23 @@ last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 
 # 헤드리스 세션 하나를 띄운다. 도구 권한·MCP 를 이 머신 설정과 떼어 놓는 이유는 watch.sh 주석과 같다.
 run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <시도 번호>
-  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() d out rc=0 started
-  for d in "$WS_ROOT/tech-n-ai-backend-worktrees" "$WS_ROOT/tech-n-ai-frontend" \
-           "$WS_ROOT/tech-n-ai-frontend-worktrees"; do
-    [ -d "$d" ] && add_dirs+=("$d")
+  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() r p d out rc=0 started
+  # 작업 폴더(이 PR 의 저장소) 말고 config.json 의 다른 저장소와 각 저장소 옆 <이름>-worktrees 를 연다
+  for r in $(cfg '.repos | keys[]'); do
+    p="$(cfg --arg r "$r" '.repos[$r].path')"
+    for d in "$p" "$(dirname "$p")/$r-worktrees"; do
+      [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
+    done
   done
-  # --setting-sources project: .claude/settings.local.json 의 allow·훅과 ~/.claude/settings.json 을 읽지 않는다.
-  # user 만 남기면 .claude/commands·agents 도 안 읽혀 /pr-eval 이 없어진다(실측). --settings 는 이 값과 상관없이 읽힌다
+  # --setting-sources "": 대상 저장소의 .claude/settings*.json 과 ~/.claude/settings.json 을 읽지 않는다. --settings 는 이 값과 상관없이 읽힌다.
+  # 스킬·에이전트는 --plugin-dir 로 실려 이 값과 상관없이 불린다(실측). 저장소 CLAUDE.md 도 안 실려 스킬이 직접 읽는다
   # dontAsk: allow 에 없는 것은 묻지 않고 거부한다. acceptEdits 는 작업 폴더 안 편집과 mkdir·rm·mv 등을 allow 와 상관없이 승인했다(실측)
   started="$(date +%s)"
   out="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
-      --setting-sources project --settings "$settings" \
-      --mcp-config tools/pr-eval/mcp.json --strict-mcp-config \
+      --settings "$settings" --setting-sources "" --plugin-dir "$HARNESS_DIR" \
+      --mcp-config "$HARNESS_DIR/mcp.json" --strict-mcp-config \
       --disallowedTools AskUserQuestion \
-      --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 tools/pr-eval/runs/$REPO-pr$PR/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
+      --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 $RUN/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
       ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
       -- "$prompt" < /dev/null )" || { rc=$?; log "세션이 $rc 로 끝났다 — 기록으로 성공 여부를 판단한다"; }
   # 결과 텍스트는 예전처럼 로그로 흘린다. JSON 이 아니면 받은 그대로 찍는다
@@ -103,22 +103,22 @@ step() {  # step <이름> <완료 판정 함수> <settings> <프롬프트>
   exit 4
 }
 
-EVAL_SETTINGS="tools/pr-eval/settings.json"
-AUTHOR_SETTINGS="tools/pr-eval/author-settings.json"
+EVAL_SETTINGS="$PR_QUORUM_HOME/settings.json"
+AUTHOR_SETTINGS="$PR_QUORUM_HOME/author-settings.json"
 
-run_stage1() { step stage1 stage1_done "$EVAL_SETTINGS" "/pr-eval stage1 $REPO $PR --auto"; }
-run_stage3() { step stage3 stage3_done "$EVAL_SETTINGS" "/pr-eval stage3 $REPO $PR --auto"; }
+run_stage1() { step stage1 stage1_done "$EVAL_SETTINGS" "/pr-quorum:review stage1 $REPO $PR --auto"; }
+run_stage3() { step stage3 stage3_done "$EVAL_SETTINGS" "/pr-quorum:review stage3 $REPO $PR --auto"; }
 
 run_stage2() {
   local before; before="$(stage2_count)"
   stage2_grew() { [ "$(stage2_count)" -gt "$before" ]; }
-  step stage2 stage2_grew "$EVAL_SETTINGS" "/pr-eval stage2 $REPO $PR --auto"
+  step stage2 stage2_grew "$EVAL_SETTINGS" "/pr-quorum:review stage2 $REPO $PR --auto"
 }
 
 run_author() {  # 기록 파일이 하나 늘었으면 성공
   local before; before="$(author_count)"
   author_grew() { [ "$(author_count)" -gt "$before" ]; }
-  step author author_grew "$AUTHOR_SETTINGS" "/pr-eval-author $REPO $PR"
+  step author author_grew "$AUTHOR_SETTINGS" "/pr-quorum:author $REPO $PR"
 }
 
 author_pushed() { [ "$(jq -r '.pushed' "$(last_author)")" = "true" ]; }
@@ -166,7 +166,7 @@ merge_gate() {
   fi
 
   # Stage 3 이 리뷰가 놓친 치명·중대(P)를 찾았으면 Stage 1 재실행 여부는 사람이 정한다 (01-stages.md §5).
-  # 세션이 적는 verdict 문구가 아니라 pr-eval.sh 가 기록한 P 코멘트 등급으로 본다. 등급이 빠진 P 도 멈춘다
+  # 세션이 적는 verdict 문구가 아니라 pr-quorum.sh 가 기록한 P 코멘트 등급으로 본다. 등급이 빠진 P 도 멈춘다
   local missed
   missed="$(jq -r '[.stage3.comments[]? | select(.grade != "경미" and .grade != "사소") | "\(.code)(\(.grade))"] | join(", ")' "$M")"
   if [ -n "$missed" ]; then
@@ -178,13 +178,13 @@ merge_gate() {
 # 리스크 게이트 (03-risk.md) — 다른 게이트를 다 통과한 PR 만 점수를 매긴다. 점수표는 레벨과 상관없이 PR 에 남긴다.
 risk_gate() {
   local rc=0
-  "$PR_EVAL" risk "$REPO" "$PR" >/dev/null || rc=$?
+  "$PR_QUORUM" risk "$REPO" "$PR" >/dev/null || rc=$?
   [ "$rc" = 0 ] || [ "$rc" = 3 ] || { chain_state "blocked" "리스크 판정 실패(종료 $rc)"; exit 4; }
   # 머지 게이트를 본 뒤 push 가 들어왔으면 점수는 게이트가 보지 않은 커밋의 것이다
   [ "$(jq -r '.risk.sha' "$M")" = "$GATE_SHA" ] \
     || { chain_state "blocked" "머지 게이트(${GATE_SHA:0:7}) 뒤에 head 가 바뀌었다 — 체인을 다시 부른다"; exit 3; }
   if [ "$(jq -r '.risk.commented_sha // empty' "$M")" != "$(jq -r '.risk.sha' "$M")" ]; then
-    "$PR_EVAL" comment "$REPO" "$PR" "$RUN/outputs/risk.md" >/dev/null \
+    "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" >/dev/null \
       && meta_set '.risk.commented_sha = .risk.sha' \
       || log "리스크 코멘트 게시 실패 — 판정은 meta.json 에 남았다"
   fi
@@ -207,7 +207,7 @@ do_merge() {
 assoc="$(gh api "repos/$OWNER/$REPO/pulls/$PR" --jq '.author_association')" || die "PR 작성자를 확인하지 못했다" 4
 [ "$assoc" = "OWNER" ] || die "작성자가 저장소 소유자가 아니다($assoc) — 체인을 돌리지 않는다" 3
 
-[ -f "$M" ] || "$PR_EVAL" init "$REPO" "$PR" >/dev/null
+[ -f "$M" ] || "$PR_QUORUM" init "$REPO" "$PR" >/dev/null
 mkdir -p "$AUTHOR_DIR"
 
 case "$(jq -r '.chain.state // empty' "$M")" in
@@ -227,14 +227,14 @@ trap 'meta_set ".chain.pid = null" 2>/dev/null || true' EXIT
 
 # 대형 PR 컷은 세션에 맡기지 않고 여기서 본다. 알림 코멘트는 한 번만 단다 — 다시 불러도 위의 보류 확인에서 먼저 멈춘다
 pre_rc=0
-pre_out="$("$PR_EVAL" precheck "$REPO" "$PR")" || pre_rc=$?
+pre_out="$("$PR_QUORUM" precheck "$REPO" "$PR")" || pre_rc=$?
 case "$pre_rc" in
   0) ;;
-  3) "$PR_EVAL" status "$REPO" "$PR" "보류(대형PR)" >/dev/null
+  3) "$PR_QUORUM" status "$REPO" "$PR" "보류(대형PR)" >/dev/null
      mkdir -p "$RUN/outputs"
      printf '변경이 커서 자동 리뷰를 하지 않습니다(%s, 기준: 파일 50개 또는 3,000줄 초과). PR 을 나누거나 사람이 리뷰해 주세요.\n' \
        "$(head -1 <<<"$pre_out" | sed 's/ (cut.*//')" > "$RUN/outputs/large-pr.md"
-     "$PR_EVAL" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "대형 PR 알림 코멘트 게시 실패"
+     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "대형 PR 알림 코멘트 게시 실패"
      chain_state "blocked" "대형 PR 컷에 걸렸다"; exit 3 ;;
   *) chain_state "blocked" "대형 PR 판정 실패(종료 $pre_rc)"; exit 4 ;;
 esac
@@ -270,4 +270,9 @@ done
 chain_state "merge-gate"
 merge_gate
 risk_gate
-do_merge
+# auto_merge 가 true 일 때만 머지한다. 키가 없거나 false 면 리스크 점수표만 남기고 사람이 머지하게 둔다
+if [ "$(cfg '.auto_merge == true')" = "true" ]; then
+  do_merge
+else
+  chain_state "ready" "auto_merge 가 꺼져 있다 — 사람이 머지한다"
+fi

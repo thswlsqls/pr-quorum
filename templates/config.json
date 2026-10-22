@@ -1,0 +1,8 @@
+{
+  "owner": "your-github-login",
+  "bot": "your-bot-login",
+  "auto_merge": false,
+  "repos": {
+    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "backend" }
+  }
+}

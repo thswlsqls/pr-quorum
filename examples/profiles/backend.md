@@ -80,7 +80,7 @@ R-I (보안)
 | **5** 외부 텍스트를 믿는 경로 | 변경 파일이 `api/agent/` · `api/chatbot/` · `client/scraper/` · `client/rss/` · `batch/source/` 아래 |
 
 ```bash
-# 두 SHA 는 `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-eval/scripts/pr-eval.sh meta <저장소> <PR번호>` 로 읽는다(봇 토큰 불필요).
+# 두 SHA 는 `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-quorum/scripts/pr-quorum.sh meta <저장소> <PR번호>` 로 읽는다(봇 토큰 불필요).
 # Stage 1 의 구간은 base_sha…eval_sha 다. 아래 명령은 평가 대상 저장소 워크트리에서 돈다.
 B=<meta.base_sha>; S=<meta.eval_sha>
 git diff --name-only $B...$S | grep -cE '^(common/security|api/auth|api/gateway)/'          # 신호1

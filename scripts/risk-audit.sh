@@ -3,7 +3,8 @@
 # 자동 머지 문턱을 감이 아니라 기록으로 조정하려고 둔다(03-risk.md "문턱 조정"). GitHub 에 아무것도 쓰지 않는다.
 set -euo pipefail
 
-OWNER="${PR_EVAL_OWNER:-thswlsqls}"
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WINDOW_DAYS=14
 
@@ -18,7 +19,7 @@ gh pr list --repo "$OWNER/$REPO" --state merged --limit "$LIMIT" --json number,t
 for n in $(jq -r '.[].number' "$TMP/prs.json"); do
   gh api --paginate "repos/$OWNER/$REPO/pulls/$n/files" | jq -s 'add // []' > "$TMP/files.json"
   auto="false"
-  m="$HARNESS_DIR/runs/$REPO-pr$n/meta.json"
+  m="$PR_QUORUM_HOME/runs/$REPO-pr$n/meta.json"
   [ -f "$m" ] && [ "$(jq -r '.chain.state // empty' "$m")" = "merged" ] && auto="true"
   jq --arg sha - --arg at - -f "$HARNESS_DIR/scripts/risk.jq" "$TMP/files.json" \
     | jq --argjson n "$n" --argjson auto "$auto" --slurpfile f "$TMP/files.json" '

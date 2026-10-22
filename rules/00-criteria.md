@@ -4,8 +4,9 @@
 스테이지마다 달라지는 일곱 가지(대상·축·예산·반박자·중복제거 우선순위·무효 조건 추가분·종료)는 `01-stages.md`에 있다.
 축 정의문과 위원별 "볼 것 / 보지 않을 것"은 `profiles/<프로파일>.md`에 있다.
 
-> **경로 표기** — `00-criteria.md`·`runs/…`·`profiles/…`처럼 하니스 파일을 가리키는 경로는 하니스 디렉터리
-> (`tech-n-ai-backend/tools/pr-eval`) 기준이다. `api/auth/…`·`README.md`처럼 평가 대상을 가리키는 경로는
+> **경로 표기** — `00-criteria.md`·`scripts/…`처럼 하니스 파일을 가리키는 경로는 플러그인 폴더 기준이다(규칙 문서는 `rules/` 아래에 있다).
+> `runs/…`·`profiles/…`·`learnings.md`처럼 상태 파일을 가리키는 경로는 `~/.pr-quorum/` 기준이다.
+> 규칙 문서는 스크립트를 이름만 적는다. 실제 경로는 스킬 본문이 알려 준다. `api/auth/…`·`README.md`처럼 평가 대상을 가리키는 경로는
 > 평가 대상 저장소 루트 기준이다.
 
 ---
@@ -14,10 +15,10 @@
 
 > **평가 대상은 PR이다. 한 글자도 고치지 않는다.**
 >
-> 쓰기가 허용된 곳은 `tools/pr-eval/runs/<repo>-pr<N>/` 아래뿐이다. `_memory/learnings.md` 는 읽기만 하고, 배운 것은 같은 run 의 `learning-candidates.md` 에 후보로 적는다.
+> 쓰기가 허용된 곳은 `~/.pr-quorum/runs/<repo>-pr<N>/` 아래뿐이다. `~/.pr-quorum/learnings.md` 는 읽기만 하고, 배운 것은 같은 run 의 `learning-candidates.md` 에 후보로 적는다.
 > 평가 대상 저장소의 코드·문서·설정은 전부 읽기 전용이다. 워크트리에 체크아웃했더라도 마찬가지다.
 >
-> **GitHub에 쓰는 것은 `scripts/pr-eval.sh`뿐이다.** 세션은 `gh api`로 직접 게시하지 않는다.
+> **GitHub에 쓰는 것은 `scripts/pr-quorum.sh`뿐이다.** 세션은 `gh api`로 직접 게시하지 않는다.
 > 봇 토큰은 세션이 갖지 않는다 — 스크립트가 자기 안에서 읽는다.
 >
 > **위원과 검증자는 아무 파일도 쓰지 않는다.** 채점 결과를 텍스트로 반환하는 것이 전부다.

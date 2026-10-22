@@ -5,7 +5,7 @@
 인증 코드나 인프라를 건드린 PR 은 리뷰가 놓친 것 하나가 장애로 이어진다.
 그래서 머지 직전에 **이 PR 이 잘못됐을 때 얼마나 아픈가**를 0~100 점으로 매기고, 낮은 PR 만 자동으로 머지한다.
 
-계산은 `scripts/risk.jq`, 호출은 `pr-eval.sh risk <저장소> <PR번호>`, 사후 추적은 `scripts/risk-audit.sh <저장소>` 다.
+계산은 `scripts/risk.jq`, 호출은 `pr-quorum.sh risk <저장소> <PR번호>`, 사후 추적은 `scripts/risk-audit.sh <저장소>` 다.
 
 ## 리뷰 등급과 무엇이 다른가
 
@@ -19,14 +19,14 @@
 
 | 항목 | 상한 | 신호 (점수) | 왜 |
 |---|---|---|---|
-| **보안** | 30 | 인증·인가 코드 (15) — `common/security/` 아래, 또는 이름에 `Security`·`Auth`·`Jwt`·`OAuth`·`Cors`·`Password`·`Permission`·`Role`·`Bcrypt`·`Principal`·`Credential`·`Refresh/Access/SecureToken`·`ApiKey` 가 든 운영 코드, Gateway 의 `filter/`, 프론트의 `middleware`·`proxy`·`lib/auth*`·`cookie-config`·`/api/bff/auth/`<br>자격증명·비밀값 (30) — `.env`·`.pem`·`.key` 파일, 설정 파일(`.yml`·`.json`·`.properties` 등)에 새로 들어간 `password: 값`·`secret-key: 값` 류<br>자동 머지 게이트·하니스 (15) — `tools/pr-eval/` 아래 전부(규칙 문서 포함)<br>에이전트 지시·CI·빌드 스크립트 (15) — `CLAUDE.md`·`AGENTS.md`(어느 폴더든), `.claude/` 아래 전부, `.github/workflows/`·`Jenkinsfile*`, `*.gradle`·`gradle.properties`·`gradle/wrapper/`·`gradlew`<br>의존성 (10) — `*.gradle`·`package.json`·lock 파일<br>인프라 권한 (15) — IAM 을 바꾼 `.tf` | 사고가 나면 데이터가 새거나 계정이 뚫린다. 가장 무겁게 잡는다 |
+| **보안** | 30 | 인증·인가 코드 (15) — `common/security/` 아래, 또는 이름에 `Security`·`Auth`·`Jwt`·`OAuth`·`Cors`·`Password`·`Permission`·`Role`·`Bcrypt`·`Principal`·`Credential`·`Refresh/Access/SecureToken`·`ApiKey` 가 든 운영 코드, Gateway 의 `filter/`, 프론트의 `middleware`·`proxy`·`lib/auth*`·`cookie-config`·`/api/bff/auth/`<br>자격증명·비밀값 (30) — `.env`·`.pem`·`.key` 파일, 설정 파일(`.yml`·`.json`·`.properties` 등)에 새로 들어간 `password: 값`·`secret-key: 값` 류<br>자동 머지 게이트·하니스 (15) — 저장소 맨 위의 `skills/`·`agents/`·`rules/`·`scripts/`·`templates/`·`.claude-plugin/` 아래 전부(규칙 문서 포함). 깊은 폴더의 같은 이름(`src/main/resources/templates/` 등)은 세지 않는다<br>에이전트 지시·CI·빌드 스크립트 (15) — `CLAUDE.md`·`AGENTS.md`(어느 폴더든), `.claude/` 아래 전부, `.github/workflows/`·`Jenkinsfile*`, `*.gradle`·`gradle.properties`·`gradle/wrapper/`·`gradlew`<br>의존성 (10) — `*.gradle`·`package.json`·lock 파일<br>인프라 권한 (15) — IAM 을 바꾼 `.tf` | 사고가 나면 데이터가 새거나 계정이 뚫린다. 가장 무겁게 잡는다 |
 | **호환성 깨짐** | 25 | API 계약 (15) — 컨트롤러·요청/응답 DTO<br>DB 스키마 (15) — `*Entity`·`entity/`·`document/`<br>설정·환경 변수 (10) — `application*.yml`·`docker-compose`·`Jenkinsfile*`·워크플로<br>이벤트 계약 (10) — `common/kafka/`·`*Event` | 다른 서비스나 배포 환경이 이 PR 의 가정을 모른 채 깨진다 |
 | **되돌리기 어려운 변경** | 15 | DB 마이그레이션 (15) — `.sql`·`migration/`<br>인프라 (15) — `.tf`·`.tfvars` | 머지를 되돌려도 이미 적용된 스키마·인프라는 안 돌아온다 |
 | **테스트** | 15 | 테스트를 붙일 수 있는 운영 코드(`.java`·`.ts` 등. `.tf`·`.sql`·`.sh` 는 뺀다)가 바뀌었는데 테스트 파일 변경이 없다 (15) | 같은 것이 다시 깨져도 잡을 장치가 없다 |
 | **범위** | 15 | 테스트·문서·lock 파일을 뺀 변경 줄 수 — 100 이하 0 · 300 이하 5 · 800 이하 10 · 그 이상 15 | 큰 PR 은 리뷰가 끝까지 같은 밀도로 못 본다. 작은 PR 을 쓰게 만든다 |
 
 항목마다 신호 점수를 더하되 상한을 넘지 않는다. 다섯 항목 상한의 합이 100 이다.
-문서(`*.md`·이미지·`.drawio`·`docs/`·`contents/`)는 어느 항목에도 세지 않는다. 예외가 셋 있다. 비밀값은 문서 경로에 있어도 센다. `tools/pr-eval/` 의 규칙 문서는 세션이 그대로 따르는 실행 규칙이라 하니스 신호로 센다. `CLAUDE.md`·`AGENTS.md`·`.claude/` 아래 문서도 같은 이유로 에이전트 지시 신호로 센다.
+문서(`*.md`·이미지·`.drawio`·`docs/`·`contents/`)는 어느 항목에도 세지 않는다. 예외가 셋 있다. 비밀값은 문서 경로에 있어도 센다. 하니스 경로(`rules/`·`skills/` 등) 아래 규칙 문서는 세션이 그대로 따르는 실행 규칙이라 하니스 신호로 센다. `CLAUDE.md`·`AGENTS.md`·`.claude/` 아래 문서도 같은 이유로 에이전트 지시 신호로 센다.
 
 하니스 신호는 게이트가 자기 자신을 느슨하게 만드는 PR 을 막으려고 둔다. 저자 세션은 PR 브랜치에 push 할 수 있어서, 이 신호가 없으면 `risk.jq` 를 고친 작은 PR 이 0점 `low` 로 자동 머지된다. 15점이라 이 신호 하나만으로도 `low` 를 벗어난다.
 
@@ -73,9 +73,9 @@
 | #33 | 북마크 리포트 API · 엔티티 2개 | 35 | medium | API 계약 · DB 스키마 · 범위 654줄 |
 | #38 | api-auth Mongo 설정 | 50 | high | 에이전트 지시·CI·빌드(`build.gradle`) · 의존성 · 설정 · 테스트 없음 |
 | #43 | ECS blue/green (Terraform) | 50 | high | 의존성 · IAM · 인프라 · 범위 494줄(lock 파일 224줄 제외) |
-| #36 | 평문 자격증명 제거 · CORS | 45 | high | 인증 코드(`SecurityConfig`) · 하니스(`pr-eval.sh`) · 인프라(`services.tf`) |
+| #36 | 평문 자격증명 제거 · CORS | 45 | high | 인증 코드(`SecurityConfig`) · 하니스(`pr-quorum.sh`) · 인프라(`services.tf`) |
 
-표의 점수는 지금 규칙으로 다시 매긴 값이다. #34 는 테스트 줄을 범위에서 빼기 전 규칙으로 머지됐고, 그때 봇이 남긴 점수는 [10점 `low`(범위 722줄, 테스트 줄 포함)](https://github.com/thswlsqls/tech-n-ai-backend/pull/34#issuecomment-5945983281)였다.
+표의 점수는 지금 규칙으로 다시 매긴 값이다. #34 는 테스트 줄을 범위에서 빼기 전 규칙으로 머지됐고, 그때 봇이 남긴 점수는 10점 `low`(범위 722줄, 테스트 줄 포함)였다.
 #38 은 이 점수가 생기기 전에 체인이 자동으로 머지한 PR 이고, #43 도 자동 머지 대상이었다(사람이 체인 밖에서 커밋을 더해 머지 게이트에 걸렸다). 지금 규칙이면 둘 다 사람이 본다.
 
 ## 문턱 조정 — 자동 머지가 틀렸는지 기록으로 센다
@@ -84,7 +84,7 @@
 그래서 머지된 PR 마다 **머지 뒤 14일 안에 같은 파일을 고친 `fix`·`revert` PR** 이 붙었는지를 센다.
 
 ```bash
-tools/pr-eval/scripts/risk-audit.sh tech-n-ai-backend 30   # 최근 머지 PR 30건
+risk-audit.sh <저장소> 30   # 최근 머지 PR 30건
 ```
 
 PR 별 등급·점수·체인 자동 머지 여부·후속 PR 과, 등급별 "머지 수 / 후속 수정이 붙은 수 / 관찰 중" 을 낸다. 14일이 안 지났고 후속도 아직 없는 PR 은 `관찰 중` 이고, 앞의 두 칸에서 뺀다 — 아직 결과가 안 난 PR 을 "후속 0" 으로 세면 문턱을 올리자는 쪽으로 기운다.
@@ -96,7 +96,7 @@ PR 별 등급·점수·체인 자동 머지 여부·후속 PR 과, 등급별 "�
 - `medium` 이상에서 후속 수정이 계속 0 이면 문턱을 올릴 근거가 된다. 표본이 쌓이기 전에는 올리지 않는다.
 - `needs-human` 으로 멈춘 PR 을 사람이 볼 때 봇 리뷰가 놓친 결함을 찾았으면 아래 표에 한 줄 적는다. 없었으면 "놓친 것 0건" 으로 적는다. 봇 리뷰가 실제로 무엇을 놓치는지 사람 기준으로 재는 기록은 이것뿐이다.
 - **체인이 자동 머지한 PR 도 같다.** 머지 뒤 사람이 diff 와 봇 리뷰를 한 번 읽고 같은 표에 적는다. 자동 머지 PR 이야말로 사람이 아무도 안 본 PR 이다.
-- **자동 머지를 끄는 기준** — 자동 머지된 PR 에서 사람이 봇이 놓친 치명·중대 결함을 하나라도 찾으면, 원인을 볼 때까지 `low` 자동 머지를 끈다(watcher 의 PATH 맨 앞에 `~/.config/pr-eval/no-merge-bin` 을 두면 그 안의 `gh` 래퍼가 머지만 거절한다). 이 기준은 가중치 조정과 달리 한 건으로 움직인다 — 놓친 결함이 그대로 main 에 들어갔다는 뜻이기 때문이다.
+- **자동 머지를 끄는 기준** — 자동 머지된 PR 에서 사람이 봇이 놓친 치명·중대 결함을 하나라도 찾으면, 원인을 볼 때까지 `low` 자동 머지를 끈다(watcher 의 PATH 맨 앞에 `~/.config/pr-quorum/no-merge-bin` 을 두면 그 안의 `gh` 래퍼가 머지만 거절한다). 이 기준은 가중치 조정과 달리 한 건으로 움직인다 — 놓친 결함이 그대로 main 에 들어갔다는 뜻이기 때문이다.
 
 ### 관찰 기록
 

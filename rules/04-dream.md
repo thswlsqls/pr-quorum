@@ -11,11 +11,11 @@
 
 프롬프트가 이번에 볼 run 목록과 지난 정리안 경로를 준다. 그 밖의 run 은 보지 않는다.
 
-1. `tools/pr-eval/_memory/learnings.md` 전체
+1. `~/.pr-quorum/learnings.md` 전체
 2. 현재 규칙 — `00-criteria.md`·`01-stages.md`·`02-judges.md`·`profiles/`·`scripts/`·`settings.json`·`author-settings.json`. 처방이 이미 들어갔는지 `Grep` 으로 확인할 때 쓴다
 3. 목록에 있는 run 마다 `learning-candidates.md`(있으면)·`rounds/`·`decisions.md`·`meta.json`. `meta.json` 의 `chain.sessions[]` 에 `permission_denials`·`denied_tools` 가 있으면 도구 거부를 셀 때 쓴다
 4. 지난 정리안과 사람이 적은 `판정` — 거절된 항목은 같은 근거로 다시 내지 않는다
-5. `_memory/human-labels.md` 의 판정이 채워져 있으면 그것도 본다
+5. `~/.pr-quorum/human-labels.md` 의 판정이 채워져 있으면 그것도 본다
 
 `docs/` 는 읽지 않는다(권한에서도 막혀 있다). 설계 문서에 예상 결과가 적혀 있어 결과가 그쪽으로 끌려간다.
 
