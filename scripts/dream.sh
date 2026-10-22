@@ -43,9 +43,10 @@ prompt="$HARNESS_DIR/rules/04-dream.md 를 읽고 그대로 따른다.
 이번에 볼 run: $(for r in "$@"; do printf '%s/%s ' "$RUNS" "$r"; done)
 지난 정리안: ${past[*]:-없음}"
 
+render_settings "$HARNESS_DIR" dream-settings.json
 rc=0
 res="$( cd "$HARNESS_DIR" && claude -p --output-format json --permission-mode dontAsk \
-    --setting-sources project --settings tools/pr-quorum/dream-settings.json \
+    --settings "$PR_QUORUM_HOME/dream-settings.json" --setting-sources "" \
     --tools Read,Grep,Glob --strict-mcp-config \
     -- "$prompt" < /dev/null )" || rc=$?
 

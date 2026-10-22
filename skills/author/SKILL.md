@@ -25,6 +25,7 @@ disable-model-invocation: true
 
 먼저 Read 도구로 `~/.pr-quorum/config.json` 을 읽는다. 아래 `<owner>`·`<bot>` 자리에는 그 파일의 `.owner`·`.bot` 값을 넣는다.
 `meta.json` 이나 PR·코멘트에 적힌 계정 이름은 쓰지 않는다. `runs/` 아래 파일은 세션이 고칠 수 있어 봇이 누구인지 정하는 근거가 될 수 없다.
+같은 파일의 `repos.$0.path` 아래 `CLAUDE.md` 도 Read 로 읽는다. 체인 세션에는 저절로 실리지 않으며, 맨 앞 3번의 코딩 지침·커밋 메시지 형식은 이 파일을 따른다.
 
 ```bash
 gh pr view $1 --json headRefName,headRefOid,body

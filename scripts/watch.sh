@@ -43,7 +43,7 @@ gc_worktrees() {
     for wt in "$dir"/pr-quorum-* "$dir"/pr-author-*; do
       [ -d "$wt" ] || continue
       name="$(basename "$wt")"
-      [[ "$name" =~ ^pr-(eval|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
+      [[ "$name" =~ ^pr-(quorum|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
       grep -qx "${BASH_REMATCH[2]}" <<<"$merged" || continue
       if git -C "$path" worktree remove "$wt"; then
         log "워크트리 정리 — $repo $name (머지된 PR)"

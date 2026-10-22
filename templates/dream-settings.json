@@ -7,7 +7,7 @@
       "Glob"
     ],
     "deny": [
-      "Read(/docs/**)",
+      "Read(/__PLUGIN_ROOT__/docs/**)",
       "Read(~/.config/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",

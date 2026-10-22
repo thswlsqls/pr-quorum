@@ -23,12 +23,9 @@ REPO="$1"; PR="$2"
 [ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
 REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
 [ -n "$REPO_ROOT" ] || { echo "config.json 의 repos 에 없는 저장소다: $REPO" >&2; exit 1; }
-# 세션 권한과 명령 문서는 스크립트를 이 저장소의 절대 경로로만 부른다(상대 경로는 PR 워크트리 사본을 가리킨다).
-# 다른 위치에 clone 했는데 경로를 안 바꾸면 세션 호출이 모두 권한에서 거부되므로 여기서 먼저 멈춘다
-for f in "$HARNESS_DIR/settings.json" "$HARNESS_DIR/author-settings.json" "$HARNESS_DIR/scripts/install-entrypoints.sh"; do
-  grep -qF "$REPO_ROOT/tools/pr-quorum/scripts/" "$f" \
-    || { echo "$f 의 스크립트 절대 경로가 이 저장소($REPO_ROOT)와 다르다 — tools/pr-quorum/CLAUDE.md §5-3 대로 바꾼다" >&2; exit 2; }
-done
+# 세션 권한은 실행할 때마다 템플릿에서 렌더링한다 — 스크립트 절대 경로가 이 플러그인 폴더를 가리킨다
+render_settings "$HARNESS_DIR" settings.json
+render_settings "$HARNESS_DIR" author-settings.json
 RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
@@ -58,13 +55,13 @@ run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <�
       [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
     done
   done
-  # --setting-sources project: .claude/settings.local.json 의 allow·훅과 ~/.claude/settings.json 을 읽지 않는다.
-  # user 만 남기면 .claude/commands·agents 도 안 읽혀 /pr-quorum:review 가 없어진다(실측). --settings 는 이 값과 상관없이 읽힌다
+  # --setting-sources "": 대상 저장소의 .claude/settings*.json 과 ~/.claude/settings.json 을 읽지 않는다. --settings 는 이 값과 상관없이 읽힌다.
+  # 스킬·에이전트는 --plugin-dir 로 실려 이 값과 상관없이 불린다(실측). 저장소 CLAUDE.md 도 안 실려 스킬이 직접 읽는다
   # dontAsk: allow 에 없는 것은 묻지 않고 거부한다. acceptEdits 는 작업 폴더 안 편집과 mkdir·rm·mv 등을 allow 와 상관없이 승인했다(실측)
   started="$(date +%s)"
   out="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
-      --setting-sources project --settings "$settings" \
-      --mcp-config tools/pr-quorum/mcp.json --strict-mcp-config \
+      --settings "$settings" --setting-sources "" --plugin-dir "$HARNESS_DIR" \
+      --mcp-config "$HARNESS_DIR/mcp.json" --strict-mcp-config \
       --disallowedTools AskUserQuestion \
       --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 $RUN/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
       ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
@@ -106,8 +103,8 @@ step() {  # step <이름> <완료 판정 함수> <settings> <프롬프트>
   exit 4
 }
 
-EVAL_SETTINGS="tools/pr-quorum/settings.json"
-AUTHOR_SETTINGS="tools/pr-quorum/author-settings.json"
+EVAL_SETTINGS="$PR_QUORUM_HOME/settings.json"
+AUTHOR_SETTINGS="$PR_QUORUM_HOME/author-settings.json"
 
 run_stage1() { step stage1 stage1_done "$EVAL_SETTINGS" "/pr-quorum:review stage1 $REPO $PR --auto"; }
 run_stage3() { step stage3 stage3_done "$EVAL_SETTINGS" "/pr-quorum:review stage3 $REPO $PR --auto"; }
