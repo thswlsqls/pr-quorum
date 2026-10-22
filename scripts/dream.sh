@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# dream.sh — 여러 PR run 의 학습 후보와 기록을 모아 learnings 정리안을 낸다. 지시문은 04-dream.md.
+# dream.sh — 여러 PR run 의 학습 후보와 기록을 모아 learnings 정리안을 낸다. 지시문은 rules/04-dream.md.
 # 세션에는 Read·Grep·Glob 만 준다. 정리안은 세션의 마지막 응답을 이 스크립트가 파일로 쓴다 —
 # PR 을 읽은 세션이 쓴 글을 입력으로 받는 세션이라, 어떤 파일도 직접 고치지 못하게 한다.
 # 반영은 사람이 정리안 항목마다 판정을 적고 하니스 PR 로 한다.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# pr-quorum.sh — PR eval harness 의 유일한 GitHub 게시 경로.
+# pr-quorum.sh — pr-quorum 의 유일한 GitHub 게시 경로.
 # 세션은 봇 토큰을 갖지 않는다. 이 스크립트가 자기 안에서 읽는다.
-# 계약(서브커맨드·종료 코드)은 tools/pr-quorum/CLAUDE.md §3 에 있다.
+# 계약(서브커맨드·종료 코드)은 docs/harness.md §3 에 있다.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
@@ -33,7 +33,7 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     precheck   <repo> <pr>                   대형 PR 컷(파일 50 / 줄 3000) 을 판정한다
     ranges     <repo> <pr> <sha>            inline 앵커를 달 수 있는 줄 범위를 낸다 (위원 프롬프트용)
     gate1      <repo> <pr> <sha> <comments.json>   PG1 — 앵커가 diff 안인지 검사한다
-    risk       <repo> <pr>                   자동 머지 리스크 점수 (03-risk.md). low 가 아니면 3
+    risk       <repo> <pr>                   자동 머지 리스크 점수 (rules/03-risk.md). low 가 아니면 3
     pg5        <summary.md> <comments.json> [stage1|stage2|stage3]   PG5 기계 검사 (post-review 가 게시 직전에 도는 것과 같다)
     pg6        <outputs/stage 디렉터리>      PG6 — 윤문 전 사본(pre-polish/)과 대조한다
     snapshot   <outputs/stage 디렉터리>      윤문 전 사본을 pre-polish/ 에 뜬다 (runs/ 아래만)
@@ -78,8 +78,8 @@ meta_update() {
 }
 
 load_bot_token() {
-  [ -f "$BOT_ENV" ] || die "$E_ENV" "봇 토큰 파일이 없다: $BOT_ENV (CLAUDE.md §5-2 참고)"
-  # source 하지 않고 watch.sh 처럼 값만 꺼낸다 — 파일에 셸 코드가 들어가도 실행되지 않는다.
+  [ -f "$BOT_ENV" ] || die "$E_ENV" "봇 토큰 파일이 없다: $BOT_ENV (docs/harness.md §5-2 참고)"
+  # source 하지 않고 값만 꺼낸다 — 파일에 셸 코드가 들어가도 실행되지 않는다.
   # 환경 변수도 보지 않는다. 밖에서 받은 GH_TOKEN 은 사용자 토큰이라 봇 대신 사용자 이름으로 게시된다
   local tok
   tok="$(sed -n 's/^PR_QUORUM_BOT_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
@@ -213,7 +213,7 @@ cmd_gate1() {
   echo "PG1 통과 — 앵커 $total 건 전부 diff 안이다 (기준 SHA $sha)"
 }
 
-# 자동 머지 리스크 점수 (03-risk.md). 현재 head 의 PR diff 로 매기고 meta.risk 와 outputs/risk.md 에 남긴다.
+# 자동 머지 리스크 점수 (rules/03-risk.md). 현재 head 의 PR diff 로 매기고 meta.risk 와 outputs/risk.md 에 남긴다.
 # low 면 0, 그 밖이면 3 — 사람이 승인해야 머지된다는 뜻이다.
 cmd_risk() {
   local repo="$1" pr="$2" d m sha
@@ -245,7 +245,7 @@ cmd_risk() {
     (.categories[] | "| \(.title) | \(.points) / \(.max) | \([.signals[] | select(.points > 0) | "\(.name) \(.points)\(.hits | files)"] | join("<br>") | if . == "" then "-" else . end) |"),
     "| **합계** | **\(.score)** / 100 | |\n",
     "low 0–14 자동 머지 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. low 가 아니면 체인은 머지하지 않고 사람에게 넘깁니다.",
-    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `tools/pr-quorum/03-risk.md` 에 있습니다."
+    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `rules/03-risk.md` 에 있습니다."
   ' "$tmp/risk.json" > "$d/outputs/risk.md"
   cat "$d/outputs/risk.md"
 
@@ -371,12 +371,12 @@ cmd_pg5() {
   [ -z "$noname" ] || die "$E_GATE" "PG5 위반 — 축 이름이 없다(\`R-x (이름)\` 형식이어야 한다): $noname"
   # 요약에는 축 범례표를 한 번 싣는다 — blocking 순서표 칸에는 코드만 들어가기 때문이다.
   if [ "$stage" = "stage1" ]; then
-    grep -qE '`R-[A-I]`' "$sfile" || die "$E_GATE" "PG5 위반 — 요약에 축 범례표가 없다 (00-criteria.md §6)"
+    grep -qE '`R-[A-I]`' "$sfile" || die "$E_GATE" "PG5 위반 — 요약에 축 범례표가 없다 (rules/00-criteria.md §6)"
   fi
   echo "PG5 통과 — $cfile"
 }
 
-# PG6 — 윤문이 뜻을 깎지 않았나 (01-stages.md §7). <dir> 은 pre-polish/ 를 품은 outputs/<stage>[/round-NN] 이다.
+# PG6 — 윤문이 뜻을 깎지 않았나 (rules/01-stages.md §7). <dir> 은 pre-polish/ 를 품은 outputs/<stage>[/round-NN] 이다.
 # 세션이 문서의 두 줄을 직접 돌리면 권한에 막혀 눈 대조로 우회했다(L0-42·L0-51). 한 줄 호출로 옮긴다.
 # 영향(②)과 방향(④)이 남았는지는 셀 수 없으므로 여기서 보지 않는다.
 cmd_pg6() {
@@ -475,7 +475,7 @@ cmd_post_review() {
   ' > "$tmp/payload.json"
 
   local resp; resp="$(gh api "repos/$OWNER/$repo/pulls/$pr/reviews" --input "$tmp/payload.json")" \
-    || die "$E_API" "리뷰 게시 실패. 422 면 기준 SHA($sha)에 line 앵커가 안 붙는 경우를 먼저 의심하라 (01-stages.md §7)"
+    || die "$E_API" "리뷰 게시 실패. 422 면 기준 SHA($sha)에 line 앵커가 안 붙는 경우를 먼저 의심하라 (rules/01-stages.md §7)"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
   # 게시된 inline 코멘트의 id 를 되받아 (path,line) 으로 code/axis/grade 를 붙인다.

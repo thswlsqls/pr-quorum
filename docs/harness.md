@@ -1,6 +1,6 @@
-# CLAUDE.md — PR eval harness
+# pr-quorum 하니스
 
-올라온 PR 을 축별로 평가해 리뷰를 게시하는 하니스다. 이 파일은 **에이전트가 이 디렉터리에서 작업할 때** 먼저 읽는다. 설계 근거는 `docs/plans/20260820075900/tech-n-ai-pr-eval-harness/` 에 있다(추적되지 않는다).
+올라온 PR 을 축별로 평가해 리뷰를 게시하는 하니스다. 플러그인을 고치거나 운영할 때 먼저 읽는 문서다. 설계 근거는 tech-n-ai-backend 저장소의 `docs/plans/20260820075900/tech-n-ai-pr-eval-harness/` 에 있다(추적되지 않는다).
 
 ## 0. 불변식 — 다른 무엇보다 먼저
 
@@ -9,30 +9,30 @@
    저자 세션(`/pr-quorum:author`)의 push 는 `scripts/author-push.sh`, 답글·PR 코멘트·본문 교체는 `scripts/author-reply.sh` 로만 한다. 이 둘은 사용자 계정으로 올라간다.
 3. **위원·반박자·검증자는 아무 파일도 쓰지 않는다.** 결과를 텍스트로 반환하는 것이 전부다. `Bash` 는 `grep`·`wc`·`jq` 같은 조회에만 쓰고 리다이렉션·`sed -i`·`mv`·`rm` 을 쓰지 않는다.
 4. **점수를 쓰지 않는다.** 등급 넷(치명·중대·경미·사소)만 쓴다.
-5. 확인 못 한 것은 게시하지 않는다. `미확인 우려` 는 `runs/` 에만 남긴다.
+5. 확인 못 한 것은 게시하지 않는다. `미확인 우려` 는 `~/.pr-quorum/runs/` 에만 남긴다.
 6. 봇 토큰을 저장소에 커밋하지 않는다.
 
-> - 봇이 코드를 못 고치게 하는 강제 수단은 **collaborator read 역할 하나뿐이다.** 토큰 스코프는 못 막는다 — `public_repo` 는 public 저장소의 코드 write 를 포함하고 두 저장소는 public 이다. 봇을 write 로 올리면 그 순간 이 토큰이 push 를 허용한다.
-> - **`tools/pipeline/` 과 헷갈리지 않는다.** `tools/pipeline/` 의 impl·impl-validate 는 **PR 을 올릴 때**, `tools/pr-quorum/` 은 **올라온 PR 을 평가할 때** 쓴다. 서로의 산출물을 읽지 않는다.
-> - **제품 PR 에 `tools/pr-quorum/` 변경을 섞지 않는다.** 섞으면 체인이 main 과 충돌해 멈춘다(PR #36 — 그때는 세션이 작업 트리의 `_memory/learnings.md` 를 직접 고쳤다). 하니스 변경은 따로 PR 을 낸다.
+> - 봇이 코드를 못 고치게 하는 강제 수단은 **collaborator read 역할 하나뿐이다.** 토큰 스코프는 못 막는다 — `public_repo` 는 public 저장소의 코드 write 를 포함한다. 봇이 리뷰하는 저장소가 public 이면, 봇을 write 로 올리는 순간 이 토큰이 push 를 허용한다.
+> - **`tools/pipeline/` 과 헷갈리지 않는다.** 이 플러그인은 **올라온 PR 을 평가할 때**, tech-n-ai-backend 의 `tools/pipeline/`(impl·impl-validate)은 **PR 을 올릴 때** 쓴다. 서로의 산출물을 읽지 않는다.
+> - 하니스가 제품 저장소 안에 있던 때는 제품 PR 에 하니스 변경이 섞여 체인이 main 과 충돌해 멈춘 적이 있다(PR #36 — 세션이 작업 트리의 `_memory/learnings.md` 를 직접 고쳤다).
 > - **상태는 저장소가 아니라 `~/.pr-quorum/` 에 있다.** `config.json`·`profiles/`·`learnings.md`·`human-labels.md`·렌더링한 settings 세 개·`runs/` 가 여기 있다. `runs/` 는 PR 마다 버려지는 작업 폴더다. 이 폴더는 백업이 없고 다른 머신에서 clone 해도 따라오지 않는다. 규칙 문서·스크립트·settings 템플릿은 플러그인 저장소에서 추적된다.
 
 ## 1. 파일 지도
 
 | 파일 | 무엇 |
 |---|---|
-| `00-criteria.md` | 세 스테이지 공통 — 불변식 · 무효 조건 I-1~I-8 · 등급 · 출처 등급 · 유형별 조정표 · 코멘트 규격 · 게시 전 윤문 |
-| `01-stages.md` | 스테이지별로 달라지는 것 · Phase 표 · SHA 고정 · `meta.json` · 종료 조건 · 게시 게이트 PG1~PG6 · 지표 · 신호표 |
-| `02-judges.md` | 위원 공통 규칙 · 출력 형식 · 반박자 지시 · 문서 검증자 V1·V2·V3 |
-| `03-risk.md` | 자동 머지 리스크 점수 — 점수표 · 등급별 처리 · 보정 기록 |
-| `04-dream.md` | `scripts/dream.sh` 세션의 지시문 — 여러 run 의 학습 후보를 learnings 정리안으로 모은다 |
+| `rules/00-criteria.md` | 세 스테이지 공통 — 불변식 · 무효 조건 I-1~I-8 · 등급 · 출처 등급 · 유형별 조정표 · 코멘트 규격 · 게시 전 윤문 |
+| `rules/01-stages.md` | 스테이지별로 달라지는 것 · Phase 표 · SHA 고정 · `meta.json` · 종료 조건 · 게시 게이트 PG1~PG6 · 지표 · 신호표 |
+| `rules/02-judges.md` | 위원 공통 규칙 · 출력 형식 · 반박자 지시 · 문서 검증자 V1·V2·V3 |
+| `rules/03-risk.md` | 자동 머지 리스크 점수 — 점수표 · 등급별 처리 · 보정 기록 |
+| `rules/04-dream.md` | `scripts/dream.sh` 세션의 지시문 — 여러 run 의 학습 후보를 learnings 정리안으로 모은다 |
 | `~/.pr-quorum/profiles/<프로파일>.md` (견본은 `examples/profiles/`) | 리뷰 축 정의문과 위원 4인의 볼 것 / 보지 않을 것 / 등급 예시 / 측정 기준선 |
 | `~/.pr-quorum/learnings.md` | PR 을 넘어 누적되는 학습. 세션은 읽기만 한다 |
 | `~/.pr-quorum/human-labels.md` | 게시된 봇 코멘트를 사람이 맞음·틀림·과함으로 판정한 표. 세션은 쓰지 않는다 |
 | `~/.pr-quorum/runs/<repo>-pr<N>/` | PR 하나의 작업 폴더. PR 마다 버려진다. `learning-candidates.md` 는 평가 세션이 적는 학습 후보다(저자 세션은 deny) |
 | `~/.pr-quorum/runs/_dream/<시각>/proposal.md` | `dream.sh` 가 낸 learnings 정리안. 사람이 항목마다 `수용`·`거절`·`보류` 를 적는다 |
 | `scripts/` | `pr-quorum.sh` (유일한 게시 경로) · `watch.sh` (자동 트리거 · 머지된 PR 의 `pr-quorum-*`·`pr-author-*` 워크트리 정리) · `chain.sh` (Stage 1 부터 머지까지) · `risk.jq` (리스크 점수) · `risk-audit.sh` (머지 뒤 후속 수정 추적) · `selftest.sh` (지난 산출물에 PG5·PG6 을 다시 돌린다. 게이트를 고친 뒤 한 번) · `gh-get.sh` (세션이 GitHub 을 읽는 길. GET 만 된다) · `author-push.sh` (저자 세션이 PR 브랜치에 push 하는 유일한 길. force 없음) · `author-reply.sh` (저자 세션이 스레드 답글·PR 코멘트·PR 본문 교체를 하는 길. 본문은 `runs/` 아래 파일만) · `dream.sh` (run 들의 학습 후보를 모아 정리안을 낸다. 사람이 손으로 부른다) |
-| `templates/settings.json` · `author-settings.json` · `dream-settings.json` · `mcp.json` | 평가·저자·dream 세션의 도구 allow/deny 템플릿 · 체인 세션의 MCP 를 context7 하나로 묶는 설정(dream 세션은 MCP 없이 돈다). 템플릿은 `chain.sh`·`dream.sh` 가 실행할 때마다 `__PLUGIN_ROOT__` 를 플러그인 폴더 경로로 바꿔 `~/.pr-quorum/` 에 쓴다 |
+| `templates/settings.json` · `templates/author-settings.json` · `templates/dream-settings.json` · `templates/config.json` · 루트 `mcp.json` · `scripts/config.sh` | 평가·저자·dream 세션의 도구 allow/deny 템플릿 · `~/.pr-quorum/config.json` 견본 · 체인 세션의 MCP 를 context7 하나로 묶는 설정(dream 세션은 MCP 없이 돈다) · `config.json` 을 읽고 settings 를 렌더링하는 함수. 템플릿은 `chain.sh`·`dream.sh` 가 실행할 때마다 `__PLUGIN_ROOT__` 를 플러그인 폴더 경로로 바꿔 `~/.pr-quorum/` 에 쓴다 |
 
 ## 2. 세 스테이지
 
@@ -63,7 +63,7 @@ watcher 는 저장소 소유자가 연 PR(`authorAssociation=OWNER`)만 체인�
 
 **backend 는 9축, frontend 는 8축이다** — `R-I` 는 backend 프로파일에만 있고, 그마저 조건부라 발동 조건은 `profiles/backend.md` §1 에 있다.
 
-`J1`~`J4` 의 순서는 점수가 아니라 **중복 제거 우선순위**다 — 설계·데이터가 틀린 쪽이 나머지의 전제다. 축 기준의 출처(Google eng-practices · Conventional Comments)와 인용문은 `README.md` "기준의 출처" 에 있다.
+`J1`~`J4` 의 순서는 점수가 아니라 **중복 제거 우선순위**다 — 설계·데이터가 틀린 쪽이 나머지의 전제다. 축 기준의 출처(Google eng-practices · Conventional Comments)와 인용문은 tech-n-ai-backend 의 옛 `tools/pr-eval/README.md` "기준의 출처" 에 있었고, 6단계 README 에 옮긴다.
 
 ## 3. `pr-quorum.sh` 계약
 
@@ -74,7 +74,7 @@ watcher 는 저장소 소유자가 연 PR(`authorAssociation=OWNER`)만 체인�
 | `precheck` | `<repo> <pr>` | 대형 PR 컷 판정 (파일 50 / 줄 3000) | 불필요 |
 | `ranges` | `<repo> <pr> <sha>` | inline 앵커를 달 수 있는 줄 범위와, 줄 번호를 붙인 diff 본문(삭제 줄은 옛 파일 번호라 앵커 불가)을 낸다. **위원 프롬프트에 실어 diff 밖 앵커를 애초에 막는다** | 불필요 |
 | `gate1` | `<repo> <pr> <sha> <comments.json>` | **PG1** — 앵커가 그 SHA 의 diff 안인지 줄 단위로 검사 | 불필요 |
-| `init` | `<repo> <pr> [--reset-eval]` | `runs/<repo>-pr<N>/` 와 `meta.json` 생성·갱신. **기존 기록을 덮어쓰지 않는다.** Stage 1 이 이미 게시했으면 `base_sha`·`eval_sha` 도 보존한다 — Stage 1 을 새 head 로 다시 돌릴 때만 `--reset-eval` | 불필요 |
+| `init` | `<repo> <pr> [--reset-eval]` | `~/.pr-quorum/runs/<repo>-pr<N>/` 와 `meta.json` 생성·갱신. **기존 기록을 덮어쓰지 않는다.** Stage 1 이 이미 게시했으면 `base_sha`·`eval_sha` 도 보존한다 — Stage 1 을 새 head 로 다시 돌릴 때만 `--reset-eval` | 불필요 |
 | `lock` | `<repo> <pr> <stage>` | 락 획득. pid 가 죽었거나 3시간이 지난 락은 지우고 가져온다 | 불필요 |
 | `unlock` | `<repo> <pr>` | 락 해제 | 불필요 |
 | `status` | `<repo> <pr> <값>` | `대기`·`진행`·`완료`·`보류(대형PR)`·`보류(실패)` 중 하나 | 불필요 |
@@ -86,16 +86,16 @@ watcher 는 저장소 소유자가 연 PR(`authorAssociation=OWNER`)만 체인�
 | `comment` | `<repo> <pr> <body.md>` | PR 에 일반 코멘트 1건 (대형 PR 보류 알림 · 리스크 점수표) | 필요 |
 | `risk` | `<repo> <pr>` | 현재 head 의 자동 머지 리스크 점수(`03-risk.md`). `meta.risk` 와 `outputs/risk.md` 에 남긴다. **`low` 가 아니면 종료 3** | 불필요 |
 | `pg5` | `<summary.md> <comments.json> [stage1\|stage2\|stage3]` | **PG5** 기계 검사(praise · code/axis/body · 축 이름 · 요약 축 범례). `post-review` 가 게시 직전에 도는 것과 같은 함수다 | 불필요 |
-| `snapshot` | `<outputs/<stage>[/round-NN]>` | 윤문 전 사본을 `pre-polish/` 에 뜬다. `runs/` 아래 폴더만 받는다 | 불필요 |
+| `snapshot` | `<outputs/<stage>[/round-NN]>` | 윤문 전 사본을 `pre-polish/` 에 뜬다. `~/.pr-quorum/runs/` 아래 폴더만 받는다 | 불필요 |
 | `pg6` | `<outputs/<stage>[/round-NN]>` | **PG6** — `pre-polish/` 사본과 대조해 JSON 의 건수·필드·첫 줄, 마크다운의 앵커·수치가 그대로인지 본다 | 불필요 |
 
-게시 서브커맨드(`post-review`·`reply`·`patch`·`patch-review`·`comment`)는 본문 파일로 `runs/` 아래 일반 파일만 받는다. 링크이거나 다른 경로면 종료 1 이다.
+게시 서브커맨드(`post-review`·`reply`·`patch`·`patch-review`·`comment`)는 본문 파일로 `~/.pr-quorum/runs/` 아래 일반 파일만 받는다. 링크이거나 다른 경로면 종료 1 이다.
 
 **종료 코드** — 0 성공 · 1 사용법·인자 오류 · 2 환경(봇 토큰 파일 없음, `meta.json` 이나 그 안의 `base_sha` 없음) · 3 게이트 위반(PG1 실패, PG5 필수 항목 누락, PG6 대조 실패, 대형 PR 컷, **스테이지 순서 위반**) · 4 GitHub API 또는 리스크 계산(`risk.jq`) 실패 · 5 락 점유 중.
 
 ## 4. 산출물 규격
 
-산출물은 `runs/<repo>-pr<N>/outputs/<stage>/` 아래 둔다 (`<stage>` = `stage1`·`stage2`·`stage3`). **세 스테이지가 한 run 디렉터리를 쓰므로 스테이지별 폴더를 나눈다** — 한자리에 몰아 쓰면 Stage 3 위원이 origin(P/Q/N)을 가를 때 읽는 Stage 1 산출물이 덮여 사라진다(실측 — PR #33 Stage 3).
+산출물은 `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/` 아래 둔다 (`<stage>` = `stage1`·`stage2`·`stage3`). **세 스테이지가 한 run 디렉터리를 쓰므로 스테이지별 폴더를 나눈다** — 한자리에 몰아 쓰면 Stage 3 위원이 origin(P/Q/N)을 가를 때 읽는 Stage 1 산출물이 덮여 사라진다(실측 — PR #33 Stage 3).
 
 - `summary.md` — 리뷰 요약 본문. 그대로 `reviews.body` 가 된다.
 - `comments.json` — inline 코멘트 배열.
@@ -157,17 +157,16 @@ chmod 600 ~/.config/pr-quorum/bot.env
 ```xml
 <key>ProgramArguments</key>
 <array>
-  <string>/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-quorum/scripts/watch.sh</string>
+  <string><플러그인 폴더>/scripts/watch.sh</string>
 </array>
 <key>StartInterval</key><integer>60</integer>
 <key>WorkingDirectory</key>
-<string>/Users/m1/workspace/tech-n-ai/tech-n-ai-backend</string>
+<string><플러그인 폴더></string>
 ```
 
-**지금 쓰는 plist 는 리스크 `low` 인 PR 을 자동으로 머지한다.** `EnvironmentVariables.PATH` 에 `~/.config/pr-quorum/no-merge-bin` 을 두지 않는다(2026-10-08 뺐다).
-자동 머지를 끄려면(`03-risk.md` "자동 머지를 끄는 기준") 이 경로를 PATH 맨 앞에 넣고 `launchctl bootout` 뒤 다시 `bootstrap` 한다.
-그 안의 `gh` 래퍼가 `gh pr merge` 와 `gh api .../pulls/<N>/merge` 만 `exit 1` 로 거절해(나머지 명령은 `/opt/homebrew/bin/gh` 로 넘긴다),
-체인은 머지 게이트를 지나도 `chain.state=blocked`("gh pr merge 실패")로 끝나고 로그에 `[no-merge] gh pr merge 차단` 이 찍힌다.
+**리스크 `low` 인 PR 을 자동으로 머지하는 것은 `~/.pr-quorum/config.json` 의 `auto_merge` 가 true 일 때뿐이다(기본 false).**
+꺼져 있으면 체인은 머지 게이트와 리스크 게이트를 지나도 머지하지 않고 `chain.state=ready` 로 멈춘다.
+자동 머지를 끄려면(`rules/03-risk.md` "자동 머지를 끄는 기준") `auto_merge` 를 false 로 둔다. 체인이 머지 직전에 이 값을 읽으므로 watcher 를 다시 띄우지 않아도 된다.
 
 머신이 꺼져 있으면 안 돈다. 켜면 폴링이라 밀린 것부터 처리한다. **한 번에 한 건씩 순서대로 처리한다** — PR A 가 도는 동안 PR B 에 리뷰어를 걸어도 A 가 끝나야 뜬다.
 
@@ -198,7 +197,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 
 - watcher 는 한 번에 한 건씩 처리한다. PR 하나가 watcher 를 한 시간 넘게 잡는다.
 - `meta.lock` TTL 3시간은 이 길이를 감안한 값이다. **줄이지 마라** — 정상 실행이 락을 잃는다.
-- **라운드 상한은 5 다.** 5라운드를 다 돌면 TTL 3시간에 닿을 수 있다. 라운드당 시간을 `runs/<…>/rounds/` 에 적고, TTL 에 닿기 시작하면 상한이 아니라 TTL 을 올린다.
+- **라운드 상한은 5 다.** 5라운드를 다 돌면 TTL 3시간에 닿을 수 있다. 라운드당 시간을 `~/.pr-quorum/runs/<…>/rounds/` 에 적고, TTL 에 닿기 시작하면 상한이 아니라 TTL 을 올린다.
 - 대형 PR 컷(파일 50 / 줄 3,000)은 이 시간이 선형으로 늘지 않게 막는 장치이기도 하다.
 
 ### 6-2. 헤드리스 세션 환경

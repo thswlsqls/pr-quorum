@@ -2,7 +2,7 @@
 # selftest.sh — pr-quorum.sh 의 기계 게이트(PG5·PG6)를 지난 실제 산출물에 다시 돌린다. LLM 을 쓰지 않는다.
 # 게이트 스크립트를 고친 뒤 한 번 돌린다. 이미 게시된 산출물이 새 규칙에 막히면 규칙이 틀렸을 가능성이 크다
 # (PR #38 은 축 정규식 R-[A-H] 하나 때문에 게시가 막혔다 — L0-31).
-# runs/ 는 gitignore 라 이 머신에만 있다. 없으면 건너뛴다.
+# ~/.pr-quorum/runs 는 저장소 밖이라 이 머신에만 있다. 없으면 건너뛴다.
 set -uo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
