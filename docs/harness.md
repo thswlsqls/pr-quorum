@@ -63,7 +63,7 @@ watcher 는 저장소 소유자가 연 PR(`authorAssociation=OWNER`)만 체인�
 
 **backend 는 9축, frontend 는 8축이다** — `R-I` 는 backend 프로파일에만 있고, 그마저 조건부라 발동 조건은 `profiles/backend.md` §1 에 있다.
 
-`J1`~`J4` 의 순서는 점수가 아니라 **중복 제거 우선순위**다 — 설계·데이터가 틀린 쪽이 나머지의 전제다. 축 기준의 출처(Google eng-practices · Conventional Comments)와 인용문은 tech-n-ai-backend 의 옛 `tools/pr-eval/README.md` "기준의 출처" 에 있었고, 6단계 README 에 옮긴다.
+`J1`~`J4` 의 순서는 점수가 아니라 **중복 제거 우선순위**다 — 설계·데이터가 틀린 쪽이 나머지의 전제다. 축 기준의 출처(Google eng-practices · Conventional Comments)와 인용문은 tech-n-ai-backend 의 옛 `tools/pr-eval/README.md` "기준의 출처" 에 있었고, 지금은 [README 의 "기준의 출처"](../README.md#기준의-출처) 에 있다.
 
 ## 3. `pr-quorum.sh` 계약
 
