@@ -4,10 +4,11 @@
 # 계약(서브커맨드·종료 코드)은 tools/pr-quorum/CLAUDE.md §3 에 있다.
 set -euo pipefail
 
-OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RUNS_DIR="$HARNESS_DIR/runs"
+RUNS_DIR="$PR_QUORUM_HOME/runs"
 LOCK_TTL_SEC=10800   # 3시간
 BIG_PR_FILES=50
 BIG_PR_LINES=3000
@@ -56,11 +57,9 @@ USAGE
 }
 
 profile_of() {
-  case "$1" in
-    tech-n-ai-backend)  echo backend ;;
-    tech-n-ai-frontend) echo frontend ;;
-    *) die "$E_USAGE" "프로파일을 모르는 저장소다: $1 (profiles/ 에 정의가 없다)" ;;
-  esac
+  local p; p="$(cfg --arg r "$1" '.repos[$r].profile // empty')"
+  [ -n "$p" ] || die "$E_USAGE" "프로파일을 모르는 저장소다: $1 (config.json 의 repos 에 없다)"
+  echo "$p"
 }
 
 run_dir() { echo "$RUNS_DIR/$1-pr$2"; }
@@ -286,9 +285,9 @@ cmd_init() {
       echo "meta.json 갱신 (기존 기록 보존): $d/meta.json"
     fi
   else
-    jq -n --arg o "$OWNER" --arg r "$repo" --argjson p "$pr" \
+    jq -n --arg o "$OWNER" --arg bot "$(cfg .bot)" --arg r "$repo" --argjson p "$pr" \
           --arg b "$base" --arg h "$head" --arg prof "$prof" '
-      {owner:$o, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
+      {owner:$o, bot:$bot, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
        lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"대기"}
     ' > "$d/meta.json"
     echo "생성: $d/meta.json"
@@ -425,7 +424,7 @@ cmd_pg6() {
 # 윤문 전 사본을 뜬다. 세션에 cp 를 열지 않으려고 둔다 — 복사 대상은 runs/ 아래 산출물 폴더 하나뿐이다.
 cmd_snapshot() {
   local dir="${1%/}" runs real f copied=()
-  [ -d "$dir" ] || dir="$HARNESS_DIR/$dir"
+  [ -d "$dir" ] || dir="$PR_QUORUM_HOME/$dir"
   [ -d "$dir" ] || die "$E_USAGE" "산출물 폴더가 없다: $1"
   runs="$(cd "$RUNS_DIR" && pwd -P)"
   real="$(cd "$dir" && pwd -P)"

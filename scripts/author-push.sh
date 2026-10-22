@@ -4,13 +4,14 @@
 # refspec·플래그를 받지 않으므로 세션이 main push·force push·다른 브랜치 push 를 고를 수 없다(감사 S-4).
 set -euo pipefail
 
-OWNER=thswlsqls  # 세션이 부르는 스크립트라 환경 변수로 바꾸지 못하게 고정한다
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"  # 세션이 부르는 스크립트라 환경 변수가 아니라 config.json 에서만 읽는다
 
 die() { echo "author-push.sh: $1" >&2; exit 1; }
 
 [ $# -eq 2 ] || die "usage: author-push.sh <repo> <pr>"
 REPO="$1"; PR="$2"
-case "$REPO" in tech-n-ai-backend|tech-n-ai-frontend) ;; *) die "모르는 저장소: $REPO" ;; esac
+[ "$(cfg --arg r "$REPO" '.repos | has($r)')" = true ] || die "모르는 저장소: $REPO"
 [[ "$PR" =~ ^[0-9]+$ ]] || die "PR 번호가 숫자가 아니다: $PR"
 
 # fork 에서 온 PR 이면 같은 이름의 원본 저장소 브랜치로 push 하게 되므로 받지 않는다

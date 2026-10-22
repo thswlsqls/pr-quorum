@@ -6,10 +6,10 @@
 set -euo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
-RUNS="$HARNESS_DIR/runs"
+source "$HARNESS_DIR/scripts/config.sh"
+RUNS="$PR_QUORUM_HOME/runs"
 
-usage() { echo "usage: dream.sh [<run 이름>...]   예: dream.sh tech-n-ai-backend-pr33 tech-n-ai-backend-pr34 (생략하면 runs/ 아래 PR run 전부)" >&2; exit 1; }
+usage() { echo "usage: dream.sh [<run 이름>...]   예: dream.sh my-repo-pr33 my-repo-pr34 (생략하면 runs/ 아래 PR run 전부)" >&2; exit 1; }
 case "${1:-}" in -h|--help) usage ;; esac
 
 if [ $# -eq 0 ]; then
@@ -23,7 +23,7 @@ done
 # 지난 정리안 — 완료된 것만 입력으로 준다. 사람이 적은 판정을 보고 거절된 항목을 다시 내지 않게 한다
 past=()
 for p in "$RUNS"/_dream/*/proposal.md; do
-  [ -f "$p" ] && grep -q '^- 상태: 완료$' "$p" && past+=("${p#"$REPO_ROOT"/}")
+  [ -f "$p" ] && grep -q '^- 상태: 완료$' "$p" && past+=("$p")
 done
 
 out_dir="$RUNS/_dream/$(date +%Y%m%d%H%M%S)"
@@ -35,16 +35,16 @@ runs_list="$*"
 started="$(date '+%Y-%m-%d %H:%M:%S %z')"
 header() {  # header <상태>
   printf '# learnings 정리안\n\n- 상태: %s\n- 시각: %s\n- 하니스 commit: %s\n- 검토한 run: %s\n- 지난 정리안: %s\n' \
-    "$1" "$started" "$(git -C "$REPO_ROOT" rev-parse --short HEAD)" "$runs_list" "${past[*]:-없음}"
+    "$1" "$started" "$(git -C "$HARNESS_DIR" rev-parse --short HEAD)" "$runs_list" "${past[*]:-없음}"
 }
 header "작성 중" > "$out"
 
-prompt="tools/pr-quorum/04-dream.md 를 읽고 그대로 따른다.
-이번에 볼 run: $(printf 'tools/pr-quorum/runs/%s ' "$@")
+prompt="$HARNESS_DIR/rules/04-dream.md 를 읽고 그대로 따른다.
+이번에 볼 run: $(for r in "$@"; do printf '%s/%s ' "$RUNS" "$r"; done)
 지난 정리안: ${past[*]:-없음}"
 
 rc=0
-res="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
+res="$( cd "$HARNESS_DIR" && claude -p --output-format json --permission-mode dontAsk \
     --setting-sources project --settings tools/pr-quorum/dream-settings.json \
     --tools Read,Grep,Glob --strict-mcp-config \
     -- "$prompt" < /dev/null )" || rc=$?

@@ -7,7 +7,8 @@ set -uo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
-RUNS="$HARNESS_DIR/runs"
+source "$HARNESS_DIR/scripts/config.sh"
+RUNS="$PR_QUORUM_HOME/runs"
 
 [ -d "$RUNS" ] || { echo "runs/ 가 없다 — 건너뛴다"; exit 0; }
 

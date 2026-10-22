@@ -4,21 +4,19 @@
 # launchd StartInterval 60 으로 상시 실행한다. --once 는 디버깅 경로다.
 set -euo pipefail
 
-OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
-# 봇 로그인은 bot.env 의 BOT_LOGIN 하나에서 읽는다 — 여기와 토큰 파일이 어긋나면
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"
+# 봇 로그인은 config.json 의 bot 하나에서 읽는다 — 이 값과 토큰 파일의 계정이 어긋나면
 # watcher 가 엉뚱한 계정으로 폴링해 트리거가 조용히 안 돈다. (토큰은 읽지 않는다)
-BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
-BOT="${PR_QUORUM_BOT:-$(sed -n 's/^BOT_LOGIN=//p' "$BOT_ENV" 2>/dev/null | tr -d "\"'" | head -1)}"
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $BOT_ENV 의 BOT_LOGIN 또는 PR_QUORUM_BOT 을 설정하라" >&2; exit 2; }
+BOT="$(cfg '.bot // empty')"
+[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
-WS_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
-known_profile() { case "$1" in tech-n-ai-backend|tech-n-ai-frontend) return 0 ;; *) return 1 ;; esac; }
+known_profile() { [ -n "$(cfg --arg r "$1" '.repos[$r].profile // empty')" ]; }
 
 # meta.lock 이 유효한가 — 시작 후 3시간 이내이고 pid 가 살아 있으면 유효하다.
 lock_valid() {
@@ -36,9 +34,10 @@ lock_valid() {
 # 세션 권한에는 worktree add 만 있고, 체인은 사람이 한 머지를 못 보므로 폴링하는 여기서 한다.
 # --force 를 쓰지 않는다 — 커밋 안 한 변경이 있으면 git 이 거부하고 로그만 남는다. 브랜치는 건드리지 않는다
 gc_worktrees() {
-  local repo dir wt name merged
-  for repo in tech-n-ai-backend tech-n-ai-frontend; do
-    dir="$WS_ROOT/$repo-worktrees"
+  local repo path dir wt name merged
+  for repo in $(cfg '.repos | keys[]'); do
+    path="$(cfg --arg r "$repo" '.repos[$r].path')"
+    dir="$(dirname "$path")/$repo-worktrees"
     [ -d "$dir" ] || continue
     merged="$(gh pr list --repo "$OWNER/$repo" --state merged --limit 200 --json number --jq '.[].number')" || continue
     for wt in "$dir"/pr-quorum-* "$dir"/pr-author-*; do
@@ -46,13 +45,13 @@ gc_worktrees() {
       name="$(basename "$wt")"
       [[ "$name" =~ ^pr-(eval|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
       grep -qx "${BASH_REMATCH[2]}" <<<"$merged" || continue
-      if git -C "$WS_ROOT/$repo" worktree remove "$wt"; then
+      if git -C "$path" worktree remove "$wt"; then
         log "워크트리 정리 — $repo $name (머지된 PR)"
       else
         log "워크트리 정리 실패 — $repo $name"
       fi
     done
-    git -C "$WS_ROOT/$repo" worktree prune
+    git -C "$path" worktree prune
   done
 }
 
@@ -80,7 +79,7 @@ run_once() {
     # 2-1) 저장소 소유자가 연 PR 만 — 저장소가 public 이라, 남의 PR 이면 본문·diff 가 사용자 계정으로 push·머지하는 세션에 그대로 들어간다
     [ "$assoc" = "OWNER" ] || { log "skip $repo#$pr — 작성자가 소유자가 아니다($assoc)"; continue; }
 
-    m="$HARNESS_DIR/runs/$repo-pr$pr/meta.json"
+    m="$PR_QUORUM_HOME/runs/$repo-pr$pr/meta.json"
     if [ -f "$m" ]; then
       # 3) 유효한 락
       lock_valid "$m" && { log "skip $repo#$pr — 락 점유 중"; continue; }

@@ -5,13 +5,11 @@
 # 사람에게 물을 자리는 세션 쪽에서 권장안으로 정한다(--auto). 머지 여부만은 세션이 아니라 여기서 판정한다.
 set -euo pipefail
 
-OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
-# 봇 로그인은 watch.sh 와 같은 방식으로 bot.env 에서 값만 꺼낸다. 머지 게이트가 봇 리뷰를 찾을 때 쓴다
-BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
-BOT="${PR_QUORUM_BOT:-$(sed -n 's/^BOT_LOGIN=//p' "$BOT_ENV" 2>/dev/null | tr -d "\"'" | head -1 || true)}"
+source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+OWNER="$(cfg .owner)"
+# 봇 로그인은 watch.sh 와 같은 방식으로 config.json 의 bot 에서 읽는다. 머지 게이트가 봇 리뷰를 찾을 때 쓴다
+BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
-WS_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_AUTHOR_ROUNDS=2   # 저자 반영 회차 상한 — Stage 1 반영 한 번, Stage 3 반영 한 번
 MAX_STEP_TRIES=2      # 한 단계가 기록을 못 남기고 끝나면 한 번 더 돌린다
@@ -22,14 +20,16 @@ die() { log "$1"; exit "${2:-1}"; }
 [ $# -eq 2 ] || { echo "usage: chain.sh <repo> <pr>" >&2; exit 1; }
 REPO="$1"; PR="$2"
 [[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "PR 번호는 양의 정수여야 한다: $PR" >&2; exit 1; }
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $BOT_ENV 의 BOT_LOGIN 또는 PR_QUORUM_BOT 을 설정하라" >&2; exit 2; }
+[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
+REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
+[ -n "$REPO_ROOT" ] || { echo "config.json 의 repos 에 없는 저장소다: $REPO" >&2; exit 1; }
 # 세션 권한과 명령 문서는 스크립트를 이 저장소의 절대 경로로만 부른다(상대 경로는 PR 워크트리 사본을 가리킨다).
 # 다른 위치에 clone 했는데 경로를 안 바꾸면 세션 호출이 모두 권한에서 거부되므로 여기서 먼저 멈춘다
 for f in "$HARNESS_DIR/settings.json" "$HARNESS_DIR/author-settings.json" "$HARNESS_DIR/scripts/install-entrypoints.sh"; do
   grep -qF "$REPO_ROOT/tools/pr-quorum/scripts/" "$f" \
     || { echo "$f 의 스크립트 절대 경로가 이 저장소($REPO_ROOT)와 다르다 — tools/pr-quorum/CLAUDE.md §5-3 대로 바꾼다" >&2; exit 2; }
 done
-RUN="$HARNESS_DIR/runs/$REPO-pr$PR"
+RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
 
@@ -50,10 +50,13 @@ last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 
 # 헤드리스 세션 하나를 띄운다. 도구 권한·MCP 를 이 머신 설정과 떼어 놓는 이유는 watch.sh 주석과 같다.
 run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <시도 번호>
-  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() d out rc=0 started
-  for d in "$WS_ROOT/tech-n-ai-backend-worktrees" "$WS_ROOT/tech-n-ai-frontend" \
-           "$WS_ROOT/tech-n-ai-frontend-worktrees"; do
-    [ -d "$d" ] && add_dirs+=("$d")
+  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() r p d out rc=0 started
+  # 작업 폴더(이 PR 의 저장소) 말고 config.json 의 다른 저장소와 각 저장소 옆 <이름>-worktrees 를 연다
+  for r in $(cfg '.repos | keys[]'); do
+    p="$(cfg --arg r "$r" '.repos[$r].path')"
+    for d in "$p" "$(dirname "$p")/$r-worktrees"; do
+      [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
+    done
   done
   # --setting-sources project: .claude/settings.local.json 의 allow·훅과 ~/.claude/settings.json 을 읽지 않는다.
   # user 만 남기면 .claude/commands·agents 도 안 읽혀 /pr-quorum:review 가 없어진다(실측). --settings 는 이 값과 상관없이 읽힌다
@@ -63,7 +66,7 @@ run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <�
       --setting-sources project --settings "$settings" \
       --mcp-config tools/pr-quorum/mcp.json --strict-mcp-config \
       --disallowedTools AskUserQuestion \
-      --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 tools/pr-quorum/runs/$REPO-pr$PR/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
+      --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 $RUN/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
       ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
       -- "$prompt" < /dev/null )" || { rc=$?; log "세션이 $rc 로 끝났다 — 기록으로 성공 여부를 판단한다"; }
   # 결과 텍스트는 예전처럼 로그로 흘린다. JSON 이 아니면 받은 그대로 찍는다
