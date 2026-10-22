@@ -245,7 +245,7 @@ cmd_risk() {
     (.categories[] | "| \(.title) | \(.points) / \(.max) | \([.signals[] | select(.points > 0) | "\(.name) \(.points)\(.hits | files)"] | join("<br>") | if . == "" then "-" else . end) |"),
     "| **합계** | **\(.score)** / 100 | |\n",
     "low 0–14 자동 머지 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. low 가 아니면 체인은 머지하지 않고 사람에게 넘깁니다.",
-    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `tools/pr-quorum/03-risk.md` 에 있습니다."
+    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `rules/03-risk.md` 에 있습니다."
   ' "$tmp/risk.json" > "$d/outputs/risk.md"
   cat "$d/outputs/risk.md"
 

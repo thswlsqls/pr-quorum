@@ -32,7 +32,7 @@ def category($title; $max; $sigs): {title: $title, max: $max, signals: $sigs,
         or ((.filename | conf_file) and (added | test(
           "(?i)(password|passwd|secret([_-]?key)?|api[_-]?key|access[_-]?key|private[_-]?key|token)[\"']?\\s*[:=]\\s*[\"']?[^\\s\"'$<{]{8,}")))))),
       # 이 게이트와 리뷰 하니스 자체. 규칙 문서(.md)도 세션이 따르는 실행 규칙이라 문서 제외를 하지 않는다. 15점이면 혼자서도 low 를 벗어난다
-      sig("자동 머지 게이트·하니스"; 15; $all | hits(.filename | test("^(skills|agents|rules|scripts|templates|\\.claude-plugin)/"))),
+      sig("자동 머지 게이트·하니스"; 15; $all | hits(.filename | test("^(skills|agents|rules|templates|\\.claude-plugin)/|^scripts/(pr-quorum|chain|watch|dream|selftest|risk-audit|gh-get|author-push|author-reply|config)\\.sh$|^scripts/risk\\.jq$"))),
       # 에이전트 세션이 따르는 지시와 설정, CI 가 실행하는 파일, ./gradlew 가 실행하는 빌드 스크립트. 하니스와 같은 이유로 .md 도 센다
       sig("에이전트 지시·CI·빌드 스크립트"; 15; $all | hits(.filename | test(
         "(^|/)(CLAUDE|AGENTS)\\.md$|(^|/)\\.claude/|(^|/)\\.github/workflows/|(^|/)Jenkinsfile[^/]*$|\\.gradle(\\.kts)?$|(^|/)gradle\\.properties$|(^|/)gradle/wrapper/|(^|/)gradlew(\\.bat)?$"))),
