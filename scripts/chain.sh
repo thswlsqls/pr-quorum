@@ -270,4 +270,9 @@ done
 chain_state "merge-gate"
 merge_gate
 risk_gate
-do_merge
+# auto_merge 가 true 일 때만 머지한다. 키가 없거나 false 면 리스크 점수표만 남기고 사람이 머지하게 둔다
+if [ "$(cfg '.auto_merge == true')" = "true" ]; then
+  do_merge
+else
+  chain_state "ready" "auto_merge 가 꺼져 있다 — 사람이 머지한다"
+fi
