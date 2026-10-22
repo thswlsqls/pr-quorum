@@ -91,7 +91,7 @@ tech-n-ai-backend PR #34(신기술 다건 저장을 건별 왕복에서 일괄 �
 
 ## 설치
 
-마켓플레이스로 설치하는 방법은 아래와 같다. 저장소는 지금 private 이라, 이 저장소를 읽을 수 있는 git 인증이 그 머신에 있어야 한다([공식 문서](https://code.claude.com/docs/en/plugins/host-marketplace#grant-access-to-a-private-marketplace)).
+마켓플레이스로 설치하는 방법은 아래와 같다.
 
 ```
 /plugin marketplace add thswlsqls/pr-quorum
@@ -102,6 +102,12 @@ Claude Code 2.1.275 이상이면 세션 안에서 한 줄로도 된다.
 
 ```
 /plugin install pr-quorum --marketplace thswlsqls/pr-quorum
+```
+
+마켓플레이스 설치본은 `.claude-plugin/plugin.json` 의 `version` 이 오를 때만 새 판을 받는다. main 에 커밋이 머지돼도 버전이 그대로면 설치본은 바뀌지 않는다([공식 문서](https://code.claude.com/docs/en/plugins/host-marketplace#release-a-new-version)). 새 판은 셸에서 아래처럼 받는다. 버전마다 바뀐 것은 [`CHANGELOG.md`](CHANGELOG.md) 에 있다.
+
+```bash
+claude plugin update pr-quorum@pr-quorum
 ```
 
 **다만 무인 체인은 마켓플레이스 설치본을 쓰지 않고, clone 한 폴더를 `--plugin-dir` 로 싣는다.** 이유는 두 가지다.
@@ -117,7 +123,7 @@ git clone https://github.com/thswlsqls/pr-quorum.git <플러그인 폴더>
 
 **실행용 clone 과 개발용 사본을 나눈다.** `--plugin-dir` 로 실은 플러그인은 세션이 시작될 때마다 그 폴더에 지금 있는 파일을 읽는다. watcher 는 main 만 받아 두는 clone 을 가리키게 하고, 하니스를 고치는 일은 다른 clone 이나 worktree 에서 한다. 그래야 고치던 중인 하니스가 실제 리뷰를 돌지 않는다.
 
-**실행용 clone 은 저절로 갱신되지 않는다.** main 에 새 커밋이 머지돼도 체인은 clone 에 있는 옛 파일로 돈다. 바뀐 것을 쓰려면 사람이 직접 받는다.
+**실행용 clone 은 저절로 갱신되지 않는다.** `--plugin-dir` 로 실은 clone 은 `version` 과 상관없이 clone 에 있는 파일을 그대로 읽는다. 그래서 `claude plugin update` 로는 바뀌지 않고, main 에 새 커밋이 머지돼도 체인은 clone 에 있는 옛 파일로 돈다. 바뀐 것을 쓰려면 사람이 직접 `git pull` 로 받는다.
 
 ```bash
 git -C <플러그인 폴더> switch main && git -C <플러그인 폴더> pull --ff-only
@@ -129,7 +135,7 @@ git -C <플러그인 폴더> switch main && git -C <플러그인 폴더> pull --
 
 ### 1. 봇 계정
 
-리뷰를 올릴 GitHub 계정을 따로 하나 만든다.
+플러그인을 쓰는 사람마다 리뷰를 올릴 자기 봇 계정을 GitHub 에 따로 하나 만든다. 여럿이 함께 쓰는 공용 봇은 없다.
 
 - 리뷰할 저장소에 **collaborator read** 로 초대한다. 리뷰 요청을 받는 데는 read 면 된다.
 - 토큰은 그 봇 계정의 PAT 로, scope 는 `public_repo` 다.
