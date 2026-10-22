@@ -1,6 +1,6 @@
 ---
 name: judge
-description: PR eval harness 의 평가위원·반박자·문서 검증자. 오케스트레이터가 축 절과 규칙 전문을 프롬프트 본문으로 넘긴다. 자기 축 하나만 보고 결과를 텍스트로 반환한다.
+description: pr-quorum 리뷰의 평가위원·반박자·문서 검증자. 오케스트레이터가 축 절과 규칙 전문을 프롬프트 본문으로 넘긴다. 자기 축 하나만 보고 결과를 텍스트로 반환한다.
 tools: Read, Grep, Glob, Bash, mcp__context7__resolve-library-id, mcp__context7__query-docs
 ---
 

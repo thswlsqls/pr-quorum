@@ -69,7 +69,7 @@ R-I (보안)
 > **`R-I` 는 조건부다.** 모든 PR 이 보안 경로를 건드리지는 않는다.
 > 아래 다섯 신호 중 **하나라도** 걸리면 해당, 하나도 없으면 비해당이다.
 > **Phase 0 에서 오케스트레이터가 아래 명령을 그대로 돌리고 매치 수를 `rounds/round-NN.md` 에 적는다** —
-> 명령을 정해 두지 않으면 "비해당" 이라는 부정 명제가 라운드마다 다른 패턴으로 판정된다(`00-criteria.md` §2 · L0-19).
+> 명령을 정해 두지 않으면 "비해당" 이라는 부정 명제가 라운드마다 다른 패턴으로 판정된다(`rules/00-criteria.md` §2 · L0-19).
 
 | 신호 | 어떻게 본다 |
 |---|---|
@@ -80,7 +80,7 @@ R-I (보안)
 | **5** 외부 텍스트를 믿는 경로 | 변경 파일이 `api/agent/` · `api/chatbot/` · `client/scraper/` · `client/rss/` · `batch/source/` 아래 |
 
 ```bash
-# 두 SHA 는 `/Users/m1/workspace/tech-n-ai/tech-n-ai-backend/tools/pr-quorum/scripts/pr-quorum.sh meta <저장소> <PR번호>` 로 읽는다(봇 토큰 불필요).
+# 두 SHA 는 `<플러그인 폴더>/scripts/pr-quorum.sh meta <저장소> <PR번호>` 로 읽는다(봇 토큰 불필요).
 # Stage 1 의 구간은 base_sha…eval_sha 다. 아래 명령은 평가 대상 저장소 워크트리에서 돈다.
 B=<meta.base_sha>; S=<meta.eval_sha>
 git diff --name-only $B...$S | grep -cE '^(common/security|api/auth|api/gateway)/'          # 신호1
@@ -214,7 +214,7 @@ git diff --name-only $B...$S | grep -cE '^(api/agent|api/chatbot|client/(scraper
 그리고 **권한 없는 주체가 통과하는 자리** — 인가 누락은 `R-D` 와 같은 곳(컨트롤러와 엔드포인트)에서 보이므로 같은 위원이 본다.
 
 > **`R-I` 가 발동한 라운드에서는 이 위원이 축을 셋 본다.** 위원을 다섯으로 늘리지 않기로 한 대가다 —
-> 위원을 늘리면 벽시계가 락 TTL 3시간에 닿는다(`CLAUDE.md` §6-1).
+> 위원을 늘리면 벽시계가 락 TTL 3시간에 닿는다(`docs/harness.md` §6-1).
 > 그래서 **`R-I` 절을 `R-E` 앞에 놓는다.** `R-I` 가 발동하는 PR 은 대개 컨트롤러와 엔드포인트가 늘어난 PR 이라
 > `R-D`·`R-E` 도 같이 무거워지는데, 그 판에서 축이 하나 더 붙기 때문이다.
 

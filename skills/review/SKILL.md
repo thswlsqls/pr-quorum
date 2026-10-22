@@ -1,6 +1,6 @@
 ---
 name: review
-description: PR eval harness 를 돌린다. 인자 — <stage> <저장소명> <PR번호> [--round N] [--approve]
+description: pr-quorum 리뷰(stage1~3)를 돌린다. 인자 — <stage> <저장소명> <PR번호> [--round N] [--approve]
 argument-hint: <stage> <저장소명> <PR번호> [--round N] [--approve]
 disable-model-invocation: true
 ---

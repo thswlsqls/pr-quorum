@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # risk-audit.sh — 머지된 PR 의 리스크 점수와, 머지 뒤 14일 안에 같은 파일을 고친 fix·revert PR 을 나란히 놓는다.
-# 자동 머지 문턱을 감이 아니라 기록으로 조정하려고 둔다(03-risk.md "문턱 조정"). GitHub 에 아무것도 쓰지 않는다.
+# 자동 머지 문턱을 감이 아니라 기록으로 조정하려고 둔다(rules/03-risk.md "문턱 조정"). GitHub 에 아무것도 쓰지 않는다.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"

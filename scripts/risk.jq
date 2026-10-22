@@ -1,4 +1,4 @@
-# risk.jq — 자동 머지 리스크 점수. 규칙과 근거는 tools/pr-quorum/03-risk.md 에 있다.
+# risk.jq — 자동 머지 리스크 점수. 규칙과 근거는 rules/03-risk.md 에 있다.
 # 입력: gh api repos/{o}/{r}/pulls/{N}/files 의 배열. 인자: $sha · $at
 # 파일 경로와 변경 줄만 본다. 세션의 판단은 들어가지 않는다 — 같은 diff 는 늘 같은 점수다.
 

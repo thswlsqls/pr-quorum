@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # chain.sh — PR 하나를 Stage 1 → 저자 반영 → Stage 2 → Stage 3 → (저자 반영 → Stage 2)* → 머지까지 사람 없이 돌린다.
-# 머지는 머지 게이트와 리스크 게이트(03-risk.md, low 만 통과)를 둘 다 넘어야 한다. 아니면 needs-human 으로 멈춘다.
+# 머지는 머지 게이트와 리스크 게이트(rules/03-risk.md, low 만 통과)를 둘 다 넘어야 한다. 아니면 needs-human 으로 멈춘다.
 # 어디까지 했는지는 meta.json 과 outputs/author/round-NN.json 으로 판단하므로, 중간에 죽어도 다시 부르면 이어서 간다.
 # 사람에게 물을 자리는 세션 쪽에서 권장안으로 정한다(--auto). 머지 여부만은 세션이 아니라 여기서 판정한다.
 set -euo pipefail
@@ -45,7 +45,7 @@ stage3_done() { [ "$(jq '.stage3 != null' "$M")" = "true" ]; }
 author_count() { find "$AUTHOR_DIR" -name 'round-*.json' | wc -l | tr -d ' '; }
 last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 
-# 헤드리스 세션 하나를 띄운다. 도구 권한·MCP 를 이 머신 설정과 떼어 놓는 이유는 watch.sh 주석과 같다.
+# 헤드리스 세션 하나를 띄운다. 도구 권한·MCP 를 이 머신 설정과 떼어 놓는 이유는 아래 claude -p 호출 앞 주석에 있다.
 run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <시도 번호>
   local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() r p d out rc=0 started
   # 작업 폴더(이 PR 의 저장소) 말고 config.json 의 다른 저장소와 각 저장소 옆 <이름>-worktrees 를 연다
@@ -165,7 +165,7 @@ merge_gate() {
     exit 3
   fi
 
-  # Stage 3 이 리뷰가 놓친 치명·중대(P)를 찾았으면 Stage 1 재실행 여부는 사람이 정한다 (01-stages.md §5).
+  # Stage 3 이 리뷰가 놓친 치명·중대(P)를 찾았으면 Stage 1 재실행 여부는 사람이 정한다 (rules/01-stages.md §5).
   # 세션이 적는 verdict 문구가 아니라 pr-quorum.sh 가 기록한 P 코멘트 등급으로 본다. 등급이 빠진 P 도 멈춘다
   local missed
   missed="$(jq -r '[.stage3.comments[]? | select(.grade != "경미" and .grade != "사소") | "\(.code)(\(.grade))"] | join(", ")' "$M")"
@@ -175,7 +175,7 @@ merge_gate() {
   fi
 }
 
-# 리스크 게이트 (03-risk.md) — 다른 게이트를 다 통과한 PR 만 점수를 매긴다. 점수표는 레벨과 상관없이 PR 에 남긴다.
+# 리스크 게이트 (rules/03-risk.md) — 다른 게이트를 다 통과한 PR 만 점수를 매긴다. 점수표는 레벨과 상관없이 PR 에 남긴다.
 risk_gate() {
   local rc=0
   "$PR_QUORUM" risk "$REPO" "$PR" >/dev/null || rc=$?
