@@ -267,7 +267,7 @@ stage_sha       = Stage 2/3 시작 시점 head
 
 ```jsonc
 {
-  "owner": "your-github-login", "bot": "your-bot-login", "repo": "your-repo",   // repo 가 곧 프로파일 키
+  "owner": "your-github-login", "repo": "your-repo",   // repo 가 곧 프로파일 키
   "pr": 12, "base_sha": "…", "eval_sha": "…", "profile": "backend",
   "lock": {"pid": 4821, "started_at": "…", "stage": 1},   // 3시간 경과 또는 pid 사망이면 무효
   "attempts": 0,                   // Stage 1 연속 실패 횟수. 2면 status 를 보류(실패) 로

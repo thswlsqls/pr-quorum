@@ -5,7 +5,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"
+OWNER="$(cfg '.owner // empty')"
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS_DIR="$PR_QUORUM_HOME/runs"
@@ -285,9 +285,9 @@ cmd_init() {
       echo "meta.json 갱신 (기존 기록 보존): $d/meta.json"
     fi
   else
-    jq -n --arg o "$OWNER" --arg bot "$(cfg .bot)" --arg r "$repo" --argjson p "$pr" \
+    jq -n --arg o "$OWNER" --arg r "$repo" --argjson p "$pr" \
           --arg b "$base" --arg h "$head" --arg prof "$prof" '
-      {owner:$o, bot:$bot, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
+      {owner:$o, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
        lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"대기"}
     ' > "$d/meta.json"
     echo "생성: $d/meta.json"
