@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # watch.sh — 봇에게 리뷰 요청이 걸린 PR 을 찾아 체인(scripts/chain.sh)을 띄운다.
-# 체인이 Stage 1 부터 머지까지 사람 없이 돈다. 단계별로 따로 돌릴 때는 사람이 /pr-eval 을 부른다.
+# 체인이 Stage 1 부터 머지까지 사람 없이 돈다. 단계별로 따로 돌릴 때는 사람이 /pr-quorum:review 를 부른다.
 # launchd StartInterval 60 으로 상시 실행한다. --once 는 디버깅 경로다.
 set -euo pipefail
 
-OWNER="${PR_EVAL_OWNER:-thswlsqls}"
+OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
 # 봇 로그인은 bot.env 의 BOT_LOGIN 하나에서 읽는다 — 여기와 토큰 파일이 어긋나면
 # watcher 가 엉뚱한 계정으로 폴링해 트리거가 조용히 안 돈다. (토큰은 읽지 않는다)
-BOT_ENV="${PR_EVAL_BOT_ENV:-$HOME/.config/pr-eval/bot.env}"
-BOT="${PR_EVAL_BOT:-$(sed -n 's/^BOT_LOGIN=//p' "$BOT_ENV" 2>/dev/null | tr -d "\"'" | head -1)}"
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $BOT_ENV 의 BOT_LOGIN 또는 PR_EVAL_BOT 을 설정하라" >&2; exit 2; }
+BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
+BOT="${PR_QUORUM_BOT:-$(sed -n 's/^BOT_LOGIN=//p' "$BOT_ENV" 2>/dev/null | tr -d "\"'" | head -1)}"
+[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $BOT_ENV 의 BOT_LOGIN 또는 PR_QUORUM_BOT 을 설정하라" >&2; exit 2; }
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$HARNESS_DIR/../.." && pwd)"
 WS_ROOT="$(cd "$REPO_ROOT/.." && pwd)"
-PR_EVAL="$HARNESS_DIR/scripts/pr-eval.sh"
+PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
@@ -32,7 +32,7 @@ lock_valid() {
   [ $(( $(date -u +%s) - s_epoch )) -lt 10800 ]
 }
 
-# 머지된 PR 의 평가·저자 워크트리(pr-eval-<N>[-<sha7>] · pr-author-<N>)를 지운다.
+# 머지된 PR 의 평가·저자 워크트리(pr-quorum-<N>[-<sha7>] · pr-author-<N>)를 지운다.
 # 세션 권한에는 worktree add 만 있고, 체인은 사람이 한 머지를 못 보므로 폴링하는 여기서 한다.
 # --force 를 쓰지 않는다 — 커밋 안 한 변경이 있으면 git 이 거부하고 로그만 남는다. 브랜치는 건드리지 않는다
 gc_worktrees() {
@@ -41,7 +41,7 @@ gc_worktrees() {
     dir="$WS_ROOT/$repo-worktrees"
     [ -d "$dir" ] || continue
     merged="$(gh pr list --repo "$OWNER/$repo" --state merged --limit 200 --json number --jq '.[].number')" || continue
-    for wt in "$dir"/pr-eval-* "$dir"/pr-author-*; do
+    for wt in "$dir"/pr-quorum-* "$dir"/pr-author-*; do
       [ -d "$wt" ] || continue
       name="$(basename "$wt")"
       [[ "$name" =~ ^pr-(eval|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
@@ -94,14 +94,14 @@ run_once() {
       # 실패 반복 차단
       if [ "$(jq -r '.attempts // 0' "$m")" -ge "$MAX_ATTEMPTS" ]; then
         log "$repo#$pr — 연속 실패 $MAX_ATTEMPTS 회. 보류(실패) 로 멈춘다"
-        "$PR_EVAL" status "$repo" "$pr" "보류(실패)" >/dev/null
+        "$PR_QUORUM" status "$repo" "$pr" "보류(실패)" >/dev/null
         continue
       fi
     fi
 
     log "Stage 1 시작 — $repo#$pr"
-    "$PR_EVAL" init "$repo" "$pr" >/dev/null
-    "$PR_EVAL" attempt "$repo" "$pr" inc >/dev/null
+    "$PR_QUORUM" init "$repo" "$pr" >/dev/null
+    "$PR_QUORUM" attempt "$repo" "$pr" inc >/dev/null
 
     # Stage 1 부터 머지까지 체인 하나가 끝까지 돈다(scripts/chain.sh). 끝날 때까지 기다린다 —
     # 그래야 launchd 가 StartInterval 회차를 건너뛰어 이중 실행이 이중으로 막힌다.

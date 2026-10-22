@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# pr-eval.sh — PR eval harness 의 유일한 GitHub 게시 경로.
+# pr-quorum.sh — PR eval harness 의 유일한 GitHub 게시 경로.
 # 세션은 봇 토큰을 갖지 않는다. 이 스크립트가 자기 안에서 읽는다.
-# 계약(서브커맨드·종료 코드)은 tools/pr-eval/CLAUDE.md §3 에 있다.
+# 계약(서브커맨드·종료 코드)은 tools/pr-quorum/CLAUDE.md §3 에 있다.
 set -euo pipefail
 
-OWNER="${PR_EVAL_OWNER:-thswlsqls}"
-BOT_ENV="${PR_EVAL_BOT_ENV:-$HOME/.config/pr-eval/bot.env}"
+OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
+BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS_DIR="$HARNESS_DIR/runs"
 LOCK_TTL_SEC=10800   # 3시간
@@ -15,7 +15,7 @@ BIG_PR_LINES=3000
 # 종료 코드: 0 성공 · 1 사용법/인자 · 2 환경(토큰·meta 없음) · 3 게이트 위반 · 4 API 실패 · 5 락 점유
 E_USAGE=1; E_ENV=2; E_GATE=3; E_API=4; E_LOCK=5
 
-die() { echo "pr-eval: $2" >&2; exit "$1"; }
+die() { echo "pr-quorum: $2" >&2; exit "$1"; }
 
 TMP=""
 cleanup() { [ -n "${TMP:-}" ] && rm -rf "$TMP"; return 0; }
@@ -24,7 +24,7 @@ mktmp() { cleanup; TMP="$(mktemp -d)"; }
 
 usage() {
   cat >&2 <<'USAGE'
-usage: pr-eval.sh <subcommand> <repo> <pr> [args]
+usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
 
   조회 (봇 토큰 불필요)
     sha        <repo> <pr>                   현재 head SHA 를 출력한다
@@ -83,9 +83,9 @@ load_bot_token() {
   # source 하지 않고 watch.sh 처럼 값만 꺼낸다 — 파일에 셸 코드가 들어가도 실행되지 않는다.
   # 환경 변수도 보지 않는다. 밖에서 받은 GH_TOKEN 은 사용자 토큰이라 봇 대신 사용자 이름으로 게시된다
   local tok
-  tok="$(sed -n 's/^PR_EVAL_BOT_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
+  tok="$(sed -n 's/^PR_QUORUM_BOT_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
   [ -n "$tok" ] || tok="$(sed -n 's/^GH_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
-  [ -n "$tok" ] || die "$E_ENV" "$BOT_ENV 에 PR_EVAL_BOT_TOKEN 또는 GH_TOKEN 이 없다"
+  [ -n "$tok" ] || die "$E_ENV" "$BOT_ENV 에 PR_QUORUM_BOT_TOKEN 또는 GH_TOKEN 이 없다"
   export GH_TOKEN="$tok"
   unset GITHUB_TOKEN || true
 }
@@ -97,7 +97,7 @@ now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # 락에 적을 pid — 이 스크립트는 즉시 끝나므로 자기 pid 를 적으면 다음 확인에서 바로 죽은 락이 된다.
 # 조상 중 claude 세션 프로세스를 찾아 그 pid 를 쓴다. 없으면(=watcher 가 부른 경우) 직속 부모를 쓴다.
 owner_pid() {
-  if [ -n "${PR_EVAL_LOCK_PID:-}" ]; then echo "$PR_EVAL_LOCK_PID"; return; fi
+  if [ -n "${PR_QUORUM_LOCK_PID:-}" ]; then echo "$PR_QUORUM_LOCK_PID"; return; fi
   local p="$PPID" name
   while [ "${p:-0}" -gt 1 ]; do
     name="$(ps -o comm= -p "$p" 2>/dev/null | sed 's|.*/||' || true)"
@@ -246,7 +246,7 @@ cmd_risk() {
     (.categories[] | "| \(.title) | \(.points) / \(.max) | \([.signals[] | select(.points > 0) | "\(.name) \(.points)\(.hits | files)"] | join("<br>") | if . == "" then "-" else . end) |"),
     "| **합계** | **\(.score)** / 100 | |\n",
     "low 0–14 자동 머지 · medium 15–39 사람 1명 승인 · high 40–69 해당 분야 리뷰 · critical 70+ 또는 평문 비밀값. low 가 아니면 체인은 머지하지 않고 사람에게 넘깁니다.",
-    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `tools/pr-eval/03-risk.md` 에 있습니다."
+    "파일 경로와 변경 줄 수만 보고 기계로 매긴 점수입니다. 코드 품질 판정이 아니라, 잘못됐을 때 얼마나 아픈 변경인지를 잽니다. 규칙은 `tools/pr-quorum/03-risk.md` 에 있습니다."
   ' "$tmp/risk.json" > "$d/outputs/risk.md"
   cat "$d/outputs/risk.md"
 

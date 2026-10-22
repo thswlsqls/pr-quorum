@@ -1,5 +1,5 @@
 ---
-name: pr-eval-judge
+name: judge
 description: PR eval harness 의 평가위원·반박자·문서 검증자. 오케스트레이터가 축 절과 규칙 전문을 프롬프트 본문으로 넘긴다. 자기 축 하나만 보고 결과를 텍스트로 반환한다.
 tools: Read, Grep, Glob, Bash, mcp__context7__resolve-library-id, mcp__context7__query-docs
 ---
@@ -14,7 +14,7 @@ tools: Read, Grep, Glob, Bash, mcp__context7__resolve-library-id, mcp__context7_
 > `Bash` 는 `grep`·`wc`·`jq`·`git diff` 같은 **조회에만** 쓴다.
 > 리다이렉션(`>`·`>>`)·`sed -i`·`mv`·`rm`·`git commit`·`git push` 를 쓰지 마라.
 >
-> **GitHub 에 아무것도 쓰지 마라.** 게시는 오케스트레이터가 `pr-eval.sh` 로만 한다.
+> **GitHub 에 아무것도 쓰지 마라.** 게시는 오케스트레이터가 `pr-quorum.sh` 로만 한다.
 
 ## 어떻게 답하나
 

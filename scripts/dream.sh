@@ -39,13 +39,13 @@ header() {  # header <상태>
 }
 header "작성 중" > "$out"
 
-prompt="tools/pr-eval/04-dream.md 를 읽고 그대로 따른다.
-이번에 볼 run: $(printf 'tools/pr-eval/runs/%s ' "$@")
+prompt="tools/pr-quorum/04-dream.md 를 읽고 그대로 따른다.
+이번에 볼 run: $(printf 'tools/pr-quorum/runs/%s ' "$@")
 지난 정리안: ${past[*]:-없음}"
 
 rc=0
 res="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
-    --setting-sources project --settings tools/pr-eval/dream-settings.json \
+    --setting-sources project --settings tools/pr-quorum/dream-settings.json \
     --tools Read,Grep,Glob --strict-mcp-config \
     -- "$prompt" < /dev/null )" || rc=$?
 

@@ -3,7 +3,7 @@
 # 자동 머지 문턱을 감이 아니라 기록으로 조정하려고 둔다(03-risk.md "문턱 조정"). GitHub 에 아무것도 쓰지 않는다.
 set -euo pipefail
 
-OWNER="${PR_EVAL_OWNER:-thswlsqls}"
+OWNER="${PR_QUORUM_OWNER:-thswlsqls}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WINDOW_DAYS=14
 

@@ -5,7 +5,7 @@
 축 정의문과 위원별 "볼 것 / 보지 않을 것"은 `profiles/<프로파일>.md`에 있다.
 
 > **경로 표기** — `00-criteria.md`·`runs/…`·`profiles/…`처럼 하니스 파일을 가리키는 경로는 하니스 디렉터리
-> (`tech-n-ai-backend/tools/pr-eval`) 기준이다. `api/auth/…`·`README.md`처럼 평가 대상을 가리키는 경로는
+> (`tech-n-ai-backend/tools/pr-quorum`) 기준이다. `api/auth/…`·`README.md`처럼 평가 대상을 가리키는 경로는
 > 평가 대상 저장소 루트 기준이다.
 
 ---
@@ -14,10 +14,10 @@
 
 > **평가 대상은 PR이다. 한 글자도 고치지 않는다.**
 >
-> 쓰기가 허용된 곳은 `tools/pr-eval/runs/<repo>-pr<N>/` 아래뿐이다. `_memory/learnings.md` 는 읽기만 하고, 배운 것은 같은 run 의 `learning-candidates.md` 에 후보로 적는다.
+> 쓰기가 허용된 곳은 `tools/pr-quorum/runs/<repo>-pr<N>/` 아래뿐이다. `_memory/learnings.md` 는 읽기만 하고, 배운 것은 같은 run 의 `learning-candidates.md` 에 후보로 적는다.
 > 평가 대상 저장소의 코드·문서·설정은 전부 읽기 전용이다. 워크트리에 체크아웃했더라도 마찬가지다.
 >
-> **GitHub에 쓰는 것은 `scripts/pr-eval.sh`뿐이다.** 세션은 `gh api`로 직접 게시하지 않는다.
+> **GitHub에 쓰는 것은 `scripts/pr-quorum.sh`뿐이다.** 세션은 `gh api`로 직접 게시하지 않는다.
 > 봇 토큰은 세션이 갖지 않는다 — 스크립트가 자기 안에서 읽는다.
 >
 > **위원과 검증자는 아무 파일도 쓰지 않는다.** 채점 결과를 텍스트로 반환하는 것이 전부다.
