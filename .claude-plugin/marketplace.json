@@ -1,0 +1,15 @@
+{
+  "name": "pr-quorum",
+  "description": "pr-quorum 플러그인 하나를 싣는 마켓플레이스",
+  "owner": {
+    "name": "thswlsqls",
+    "url": "https://github.com/thswlsqls"
+  },
+  "plugins": [
+    {
+      "name": "pr-quorum",
+      "source": "./",
+      "description": "여러 위원이 PR 을 리뷰하고 리스크 점수로 머지 여부를 정하는 하니스"
+    }
+  ]
+}
