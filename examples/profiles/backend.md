@@ -53,7 +53,7 @@ A global Jackson `Long`→`String` serializer protects precision on the frontend
 | **R-H** | Maintainability | Dead code · calls to methods that do not exist · hardcoded URLs · observability |
 | **R-I** | **Security** | **Conditional axis** — see below. Does an unauthorized principal get through? Does a value leave that must not? Does the code trust input it must not trust? |
 
-**Axis notation for comment bodies** — use the names in the table above exactly as written.
+**Axis notation for comment bodies** — in a PR written in this profile's language, use the names in the table above exactly as written. In other PRs, translate them (`rules/00-criteria.md` §6).
 
 ```
 R-A (Design–implementation consistency)   R-B (Data correctness)   R-C (Concurrency & atomicity)   R-D (Interface contract)

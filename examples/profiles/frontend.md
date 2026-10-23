@@ -37,7 +37,7 @@ The axis **codes are the same as backend, but three axes mean something differen
 | **R-G** | Tests | **Conditional axis** — see below |
 | **R-H** | Maintainability (incl. accessibility) | Design system consistency · **accessibility** · dead code |
 
-**Axis notation for comment bodies** — use the names in the table above exactly as written. **Three axis names differ from backend.**
+**Axis notation for comment bodies** — in a PR written in this profile's language, use the names in the table above exactly as written. In other PRs, translate them (`rules/00-criteria.md` §6). **Three axis names differ from backend.**
 
 ```
 R-A (Design–implementation consistency)   R-B (Data correctness)   R-C (State races)      R-D (Interface contract)

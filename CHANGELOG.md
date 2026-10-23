@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Axis names in posted comments and the summary legend (names and headers) follow the PR's language, like the rest of the review. When the profile is in another language, the session translates the names and keeps one translation per axis for the whole PR. Before, they were copied from the profile, so a Korean PR got English axis names with an English profile.
+
 ## 0.2.0
 
 - Docs, prompts, and script messages are in English.

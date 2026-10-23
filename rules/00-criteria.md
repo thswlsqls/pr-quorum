@@ -161,8 +161,10 @@ The first line of an inline comment body has this format.
 **Write the axis name along with the code, not the code alone.** With only `R-B`, the author has to open the profile document to learn which axis it is.
 A comment is read and judged by the author on the spot, so the meaning of the axis must be in the body.
 
-Use the axis name **exactly as written in the profile's §1 axis definition table**. The same code has different names in different profiles
+Take the axis name from **the profile's §1 axis definition table**. The same code has different names in different profiles
 (e.g. `R-C` is `Concurrency & atomicity` in backend and `State races` in frontend).
+Write the name in the PR's language, like the rest of the text. If the profile is in another language, translate the table's name,
+and use one translation per axis for the whole PR — comment headers, the summary axis legend, and later stages. If the bot already posted on this PR, reuse the names it used.
 
 If one comment covers two axes, join them with `·`.
 
@@ -175,7 +177,8 @@ If any of code, label, axis code, or axis name is missing, PG5 catches it.
 ### Put an axis legend in the summary body once
 
 Even though each comment carries the name, the summary's blocking order table has narrow cells and fits only the code.
-So place a **code ↔ name table once** somewhere in the summary. Take it as-is from the profile's §1 axis definition table.
+So place a **code ↔ name table once** somewhere in the summary. Take the codes and names from the profile's §1 axis definition table,
+and write the names and the table headers in the PR's language, with the same translation as the comment headers ("Posting format" above).
 
 | Code | Axis | Code | Axis |
 |---|---|---|---|
@@ -185,7 +188,8 @@ So place a **code ↔ name table once** somewhere in the summary. Take it as-is 
 | `R-D` | Interface contract | `R-H` | Maintainability |
 | `R-I` | Security | — | — |
 
-(The above follows the backend profile. In frontend, `R-C`·`R-E` have different names and there is no `R-I`.
+(The above follows the backend profile in an English PR. In a Korean or Chinese PR, translate the headers and names too.
+In frontend, `R-C`·`R-E` have different names and there is no `R-I`.
 `R-I` is a conditional axis, so include it in the legend **only in rounds where it fired**.)
 
 **Write all GitHub text in the language of the PR title and description. If unclear, use English.**
