@@ -9,25 +9,18 @@
   </picture>
 </p>
 
-A Claude Code plugin that splits a GitHub PR review across several Claude sessions, re-checks and re-measures after the author addresses the review, and uses a risk score to decide whether to merge.
-Assigning the bot account as a reviewer on a PR starts the review, and the review is posted like a human reviewer's: one summary plus inline comments attached to lines of code.
+A Claude Code plugin that reviews your GitHub PRs with several Claude sessions, has an author session apply the review, checks the fixes, re-runs the build and tests, and uses a risk score to decide whether to merge.
 
-It is the harness that ran in `tools/pr-eval/` of a personal repository (tech-n-ai-backend), moved into a plugin. Every PR number below refers to a PR in that repository.
+Request a review from your bot account on a PR and the rest runs unattended. The review is posted like a human reviewer's: one summary plus inline comments on lines of code.
 
-## What it does
+## How it works
 
-The review is attached in three stages. If you review once and stop, nobody checks whether the findings were actually addressed or whether the review missed something.
-
-| Stage | Question | What it does |
-|---|---|---|
-| Stage 1 · review | What defects does this PR have? | Four judges split the review axes and look for defects without seeing each other's results. A challenger re-checks each `critical`/`major` finding against the actual code, and three verifiers re-read the review from the angles of evidence, quotations, and the author. If the criteria are not met it runs another round, up to 5 rounds |
-| Stage 2 · followup | Did the author do what the review asked? | Replies in each comment's thread with one verdict: `addressed` (반영), `partial` (부분), `not-addressed` (미반영), or `regressed` (역행). `regressed` means the fix introduced a new defect |
-| Stage 3 · measured | Does the review hold up when measured? | Re-runs the build and tests on the commit with the fixes, and looks for defects the review missed (`P`) |
-
-Judges, challengers, and verifiers all run as the `pr-quorum:judge` agent, and the `/pr-quorum:review` skill drives the stages.
-Addressing the review is done not by the bot but by a separate author session (`/pr-quorum:author`). The author session pushes only to the PR branch with the user's gh account, and never force-pushes, merges, or approves.
-
-Once the bot is assigned as a reviewer, the watcher (`scripts/watch.sh`) finds it within 60 seconds and starts the chain (`scripts/chain.sh`). The chain runs the sequence below without a human.
+| Stage | What it does |
+|---|---|
+| Stage 1 · review | Four judges review the PR on separate axes without seeing each other's results. A challenger re-checks every `critical`/`major` finding against the code, and three verifiers re-read the review. Up to 5 rounds |
+| Author | A separate session (`/pr-quorum:author`) fixes the code and pushes to the PR branch with your gh account. It never force-pushes, merges, or approves |
+| Stage 2 · followup | Replies in each thread with `addressed`, `partial`, `not-addressed`, or `regressed` (the fix introduced a new defect) |
+| Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
 
 ```mermaid
 flowchart LR
@@ -41,36 +34,31 @@ flowchart LR
   RG -- "medium or higher" --> H["needs-human<br/>a human reviews and merges"]
 ```
 
-The risk gate does not judge whether the code is good. It scores only which files changed and by how much. A PR that touches authentication code, secrets, CI, build scripts, or the harness itself scores higher and is not merged automatically. The bot leaves the scorecard as a PR comment. The rules are in [`rules/03-risk.md`](rules/03-risk.md).
+The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically. Rules: [`rules/03-risk.md`](rules/03-risk.md).
 
-## A real review
+### Example
 
-This is the review the bot left on tech-n-ai-backend PR #67 (a fix that decodes `&amp;` last so RSS text is not decoded twice). The PR was written in English, so the bot wrote in English. The Korean README shows a Korean PR and the Chinese README a Chinese one.
-
-The review summary. It lists what could block the merge first, then a table of what each review axis flagged and what it could not verify.
+The bot's review on PR #67 of tech-n-ai-backend, where this harness came from. The review follows the PR's language.
 
 ![Review summary the bot left on PR #67](assets/review-summary-en.png)
 
-One inline comment. It is attached to the problem line and names the files and line numbers it cites as evidence. In the middle is the author's reply, and below it is the Stage 2 verdict the bot left in the same thread after the author's fix.
-
 ![Inline comment and follow-up verdict on PR #67](assets/inline-comment-en.png)
 
-On this PR, Stage 1 left 3 comments (2 nits and 1 praise). After the author's fixes, Stage 2 judged both nits `addressed`, and Stage 3 found no defect the review had missed. The risk gate scored it 0 points (`low`), and the chain merged it.
+Stage 1 left 2 nits and 1 praise. Stage 2 judged both nits `addressed`, Stage 3 found nothing missed, the risk score was 0 (`low`), and the chain merged it.
 
-## How it differs from other review tools
+## Design choices
 
-Only what the operating records and rule documents confirm is listed here. It means the process is strict, not that the review is proven more accurate (see "What we don't know yet" below).
-
-- **It grades evidence, and checks separately whether a quotation actually supports the conclusion.** Evidence falls into four kinds: the repository's normative documents, quotations from official documentation, `file:line` in the code, and results of running something directly. A claim that goes beyond what its grade allows is dropped as invalid. Where the quotation is correct but the conclusion goes beyond it, verifier V2 catches it ([`rules/00-criteria.md`](rules/00-criteria.md) §4, [`rules/02-judges.md`](rules/02-judges.md) §6).
-- **It judges separately whether a fix made things worse (`regressed`), and re-measures after the fix.** The first Stage 2 on PR #33 produced 2 `regressed` and 1 `not-addressed`, and Stage 3 found missed defects: 2 on #33 and 1 on #34.
-- **It pins confirmed facts in `frozen.md`.** To avoid repeating the same argument round after round, overturning a confirmed fact requires new evidence that it is wrong (invalidation condition I-4).
-- **Rules, prompts, and gates are all open to inspection and change.** The rules are in [`rules/`](rules/), the instructions given to judges are in [`rules/02-judges.md`](rules/02-judges.md), and the gates are in [`scripts/`](scripts/). You can trace why a finding was raised through the round logs in `~/.pr-quorum/runs/`.
-
-The review does not use scores. A total score makes the author argue with the score instead of fixing the code, so there are only four grades: `critical`, `major`, `minor`, `nit`. At least one praise is always written.
+- **Evidence is graded.** A finding must cite a repository norm document, an official doc quotation, a `file:line`, or a result of running something. A claim beyond what its evidence supports is dropped ([`rules/00-criteria.md`](rules/00-criteria.md) §4).
+- **No scores in the review.** Only four grades (`critical`, `major`, `minor`, `nit`), and at least one praise.
+- **Confirmed facts are pinned** in `frozen.md`, so rounds don't re-argue them without new evidence.
+- **Everything is inspectable.** Rules in [`rules/`](rules/), judge instructions in [`rules/02-judges.md`](rules/02-judges.md), gates in [`scripts/`](scripts/), and per-round logs in `~/.pr-quorum/runs/`.
 
 ### Where the criteria come from
 
-The order of the review axes and how far each one goes come from published code review guidelines. This harness drops any claim that goes beyond what its quotation says, so the rules themselves were also set within the scope of their quotations.
+The review axes and how far each goes are taken from published guidelines, and each rule stays within what its quotation says.
+
+<details>
+<summary>Sources and quotations</summary>
 
 | Harness rule | Source | Sentence it rests on |
 |---|---|---|
@@ -84,73 +72,49 @@ The order of the review axes and how far each one goes come from published code 
 | Why the first item of the security axis (`R-I`) is missing authorization | OWASP, [ASVS 5.0.0](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md) V8 Authorization, 8.2.2 (Level 1) | "Verify that the application ensures that data-specific access is restricted to consumers with explicit permissions to specific data items to mitigate insecure direct object reference (IDOR) and broken object level authorization (BOLA)." |
 | Basis for treating tokens or credentials left in logs as a defect | [Same standard](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md) V16 Security Logging and Error Handling, 16.2.5 (Level 2) | "Verify that when logging sensitive data, the application enforces logging based on the data's protection level. For example, it may not be allowed to log certain data, such as credentials or payment details. Other data, such as session tokens, may only be logged by being hashed or masked, either in full or partially." |
 
-This is also why the test axis does not push hard. The sentence it rests on, *"Ask for unit, integration, or end-to-end tests **as appropriate** for the change."*, offers a choice, so writing "these tests are missing, so blocking" goes beyond what the quotation supports.
+The test axis does not push hard because its source, *"Ask for unit, integration, or end-to-end tests **as appropriate** for the change."*, offers a choice, so "these tests are missing, so blocking" would go beyond it.
 
-> The Google eng-practices repository is archived (last push 2024-09-19). The quotations above are from the documents as of that date.
->
-> ASVS is not run as a checklist. The two quotations serve only as the basis for the security axis definition. Many of the standard's requirements can only be judged by looking at configuration, architecture, and runtime environment, while the bot sees the PR's diff, so running the whole checklist would produce mostly findings with no line of code to cite as evidence.
+The Google eng-practices repository is archived (last push 2024-09-19); the quotations are from that date. ASVS is not run as a checklist: most of its requirements need configuration and runtime context that a PR diff does not show.
 
-The definitions of the review axes, and what each axis does and does not look at, are in [`examples/profiles/`](examples/profiles/).
+</details>
 
-## What we don't know yet
+Axis definitions are in [`examples/profiles/`](examples/profiles/).
 
-- **There are no human judgments of whether the reviews were right.** `human-labels.md`, where a human marks posted comments as right, wrong, or overreaching, is empty. So this harness's assumption that "a stricter process gives better reviews" has not been tested.
-- **It is expensive.** A full chain cost about $30 for a 30–70 line PR (#52 $30.2, #55 $28.2). PR #61 (9 files, 384 lines added, 13 deleted), the first PR run after the move to a plugin, took about 47 minutes from Stage 1 through the author's second pass, with a recorded total cost of $29.54. However, we have not confirmed whether this cost value (`total_cost_usd` from `claude -p`) is the whole session including subagents such as judges, challengers, and verifiers. If it is not, the real cost is higher.
-- **It has only actually run on one backend repository.** [`examples/profiles/frontend.md`](examples/profiles/frontend.md) is only a draft document, and there is no record of running it on a frontend PR.
+## Requirements
+
+- macOS (the watcher example uses launchd; the scripts are bash)
+- [Claude Code](https://code.claude.com/docs), `gh` logged in with your own account, `jq`, `git`
+- A separate GitHub bot account (see [Setup](#1-bot-account))
+- Personal repositories you own. PRs opened by anyone else are skipped
 
 ## Installation
 
-To install through the marketplace:
+To call the skills from a normal Claude Code session, install from the marketplace:
 
 ```
 /plugin marketplace add thswlsqls/pr-quorum
 /plugin install pr-quorum@pr-quorum
 ```
 
-With Claude Code 2.1.275 or later, one line inside a session also works.
-
-```
-/plugin install pr-quorum --marketplace thswlsqls/pr-quorum
-```
-
-A marketplace install receives a new release only when `version` in `.claude-plugin/plugin.json` goes up. If commits are merged to main but the version stays the same, the install does not change ([official docs](https://code.claude.com/docs/en/plugins/host-marketplace#release-a-new-version)). Get a new release from the shell as below. What changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
-
-```bash
-claude plugin update pr-quorum@pr-quorum
-```
-
-**However, the unattended chain does not use the marketplace install; it loads a cloned folder with `--plugin-dir`.** There are two reasons.
-
-- A plugin installed from the marketplace lives in a per-version folder under `~/.claude/plugins/cache/`, so its path changes on every update. There is no fixed path for the launchd configuration to point at.
-- The chain does not read user settings (`--setting-sources ""`), to keep tool permissions separate from this machine's settings. So an install enabled in user settings is not loaded into chain sessions.
-
-So for the chain, clone the repository and point the watcher and manual runs at that folder. In this document, `<plugin-dir>` is the absolute path of that clone.
+The unattended chain does **not** use that install. It runs with `--setting-sources ""` (so user-enabled plugins are not loaded) and needs a fixed path, so it loads a clone with `--plugin-dir`. In this document `<plugin-dir>` is the absolute path of that clone.
 
 ```bash
 git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 ```
 
-**Keep the runtime clone separate from your development copy.** A plugin loaded with `--plugin-dir` reads whatever files are in that folder each time a session starts. Point the watcher at a clone that only tracks main, and change the harness in another clone or worktree. That way a half-edited harness never runs a real review.
+Keep this clone on main and make harness changes in a different clone or worktree, so a half-edited harness never runs a real review.
 
-**The runtime clone does not update itself.** A clone loaded with `--plugin-dir` reads the files in the clone as they are, regardless of `version`. So `claude plugin update` does not change it, and even when new commits are merged to main the chain runs on the old files in the clone. To use the changes, pull them yourself with `git pull`.
-
-```bash
-git -C <plugin-dir> switch main && git -C <plugin-dir> pull --ff-only
-```
-
-## One-time setup
-
-You need `claude`, `gh` (logged in with your user account), `jq`, and `git`. The watcher example is for macOS launchd.
+## Setup
 
 ### 1. Bot account
 
-Each person using the plugin creates their own separate GitHub bot account to post reviews. There is no shared bot.
+Create your own GitHub bot account; there is no shared bot.
 
-- Invite it to the repositories to review as a **collaborator with read**. Read is enough to receive review requests.
-- The token is a PAT of that bot account, with scope `public_repo`.
-- The bot posts only reviews and comments. It does not approve or request changes. If the bot held the merge decision, people would bend the review to get past the bot.
+- Invite it to each repository as a **collaborator with read**. That is enough to receive review requests.
+- Create a PAT for it with scope `public_repo`.
+- Keep it at read. `public_repo` can write to public repositories, so raising the bot to write lets this token push.
 
-The only thing preventing the bot from changing code is the collaborator read role. The `public_repo` scope includes write access to public repositories, so the moment you raise the bot to write, this token can push.
+The bot only posts reviews and comments. It never approves or requests changes.
 
 ### 2. Token file
 
@@ -162,11 +126,9 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-Use either `PR_QUORUM_BOT_TOKEN` or `GH_TOKEN` as the key name. Only the one script that writes to GitHub (`scripts/pr-quorum.sh`) reads this file, internally, and review sessions are blocked from reading it. **Do not commit it to any repository.**
+`GH_TOKEN` also works as the key name. Only `scripts/pr-quorum.sh` reads this file; review sessions are denied access. Never commit it.
 
 ### 3. `~/.pr-quorum/config.json`
-
-State and settings that accumulate per PR live in one place outside the plugin, `~/.pr-quorum/`. Copy the sample [`templates/config.json`](templates/config.json) and edit it.
 
 ```bash
 mkdir -p ~/.pr-quorum/profiles
@@ -176,27 +138,26 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 | Key | Meaning |
 |---|---|
-| `owner` | GitHub owner login of the repositories to review. The watcher looks for review requests to the bot in this owner's repositories |
-| `bot` | Login of the bot account created in step 1. Must match the account of the token file |
-| `auto_merge` | Whether the chain merges a PR that passed both gates. The default is `false`, in which case the chain stops at `ready` and only leaves the risk scorecard |
-| `repos` | For each repository name, the absolute path of its local clone (`path`) and the profile name to use (`profile`) |
+| `owner` | Your GitHub login. The watcher looks for review requests in this owner's repositories |
+| `bot` | The bot login from step 1. Must match the token's account |
+| `auto_merge` | Whether the chain merges a PR that passed both gates. Default `false`: the chain stops at `ready` |
+| `repos` | Per repository name: the absolute path of its local clone (`path`) and the profile to use (`profile`) |
 
-`learnings.md` is the learning record that accumulates across PRs, and review sessions read it. `human-labels.md` is the table where a human judges the bot's comments. Start both as empty files.
-The chain places a `<repo-name>-worktrees/` folder next to each repository clone and creates one worktree per PR inside it.
+`learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
 ### 4. Profile
 
-A profile is the document that defines the review axes and what each judge does and does not look at. Copy a sample and adapt it to your repository's structure. The file name becomes the `profile` value in `config.json`.
+A profile defines the review axes and what each judge does and does not look at. Copy a sample and adapt it to your repository; the file name is the `profile` value.
 
 ```bash
 cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
-The two samples ([`backend.md`](examples/profiles/backend.md) · [`frontend.md`](examples/profiles/frontend.md)) were written for tech-n-ai's Spring Boot backend and Next.js frontend.
+The samples ([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md)) were written for a Spring Boot backend and a Next.js frontend.
 
 ### 5. Watcher (optional)
 
-Without the watcher running, assigning the reviewer does nothing. On macOS, put the following in `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` and run `launchctl load`. It is wrapped in `caffeinate -i` so the machine does not go to sleep.
+The watcher polls every 60 seconds for review requests to the bot. Without it, requesting a review does nothing and you run the chain by hand ([Usage](#usage)). On macOS, save the following as `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` and run `launchctl load` on it. `caffeinate -i` keeps the machine awake.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -222,48 +183,102 @@ Without the watcher running, assigning the reviewer does nothing. On macOS, put 
 </plist>
 ```
 
-To run it just once, use `<plugin-dir>/scripts/watch.sh --once`.
-The watcher handles PRs one at a time in order, and does not run while the machine is off. When it comes back on, it handles the backlog first.
+To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher handles one PR at a time; requests made while the machine was off are picked up when it comes back.
 
-## Safeguards and remaining risks
+## Usage
 
-**Tool permissions are set on the command line, not by the plugin.** The chain starts each session with `claude -p --settings <rendered-settings-file> --permission-mode dontAsk`, which refuses any tool not on the allow list without asking. Review sessions cannot edit anything outside `~/.pr-quorum/runs/`, write to GitHub only through the designated script, and cannot read the bot token file. `chain.sh` renders the settings files from the templates in [`templates/`](templates/) into `~/.pr-quorum/` every time it runs.
+`<repo>` below is a repository name under `repos` in `config.json`, and `<pr>` is the PR number.
 
-So **when a human calls `/pr-quorum:review` interactively, this protection is absent.** To apply the same permissions when running by hand, start it as below. `~/.pr-quorum/settings.json` exists after `chain.sh` has run once.
+### Review a PR
+
+Open the PR (not as a draft) and add the bot account as a reviewer. Within a minute the watcher starts the chain, which runs Stage 1 through the merge decision.
+
+Follow progress in the watcher log, or in the PR's state file:
+
+```bash
+tail -f ~/Library/Logs/pr-quorum-watch.log
+jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
+```
+
+The chain ends in one of these states (`chain.state`):
+
+| State | Meaning | What to do |
+|---|---|---|
+| `merged` | Passed both gates with `auto_merge: true` | Nothing |
+| `ready` | Passed both gates; `auto_merge` is off | Merge it yourself |
+| `needs-human` | Risk is `medium` or higher, or Stage 3 found missed `critical`/`major` defects | Review and decide yourself. The risk scorecard is on the PR |
+| `blocked` | Merge gate failed, a merge conflict, a session left no record, or the head moved | Read `chain.reason`, fix the cause, then run the chain again |
+
+### Run the chain by hand
+
+Without the watcher, or to resume a `blocked` chain, run it directly. It resumes where it stopped.
+
+```bash
+<plugin-dir>/scripts/chain.sh <repo> <pr>
+```
+
+### Run one stage
+
+To run a single stage interactively, start Claude Code with the same permissions the chain uses. A plain session does not have them. `~/.pr-quorum/settings.json` exists after `chain.sh` has run once.
 
 ```bash
 claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <plugin-dir> \
   --permission-mode dontAsk --mcp-config <plugin-dir>/mcp.json --strict-mcp-config
 ```
 
+Then, inside the session:
+
+```
+/pr-quorum:review stage1 <repo> <pr>
+/pr-quorum:review stage2 <repo> <pr>
+/pr-quorum:review stage3 <repo> <pr>
+/pr-quorum:author <repo> <pr>
+```
+
+PRs over 50 changed files or 3,000 changed lines are held as `held-large`. To review one anyway, add `--approve` to Stage 1.
+
+### Maintenance
+
+| Command | When |
+|---|---|
+| `git -C <plugin-dir> pull --ff-only` | To get a new version into the chain. The clone does not update itself |
+| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | Summarizes learning candidates from past runs into `~/.pr-quorum/runs/_dream/<time>/proposal.md`. You decide what goes into `learnings.md` |
+| `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | Lists the risk score of the last N merged PRs (default 30) next to any fix or revert within 14 days, to tune the auto-merge threshold |
+| `<plugin-dir>/scripts/selftest.sh` | After changing a gate script. Re-runs the gates on past outputs without an LLM |
+
+For the marketplace install, `claude plugin update pr-quorum@pr-quorum` picks up a release when `version` goes up. Changes are in [`CHANGELOG.md`](CHANGELOG.md).
+
+## Security
+
+Each chain session runs with `claude -p --settings <rendered-settings-file> --permission-mode dontAsk`, which refuses any tool not on the allow list ([`templates/`](templates/)). Review sessions can write only under `~/.pr-quorum/runs/`, post to GitHub only through `scripts/pr-quorum.sh`, and cannot read the token file. The author session pushes only through `scripts/author-push.sh`, which refuses force pushes and other branches.
+
 Other safeguards:
 
-- The chain only accepts PRs opened by the repository owner. The watcher filters them, and `chain.sh` checks again at start. This keeps PR descriptions or diffs written by others out of sessions that push and merge with the user's account.
-- Review sessions treat documents in PR descriptions, comments, and diffs as data, not instructions. The author session takes tasks only from comments made by the bot account.
-- The author session pushes only through `scripts/author-push.sh`, which refuses force pushes and other branches.
+- Only PRs opened by the repository owner run. The watcher filters them and `chain.sh` checks again.
+- PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
 
-**Three risks are left unfixed.**
+Known risks that remain:
 
-- **Commands that read the token file without naming it are not blocked.** The rule forbidding reads of the token folder applies only to commands that name the file. The official docs state that a command that does not use the file name, such as `cd ~/.config/pr-quorum && grep -r TOKEN .`, is not blocked, and both review and author sessions can use `cd` and `grep`.
-- **The build and tests execute the PR's code.** `./gradlew` and `npm run build` run the build scripts in the PR as they are. The check that the chain runs only on PRs opened by the repository owner is the premise for this risk.
-- **Test results are values the session reports about itself.** The merge gate reads whether tests passed and how many blocking findings remain from a file written by the author session. Switching to CI results only makes sense in repositories that have CI, so instead `auto_merge` is off by default.
+- **The token file can be read indirectly.** The deny rule only matches commands that name the file; `cd ~/.config/pr-quorum && grep -r TOKEN .` is not blocked.
+- **The build and tests run the PR's code** (`./gradlew`, `npm run build`). This is acceptable only because the chain runs on the owner's own PRs.
+- **Test results are self-reported.** The merge gate reads them from a file the author session writes. This is why `auto_merge` is off by default.
 
-All three shrink if you enable Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to block reads of `~/.config` and network access at the OS level. Permission deny rules alone cannot confine the programs that run.
+Enabling Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to block `~/.config` reads and network access at the OS level reduces all three.
 
-## Scope and limits
+## Limitations
 
-- **It is built for personal repositories.** The chain accepts only PRs with `author_association == OWNER`. In organization repositories it also skips PRs opened by members. It fails closed, so it will be changed when someone asks for it.
-- **The risk score rules are fitted to tech-n-ai's structure.** The risk score uses only changed file paths and line counts, so the same diff always gets the same score. But the path rules (`common/security/`, the Gateway's `filter/`, `/api/bff/auth/`, etc.) are fitted to tech-n-ai, so in another repository changing authentication code may not raise the score. That is why `auto_merge` is off by default. Before turning it on, check that [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` also fit your repository.
-- **Large PRs are not reviewed.** If more than 50 files changed or added plus deleted lines exceed 3,000, the chain holds the PR and only leaves a notice on it.
-- **Some characters cannot appear in paths.** The chain fills the settings templates with `sed`, so permission rules break if the plugin folder path contains `|` or `&`, or a repository path in `config.json` contains `*` or `[`.
-- **Only GitHub is supported, on a single machine.** The watcher polls, so the machine must be on.
-- **Review text follows the PR's language.** The risk scorecard and notices generated by scripts are in English.
+- **Unvalidated.** No human has yet graded whether the reviews were right (`human-labels.md` is empty), so "a stricter process gives better reviews" is untested.
+- **Expensive.** About $30 per full chain for a 30–70 line PR. A 9-file, ~400-line PR took about 47 minutes. These figures come from `total_cost_usd` and may not include subagent cost.
+- **Tested on one backend repository.** The frontend profile has never run.
+- **Risk rules are fitted to tech-n-ai's paths** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
+- **Personal repositories only.** In an organization, PRs from members are skipped too.
+- **GitHub only, one machine.** The watcher polls, so the machine must be on.
+- **Path restrictions.** The plugin path must not contain `|` or `&`, and repository paths in `config.json` must not contain `*` or `[`.
+- Script-generated scorecards and notices are in English; review text follows the PR's language.
 
-## Suggesting improvements
+## Contributing
 
-`learnings.md` accumulates separately for each user in `~/.pr-quorum/`. If a proposal from `scripts/dream.sh` has items that would fit other repositories too, please open an issue or PR on this repository. PRs from outside are reviewed by a human, not by the chain.
-
-The internal document to read when changing or operating the plugin is [`docs/harness.md`](docs/harness.md). It covers script contracts, output specs, and facts confirmed by measurement.
+Issues and PRs are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
