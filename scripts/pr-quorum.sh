@@ -6,6 +6,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/build-sandbox.sh"
 require_dotcom
 SLUG=""   # <owner>/<repo> of the repository argument, set at the entry point (config.sh repo_slug)
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
@@ -567,10 +568,18 @@ cmd_build() {
     esac
   fi
 
+  # The build runs PR-controlled files, so it gets an emptied environment (scripts/build-sandbox.sh). build.env_passthrough adds names
+  local pass n
+  pass="$(cfg '.build.env_passthrough // [] | .[]')"
+  for n in $pass; do
+    sandbox_env_ok "$n" || die "$E_ENV" "build.env_passthrough refuses $n (not a variable name, or looks like a credential)"
+  done
+
   echo "pr-quorum: running in $real: $c" >&2
   # The command's own exit code and output pass through as-is
   local rc=0
-  (cd "$real" && exec bash -c "$c") || rc=$?
+  # shellcheck disable=SC2086  # pass holds checked variable names, one per word
+  sandbox_run env "$top" "$real" "$c" ${pass:-} || rc=$?
   return "$rc"
 }
 
