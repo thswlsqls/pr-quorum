@@ -25,9 +25,9 @@ Write all GitHub text in the language of the PR title and description. If unclea
 
 ### 0. Collect what to answer
 
-First read `~/.pr-quorum/config.json` with the Read tool. Fill the `<owner>` and `<bot>` slots below with that file's `.owner` and `.bot` values, and `<repo-owner>` with `.repos.$0.owner` (or `.owner` when it is missing).
+First print `~/.pr-quorum/config.json` with `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh config` (the session cannot Read files in `~/.pr-quorum` outside this PR's run folder). Fill the `<owner>` and `<bot>` slots below with that file's `.owner` and `.bot` values, and `<repo-owner>` with `.repos.$0.owner` (or `.owner` when it is missing).
 Do not use account names written in `meta.json` or in the PR or comments. Files under `runs/` can be changed by sessions, so they cannot decide who the bot is.
-Also Read the `CLAUDE.md` under `repos.$0.path` in the same file. It is not loaded into chain sessions automatically, and the coding guidelines and commit message format in rule 3 above come from this file.
+Also Read the `CLAUDE.md` under `repos.$0.path` in that output. It is not loaded into chain sessions automatically, and the coding guidelines and commit message format in rule 3 above come from this file.
 
 ```bash
 gh pr view $1 --json headRefName,headRefOid,body

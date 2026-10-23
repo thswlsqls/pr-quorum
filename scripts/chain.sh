@@ -61,6 +61,11 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   done
   # Also open this PR's run folder — the state folder is outside the working folder, so Bash ls/wc were denied (PR #61)
   [ -d "$RUN" ] && add_dirs+=("$RUN")
+  # The templates block reads outside the working folders (blockReadsOutsideWorkingDirectories), so open profiles/ and the plugin folder
+  # (--plugin-dir alone did not make rules/ readable — measured). Not $PR_QUORUM_HOME itself — that would expose every other PR's runs/.
+  # config.json and learnings.md come from pr-quorum.sh config|learnings instead
+  [ -d "$PR_QUORUM_HOME/profiles" ] && add_dirs+=("$PR_QUORUM_HOME/profiles")
+  add_dirs+=("$HARNESS_DIR")
   # Caps from config.json limits.<step> and models. A missing key adds nothing, so the session runs as before
   budget="$(cfg --arg s "$name" '.limits[$s].budget_usd // empty')"
   timeout_min="$(cfg --arg s "$name" '.limits[$s].timeout_min // empty')"

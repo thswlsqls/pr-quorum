@@ -53,6 +53,17 @@ check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
 check "risk Python test file"        risk_score "tests/test_api.py" 0
 check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
 
+# Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
+cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
+  jq -c '[.permissions.deny[] | select(startswith("Read(")) | select(IN("Read(~/.claude/**)", "Read(/__PLUGIN_ROOT__/docs/**)") | not)] | sort' \
+    "$HARNESS_DIR/templates/$1"
+}
+same_cred_deny() {
+  local s a d; s="$(cred_deny settings.json)"; a="$(cred_deny author-settings.json)"; d="$(cred_deny dream-settings.json)"
+  [ "$s" != "[]" ] && [ "$s" = "$a" ] && [ "$s" = "$d" ] || { printf 'settings: %s\nauthor:   %s\ndream:    %s\n' "$s" "$a" "$d"; return 1; }
+}
+check "templates share the credential Read deny" same_cred_deny
+
 # Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
 for t in "$HARNESS_DIR"/README.*.md; do
   [ -f "$t" ] || continue

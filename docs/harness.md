@@ -74,6 +74,7 @@ The order `J1`–`J4` is not a score but **deduplication priority** — if the d
 |---|---|---|---|
 | `sha` | `<repo> <pr>` | Prints the current head SHA | Not needed |
 | `meta` | `<repo> <pr>` | Prints `meta.json` | Not needed |
+| `config` · `learnings` | (none) | Print `~/.pr-quorum/config.json` · `learnings.md` (nothing if missing). Sessions read these two through here because `~/.pr-quorum` itself is not a working folder of theirs (§6-2) | Not needed |
 | `precheck` | `<repo> <pr>` | Large-PR cutoff check (50 files / 3000 lines) | Not needed |
 | `ranges` | `<repo> <pr> <sha>` | Emits the line ranges that can take inline anchors, plus the diff body with line numbers (deleted lines carry old-file numbers, so they cannot be anchored). **It is loaded into the judge prompt to prevent anchors outside the diff in the first place** | Not needed |
 | `gate1` | `<repo> <pr> <sha> <comments.json>` | **PG1** — checks line by line that anchors are inside that SHA's diff | Not needed |
@@ -219,6 +220,7 @@ It does not run while the machine is off. Once on, it polls and handles the back
 | Does `--settings` replace `.claude/settings.local.json`? | **No. They merge.** The local allow list also applied to the headless session (re-measured 2026-10-04) | `chain.sh` uses `--setting-sources ""` so local, project, and user settings and their hooks are not read. Skills and agents are loaded with `--plugin-dir` and are called regardless of this value |
 | Can hooks be turned off? | `hooks:{}` does not turn them off. With `disableAllHooks: true` in both settings files, no `rtk` hook records appeared in measurement | Commands in headless sessions are not rewritten to `rtk …` |
 | Does deny actually block? | **Yes.** With `Bash(git config:*)` in deny, no value is left in `.git/config` | The safeguard actually works rather than being a documentation promise |
+| Reads outside the working folders | With the v0.3.0 templates under `dontAsk`, Bash reads of a path outside the working folders (`cat`·`head`·`grep`·`diff`·`jq -R`·`jq --rawfile`·`git diff [--no-index]`) were all denied even without a Read deny, but the **Read tool** read `~/.ssh/probe` (2026-10-23, 2.1.309) | Both session templates set `blockReadsOutsideWorkingDirectories: true`. `chain.sh` opens the run folder, `profiles/`, and the plugin folder with `--add-dir` (`--plugin-dir` alone left `rules/` unreadable — measured); `config.json`·`learnings.md` come from `pr-quorum.sh config`·`learnings` so other PRs' `runs/` stay closed. The three templates deny the same credential paths (`selftest.sh` compares them). Needs Claude Code 2.1.257+ (`doctor.sh`) |
 | MCP | Not filtered by `--settings`. playwright, filesystem, and memory all started | `--mcp-config <plugin-dir>/mcp.json --strict-mcp-config` leaves only context7 |
 
 > **Do not measure tool permissions by the session's self-report.** It answers inconsistently, saying the same command ran or was denied. Judge only by **observable side effects** (was a file created, was a setting value left).

@@ -20,6 +20,13 @@ finish() { [ "$fails" = 0 ] && { echo "doctor — all checks passed"; exit 0; };
 for c in claude gh jq git; do
   if command -v "$c" >/dev/null; then ok "command $c"; else bad "command $c not found — install it (README Requirements)"; fi
 done
+# Session templates set permissions.blockReadsOutsideWorkingDirectories, which needs Claude Code 2.1.257 or later
+if command -v claude >/dev/null; then
+  cv="$(claude --version 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -n "$cv" ] && awk -v v="$cv" 'BEGIN { split(v, a, "."); exit !(a[1] > 2 || (a[1] == 2 && (a[2] > 1 || (a[2] == 1 && a[3] >= 257)))) }'; then
+    ok "claude version $cv"
+  else bad "claude version ${cv:-unknown} — 2.1.257 or later is needed (blockReadsOutsideWorkingDirectories)"; fi
+fi
 command -v jq >/dev/null || finish   # everything below reads config.json with jq
 
 # 2) config.json and its required keys

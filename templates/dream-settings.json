@@ -11,8 +11,14 @@
       "Read(~/.config/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
-      "Read(~/.claude/**)",
-      "Read(//**/.env*)"
+      "Read(~/.gnupg/**)",
+      "Read(~/.netrc)",
+      "Read(~/.docker/**)",
+      "Read(~/.kube/**)",
+      "Read(~/.claude.json)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(//**/.env*)",
+      "Read(~/.claude/**)"
     ]
   }
 }
