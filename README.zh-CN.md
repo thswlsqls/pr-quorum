@@ -2,9 +2,14 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `67e2516`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `271a302`
 
-# pr-quorum
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="pr-quorum" width="240">
+  </picture>
+</p>
 
 一个 Claude Code 插件：把 GitHub PR 的审查分给多个 Claude 会话完成，在作者处理审查意见后再次核对并重新测量，并用风险分数决定是否合并。
 在 PR 上把机器人账号指定为审查者即开始审查，审查结果像人类审查者一样发布：一条摘要加上附在代码行上的行内评论。

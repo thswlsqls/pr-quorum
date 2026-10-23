@@ -2,9 +2,14 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `67e2516`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `271a302`
 
-# pr-quorum
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="pr-quorum" width="240">
+  </picture>
+</p>
 
 GitHub PR 을 여러 Claude 세션이 나눠 리뷰하고, 작성자가 반영한 뒤 다시 확인하고 실측해서, 리스크 점수로 머지할지 정하는 Claude Code 플러그인이다.
 봇 계정을 PR 의 리뷰어로 지정하면 리뷰가 시작되고, 리뷰는 사람 리뷰어처럼 요약 한 건과 코드 줄에 붙는 인라인 코멘트로 올라간다.
