@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `5dadc1b`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `4e43dff`
 
 <p align="center">
   <picture>
@@ -19,41 +19,80 @@
 
 | 阶段 | 做什么 |
 |---|---|
-| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。最多 5 轮 |
+| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。默认最多 5 轮(`limits.stage1.max_rounds`) |
 | 作者 | 独立的会话(`/pr-quorum:author`)修改代码，用你的 gh 账号推送到 PR 分支。从不强制推送、合并或批准 |
 | Stage 2 · followup | 在每个讨论串中回复 `addressed`(已落实)、`partial`(部分)、`not-addressed`(未落实) 或 `regressed`(倒退，修复引入了新缺陷) |
 | Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
 
 <details>
-<summary>Stage 1、2、3 一览</summary>
+<summary>Stage 1 · review(评审员 → 质询者 → 核验者)</summary>
 
 ```mermaid
 flowchart TD
-  RQ(["机器人被设为<br/>评审人"]) --> S1
-  RQ -. "held-large:<br/>超过 50 个文件或<br/>超过 3,000 行" .-> BL[blocked]
-  subgraph S1["Stage 1 · review · 最多 5 轮"]
+  subgraph J["四名评审员 · 各管一个维度 · 互不共享结果"]
     direction LR
-    S1a["四名评审员<br/>并行评审"] --> S1b["质询者"] --> S1c["三名<br/>核验者"]
+    J1[评审员 1] ~~~ J2[评审员 2] ~~~ J3[评审员 3] ~~~ J4[评审员 4]
   end
-  S1 -. "held-large 或<br/>与 main 冲突" .-> BL
-  S1 --> A1["作者第 1 次修复<br/>Stage 1<br/>的评论"]
-  A1 --> S2
-  subgraph S2["Stage 2 · followup"]
-    direction LR
-    S2a["四个视角"] --> S2b["逐条评论<br/>给出判定"] --> S2c["在每个<br/>讨论串回复"]
-  end
-  S2 --> S3
-  subgraph S3["Stage 3 · measured"]
-    direction LR
-    S3a["评审员、构建、<br/>测试"] --> S3b["按来源<br/>归类缺陷"] --> S3c["P：新的<br/>评审评论"]
-  end
-  S3 --> A2["作者第 2 次修复<br/>剩余问题"]
-  A2 -- "已推送" --> S2x["再次进入<br/>Stage 2"]
-  A2 -- "无需推送" --> G(["关卡(见下)"])
-  S2x --> G
+  J --> D["按修复方式<br/>去重"]
+  D --> C["质询者<br/>复查每条<br/>critical 或<br/>major 意见"]
+  C --> DR["总结草稿<br/>+ 评论"]
+  DR --> V["三名核验者<br/>检查草稿"]
+  V --> X{"退出条件<br/>已收敛、<br/>达到轮数<br/>上限，或<br/>同一处<br/>改写 4 次？"}
+  X -- "否" --> J
+  X -- "是" --> P(["发布总结<br/>+ 行内评论<br/>未收敛时<br/>列出未满足<br/>的条件"])
 ```
 
-各阶段的细节画在下方的折叠区块中。
+已收敛：指 [`rules/01-stages.md`](rules/01-stages.md) §4 中的退出条件。轮数上限是 `config.json` 中的 `limits.stage1.max_rounds`，未设置时为 5。
+
+Stage 1 之前，改动超过 50 个文件或 3,000 行的 PR 会被标为 `held-large`，链停在 `blocked`。Stage 1 之后，与 main 冲突的 PR 也停在这里。
+
+</details>
+
+<details>
+<summary>Stage 2 · followup(每条评论一个判定)</summary>
+
+```mermaid
+flowchart TD
+  IN(["机器人的评论<br/>+ 修复提交"]) --> L
+  subgraph L["四名评审员 · 各管一个视角"]
+    direction LR
+    L1["L1 修复的<br/>忠实度"] ~~~ L2["L2 准确性、<br/>倒退"] ~~~ L3["L3 文档<br/>与代码一致"] ~~~ L4["L4 倒退<br/>锁定"]
+  end
+  L --> V{"逐条评论<br/>给出判定"}
+  V -- regressed --> C["质询者<br/>复查该判定"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["回复草稿<br/>+ 最多 3 条<br/>新评论"]
+  C --> D
+  D --> P(["在每个讨论串<br/>回复一次"])
+```
+
+Stage 2 在作者修复 Stage 1 的评论后运行；Stage 3 之后作者第二次修复若有推送，会再运行一次。
+
+只要还留有 `regressed` 判定，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
+
+</details>
+
+<details>
+<summary>Stage 3 · measured(先测量，再按来源归类缺陷)</summary>
+
+```mermaid
+flowchart TD
+  IN(["修复后的提交"]) --> S
+  subgraph S["并行"]
+    direction LR
+    J["四名评审员<br/>Stage 1 维度"] ~~~ M["在 worktree 中<br/>构建和测试"]
+  end
+  S --> C["质询者<br/>核查每条 P<br/>和 critical"]
+  C --> O{"每个缺陷<br/>的来源"}
+  O -- "P：评审遗漏" --> NP["新的<br/>评审评论"]
+  O -- "Q：只修了一部分<br/>N：由修复引入" --> T["在 Stage 2<br/>讨论串中回复"]
+  NP --> G{"有 critical<br/>或 major<br/>的 P 吗？"}
+  G -- "是" --> H["关卡给出<br/>needs-human"]
+  G -- "否" --> OK(["照常进入关卡"])
+```
+
+Stage 3 在第一次 Stage 2 之后运行一次。
+
+无法测量的内容报告为 `not measured`。来源分类见 [`rules/01-stages.md`](rules/01-stages.md) §2-2。
 
 </details>
 
@@ -72,75 +111,11 @@ flowchart TD
   RG -- "medium 及以上" --> H["needs-human<br/>由人评审<br/>并合并"]
 ```
 
+会话若触及 `limits` 的预算或时间上限，链也会在进入关卡前停在 `blocked`。
+
 </details>
 
 风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
-
-<details>
-<summary>一轮 Stage 1 的内部(评审员 → 质询者 → 核验者)</summary>
-
-```mermaid
-flowchart TD
-  subgraph J["四名评审员 · 各管一个维度 · 互不共享结果"]
-    direction LR
-    J1[评审员 1] ~~~ J2[评审员 2] ~~~ J3[评审员 3] ~~~ J4[评审员 4]
-  end
-  J --> D["按修复方式<br/>去重"]
-  D --> C["质询者<br/>复查每条<br/>critical 或<br/>major 意见"]
-  C --> DR["总结草稿<br/>+ 评论"]
-  DR --> V["三名核验者<br/>检查草稿"]
-  V --> X{"退出条件<br/>已收敛、<br/>第 5 轮，或<br/>同一处<br/>改写 4 次？"}
-  X -- "否" --> J
-  X -- "是" --> P(["发布总结<br/>+ 行内评论<br/>未收敛时<br/>列出未满足<br/>的条件"])
-```
-
-已收敛：指 [`rules/01-stages.md`](rules/01-stages.md) §4 中的退出条件。
-
-</details>
-
-<details>
-<summary>Stage 2 的内部(每条评论一个判定)</summary>
-
-```mermaid
-flowchart TD
-  IN(["机器人的评论<br/>+ 修复提交"]) --> L
-  subgraph L["四名评审员 · 各管一个视角"]
-    direction LR
-    L1["L1 修复的<br/>忠实度"] ~~~ L2["L2 准确性、<br/>倒退"] ~~~ L3["L3 文档<br/>与代码一致"] ~~~ L4["L4 倒退<br/>锁定"]
-  end
-  L --> V{"逐条评论<br/>给出判定"}
-  V -- regressed --> C["质询者<br/>复查该判定"]
-  V -- "addressed · partial ·<br/>not-addressed" --> D["回复草稿<br/>+ 最多 3 条<br/>新评论"]
-  C --> D
-  D --> P(["在每个讨论串<br/>回复一次"])
-```
-
-只要还留有 `regressed` 判定，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
-
-</details>
-
-<details>
-<summary>Stage 3 的内部(先测量，再按来源归类缺陷)</summary>
-
-```mermaid
-flowchart TD
-  IN(["修复后的提交"]) --> S
-  subgraph S["并行"]
-    direction LR
-    J["四名评审员<br/>Stage 1 维度"] ~~~ M["在 worktree 中<br/>构建和测试"]
-  end
-  S --> C["质询者<br/>核查每条 P<br/>和 critical"]
-  C --> O{"每个缺陷<br/>的来源"}
-  O -- "P：评审遗漏" --> NP["新的<br/>评审评论"]
-  O -- "Q：只修了一部分<br/>N：由修复引入" --> T["在 Stage 2<br/>讨论串中回复"]
-  NP --> G{"有 critical<br/>或 major<br/>的 P 吗？"}
-  G -- "是" --> H["关卡给出<br/>needs-human"]
-  G -- "否" --> OK(["照常进入关卡"])
-```
-
-无法测量的内容报告为 `not measured`。来源分类见 [`rules/01-stages.md`](rules/01-stages.md) §2-2。
-
-</details>
 
 ### 示例
 
