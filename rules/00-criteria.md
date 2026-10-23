@@ -189,6 +189,7 @@ So place a **code ↔ name table once** somewhere in the summary. Take it as-is 
 `R-I` is a conditional axis, so include it in the legend **only in rounds where it fired**.)
 
 **Write all GitHub text in the language of the PR title and description. If unclear, use English.**
+Quotes used as evidence stay verbatim in their original language. If that is not the PR's language, follow the quote with a short translation in parentheses.
 
 ### Pre-post edit — cut once right before posting
 
