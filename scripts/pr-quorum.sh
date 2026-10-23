@@ -101,7 +101,24 @@ load_bot_token() {
   unset GITHUB_TOKEN || true
 }
 
-api() { gh api "$@" || die "$E_API" "gh api failed: $*"; }
+# Reads retry on 5xx, 429, a secondary rate limit, or a dropped connection: at most 3 tries, waiting 2 s then 5 s
+# (PR_QUORUM_API_BACKOFF overrides the waits; selftest sets "0 0"). 4xx such as 401, 404, 422 fail at once.
+# Anything that writes — a method, --input, or a field flag (gh api -f/-F turns the call into a POST) — is never retried:
+# a retried POST is a second review. post-review's adoption check covers that side instead.
+# Output is held in a file and printed only on success, so a --paginate that fails midway does not print its first pages twice
+api() {
+  local a d e w
+  for a in "$@"; do
+    case "$a" in -X*|--method*|--input*|-f*|-F*|--field*|--raw-field*) gh api "$@" || die "$E_API" "gh api failed: $*"; return 0 ;; esac
+  done
+  d="$(mktemp)"; e="$(mktemp)"
+  for w in ${PR_QUORUM_API_BACKOFF:-2 5} end; do
+    if gh api "$@" > "$d" 2> "$e"; then cat "$d"; rm -f "$d" "$e"; return 0; fi
+    [ "$w" != end ] && grep -qiE 'HTTP (5[0-9]{2}|429)|secondary rate limit|timeout|timed out|connection reset' "$e" || break
+    sleep "$w"
+  done
+  cat "$e" >&2; rm -f "$d" "$e"; die "$E_API" "gh api failed: $*"
+}
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -662,7 +679,7 @@ record_review() {
   local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" tmp="$TMP" merged
 
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
-  gh api --paginate "repos/$SLUG/pulls/$pr/comments" \
+  api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
              | map({id, path, line, body})' > "$tmp/posted.json" || return 1
 
