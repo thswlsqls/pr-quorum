@@ -24,17 +24,31 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 
 ```mermaid
 flowchart TD
-  RQ(["Bot requested<br/>as reviewer"]) --> S1["Stage 1 ·<br/>review<br/>up to 5 rounds"]
+  RQ(["Bot requested<br/>as reviewer"]) --> S1
   RQ -. "held-large:<br/>>50 files or<br/>>3,000 lines" .-> BL[blocked]
+  subgraph S1["Stage 1 · review · up to 5 rounds"]
+    direction LR
+    S1a["Four judges<br/>in parallel"] --> S1b["Challenger"] --> S1c["Three<br/>verifiers"]
+  end
   S1 -. "held-large or<br/>conflict with<br/>main" .-> BL
   S1 --> A1["Author pass 1<br/>fixes Stage 1<br/>comments"]
-  A1 --> S2["Stage 2 ·<br/>followup<br/>verdict per<br/>thread"]
-  S2 --> S3["Stage 3 ·<br/>measured<br/>build, tests,<br/>missed defects"]
+  A1 --> S2
+  subgraph S2["Stage 2 · followup"]
+    direction LR
+    S2a["Four lenses"] --> S2b["Verdict per<br/>comment"] --> S2c["Reply in<br/>each thread"]
+  end
+  S2 --> S3
+  subgraph S3["Stage 3 · measured"]
+    direction LR
+    S3a["Judges, build,<br/>tests"] --> S3b["Sort defects<br/>by origin"] --> S3c["P: new<br/>comments"]
+  end
   S3 --> A2["Author pass 2<br/>fixes what<br/>is left"]
-  A2 -- pushed --> S2b["Stage 2 ·<br/>followup"]
+  A2 -- pushed --> S2x["Stage 2<br/>again"]
   A2 -- nothing to push --> G(["Gates (below)"])
-  S2b --> G
+  S2x --> G
 ```
+
+Each stage is drawn in detail in the folded sections further down.
 
 ```mermaid
 flowchart TD
