@@ -183,23 +183,21 @@ The watcher polls every 60 seconds for review requests to the bot. Without it, r
 </plist>
 ```
 
-To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher handles one PR at a time; requests made while the machine was off are picked up when it comes back.
+To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher takes one PR at a time and picks up requests that arrived while the machine was off.
 
-On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only.
+On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer, without the macOS-only `caffeinate`.
 
-On a machine without a browser, `gh auth login` offers a one-time device code, or you can pipe a personal access token to `gh auth login --with-token`. Log in Claude Code once by running `claude` and pasting the login code when asked. Linux keeps that login in `~/.claude/.credentials.json`, where cron and systemd jobs can read it. A `claude setup-token` token in `CLAUDE_CODE_OAUTH_TOKEN` also works, but every session and build the chain runs inherits that variable.
+- **Login**: on a machine without a browser, log in to `gh` with the device code it offers or with `gh auth login --with-token`, and to Claude Code by running `claude` once. Claude Code stores the login in `~/.claude/.credentials.json`, so cron and systemd jobs can use it.
+- **cron**: unlike launchd, cron starts the watcher again while a chain is still running, so wrap it in `flock -n`. Otherwise a second chain can start on the same PR and stop it at `held-failed` after one real try. cron does not expand variables such as `$HOME`, so write `PATH` out in full.
 
-launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n`. Without it, the next tick starts the next PR alongside the running one. If the tick lands before the running PR's Stage 1 review is posted and while no session holds its lock, it also starts a second chain on that PR and counts another attempt, which can stop it at `held-failed` after one real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`. cron does not expand `$HOME` or other variables in the `NAME=value` lines:
+  ```
+  # crontab -e
+  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```
 
-```
-# crontab -e
-PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
-```
-
-With systemd, a timer with `OnBootSec=1min` and `OnUnitActiveSec=1min` that starts a `Type=oneshot` service needs no `flock`: the timer does not start the service again while it is still running. `OnUnitActiveSec=` alone never fires, because the service has not run yet. Set `PATH` with `Environment=` in the service. For a user timer, run `loginctl enable-linger` so it keeps running after you log out.
-
-On WSL2, enable systemd with `systemd=true` under `[boot]` in `/etc/wsl.conf`, then run `wsl --shutdown`, so cron or the timer starts with the distro. WSL shuts down a distro once it has been idle for 15 seconds (`instanceIdleTimeout`), for example after the last WSL terminal closes. Keep a terminal open, or set `instanceIdleTimeout=-1` under `[general]` in `%UserProfile%\.wslconfig`. WSL also does not start the distro when you log in to Windows: open a WSL terminal, or run `wsl.exe -d <distro>` from Task Scheduler at logon. Windows sleep pauses it too, so keep Windows awake while the watcher should run.
+- **systemd**: start a `Type=oneshot` service from a timer with both `OnBootSec=1min` and `OnUnitActiveSec=1min`; `OnUnitActiveSec=` alone never fires. The timer does not start the service while it is still running, so `flock` is not needed. Set `PATH` with `Environment=` in the service, and for a user timer run `loginctl enable-linger` so it keeps running after you log out.
+- **WSL2**: set `systemd=true` under `[boot]` in `/etc/wsl.conf` and run `wsl --shutdown`. WSL stops a distro after 15 seconds idle and does not start it when you log in to Windows, so set `instanceIdleTimeout=-1` under `[general]` in `%UserProfile%\.wslconfig` and run `wsl.exe -d <distro>` from Task Scheduler at logon. Keep Windows from sleeping as well.
 
 ## Usage
 
@@ -272,26 +270,6 @@ Other safeguards:
 
 - Only PRs opened by the repository owner run. The watcher filters them and `chain.sh` checks again.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
-
-Known risks that remain:
-
-- **The token file can be read indirectly.** The deny rule only matches commands that name the file; `cd ~/.config/pr-quorum && grep -r TOKEN .` is not blocked.
-- **The build and tests run the PR's code** (`./gradlew`, `npm run build`). This is acceptable only because the chain runs on the owner's own PRs.
-- **Test results are self-reported.** The merge gate reads them from a file the author session writes. This is why `auto_merge` is off by default.
-
-Enabling Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to block `~/.config` reads and network access at the OS level reduces all three.
-
-## Limitations
-
-- **Unvalidated.** No human has yet graded whether the reviews were right (`human-labels.md` is empty), so "a stricter process gives better reviews" is untested.
-- **Expensive.** About $30 per full chain for a 30–70 line PR. A 9-file, ~400-line PR took about 47 minutes. These figures come from `total_cost_usd` and may not include subagent cost.
-- **Tested on one backend repository.** The frontend profile has never run.
-- **Risk rules are fitted to the repository they were written for** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
-- **Personal repositories only.** In an organization, PRs from members are skipped too.
-- **GitHub only, one machine.** The watcher polls, so the machine must be on.
-- **Real reviews have run on macOS only.** On Linux, `selftest.sh` and the cron + `flock` watcher were checked in an Ubuntu 24.04 container with stand-in `gh` and `claude` commands. A real review on Linux, the systemd timer, and WSL2 have not been run.
-- **Path restrictions.** The plugin path must not contain `|` or `&`, and repository paths in `config.json` must not contain `*` or `[`.
-- Script-generated scorecards and notices are in English; review text follows the PR's language.
 
 ## Contributing
 
