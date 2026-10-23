@@ -162,7 +162,8 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 ## Requirements
 
 - macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the launchd watcher example is macOS-specific. Native Windows (PowerShell, cmd) is not supported
-- [Claude Code](https://code.claude.com/docs), `gh` logged in with your own account, `jq`, `git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git`
+- On Linux, `bwrap` (bubblewrap) for the build sandbox. macOS ships `sandbox-exec`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
 - Repositories on github.com. GitHub Enterprise Server and ghe.com are not supported
 - By default only PRs opened by the repository owner run; others are skipped. To run teammates' PRs, list them in `trust.authors` or `trust.associations`, and for an organization's repository set `repos.<name>.owner` ([Setup §3](#3-pr-quorumconfigjson)). A trusted author's PR description and diff reach sessions that push and merge under your gh account, so trust only people you would let do that
@@ -242,10 +243,12 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `repos` | Per repository name: the absolute path of its local clone (`path`) and the profile to use (`profile`) |
 | `repos.<name>.owner` | The repository's GitHub owner, a user or an organization. Missing: the top-level `owner` |
 | `repos.<name>.commands` | The `build`, `test`, and `lint` commands sessions run in a PR worktree; `<target>` in a command is filled in per run. Missing: `./gradlew [<target>:]build` and `test` in a Gradle worktree, otherwise `npm run build`, `npm run lint`, and `npx --no -- tsc --noEmit` as the test. A kind with no command is recorded as `not measured` |
+| `build.sandbox` | `"require"` (default): builds and tests run in the OS sandbox, and a host where it does not start records them as `not measured`. `"off"`: no sandbox, for builds that need Docker, the keychain, or private-registry credentials in `~/.npmrc` or `~/.m2/settings.xml`, which the sandbox hides |
+| `build.env_passthrough` | Extra environment variable names a build keeps (default `[]`; the build otherwise starts with an emptied environment). Names that look like credentials (`*TOKEN*`, `*SECRET*`, `*KEY*`) are refused, so registry credentials cannot come in this way |
 | `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
 | `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: Claude Code's default |
 
-All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 are optional; without them the chain behaves as before. The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
+All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox. The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
 `learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
@@ -383,22 +386,24 @@ For the marketplace install, `claude plugin update pr-quorum@pr-quorum` picks up
 
 ## Security
 
-Each chain session runs with `claude -p --settings <rendered-settings-file> --permission-mode dontAsk`, which refuses any tool not on the allow list ([`templates/`](templates/)). Review sessions can write only under `~/.pr-quorum/runs/`, post to GitHub only through `scripts/pr-quorum.sh`, and cannot read the token file. The author session pushes only through `scripts/author-push.sh`, which refuses force pushes and other branches.
+Each chain session runs with `claude -p --settings <rendered-settings-file> --permission-mode dontAsk`, which refuses any tool not on the allow list ([`templates/`](templates/)). Review and author sessions cannot read outside their working folders, so the token file and other credentials stay closed to them. Review sessions can write only under `~/.pr-quorum/runs/` and post to GitHub only through `scripts/pr-quorum.sh`. The author session pushes only through `scripts/author-push.sh`, which refuses force pushes and other branches.
 
 ```mermaid
 flowchart LR
   R1["Review sessions<br/>Stage 1 · 2 · 3"]
   A1["Author session"]
   R1 -- "post via" --> PQ["scripts/<br/>pr-quorum.sh<br/>(bot token)"]
-  R1 -. "denied by<br/>name only" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
-  A1 -. "denied by<br/>name only" .-> TOK
+  R1 -. "read<br/>blocked" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "read<br/>blocked" .-> TOK
   R1 -- write --> RUNS["~/.pr-quorum/<br/>runs/"]
   A1 -- write --> RUNS
   A1 -- write --> WT["worktree<br/>pr-author-N/"]
   A1 -- "push, reply" --> AS["author-push.sh<br/>author-reply.sh<br/>your gh account<br/>push: no force"]
 ```
 
-Not shown: the token deny matches only commands that name the file, Stage 3 builds and tests the PR in its own worktree, and the merge gate trusts the author session's own report (tests, open blockers).
+Builds and tests run code the PR controls, so they run in an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with an emptied environment: the build cannot read credential files or write outside the worktree, the temp folder, and its own cache root. What it still leaves open is in [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1.
+
+Not shown: the merge gate trusts the author session's own report (tests, open blockers).
 
 Other safeguards:
 
@@ -407,6 +412,20 @@ Other safeguards:
 - Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token pattern or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff.
 - Sessions cannot edit `meta.json`, which the merge gate reads. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
+
+## Limitations
+
+As of 2026-10:
+
+- No review has been graded by a person: the author's `human-labels.md` has no filled-in grade, so "a stricter procedure gives better reviews" is untested.
+- One full chain costs $11–30 and takes 19–47 minutes (sum of the sessions' `total_cost_usd` and `wall_ms`; from a 12-line PR, #66, to #61).
+- It has run on one backend repository only (all 14 runs); the [`frontend.md`](examples/profiles/frontend.md) profile has never run.
+- The risk rules' paths (`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`) fit the repository they were written for; check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning on `auto_merge`.
+- github.com only, and one machine polls for review requests.
+- Real reviews have run only on macOS. On Linux only `selftest.sh` and cron with `flock` were checked, with stub `gh` and `claude`, and the `bwrap` build sandbox has not been measured.
+- The plugin path must not contain `|` or `&`, and a `repos.*.path` must not contain `*` or `[`: they go into permission rules unescaped.
+- The scorecard and notices the scripts post are in English; only the review text follows the PR's language.
+- The build sandbox leaves the network and `localhost` open, and builds share one cache root, which a build can poison for the next sandboxed build ([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
 
 ## Contributing
 
