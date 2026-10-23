@@ -625,43 +625,52 @@ cmd_post_review() {
     || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7)"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
+  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$cfile" \
+    || die "$E_API" "review posted (review_id=$review_id) but not recorded in meta.json — rerun the same post-review command; it records this review without posting again"
+  echo "posted — review_id=$review_id, $(jq 'length' "$cfile") inline comments"
+}
+
+# record_review <repo> <pr> <stage> <review_id> <sha> <draft comments.json> — writes a posted review into meta.json.
+# It runs after the review is public and is called with ||, so errexit is off here: each step returns 1 on failure instead.
+record_review() {
+  local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" tmp="$TMP" merged
+
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
   gh api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
-             | map({id, path, line, body})' > "$tmp/posted.json"
+             | map({id, path, line, body})' > "$tmp/posted.json" || return 1
 
   # Match by body first — with two comments at the same spot, (path,line) alone cannot tell them apart,
   # the ids get swapped, and Stage 2 replies in the wrong thread.
-  local merged; merged="$(jq -s '
+  merged="$(jq -s '
       .[0] as $draft | .[1] as $posted |
       $draft | map(. as $d
         | (first($posted[] | select(.body == $d.body) | .id)
            // first($posted[] | select(.path==$d.path and .line==$d.line) | .id)) as $id
         | {id: ($id // null), code:$d.code, path:$d.path, line:$d.line,
            axis:$d.axis, grade:($d.grade // null)})
-    ' "$cfile" "$tmp/posted.json")"
+    ' "$cfile" "$tmp/posted.json")" || return 1
 
   # Each stage records in a different place. Appending stage2 to stage1 would break both the watcher's "already posted" check and
   # the stage1[].comments[].id that Stage 2 uses to find threads.
   case "$stage" in
     stage1)
       meta_update "$repo" "$pr" '.stage1 += [{review_id:$rid, posted_at:$at, eval_sha:$sha, comments:$c}] | .attempts=0 | .status="done"' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
     stage2)
       # If the last element is a round that judged a different commit, append a new element — merging would overwrite the previous round's post record (L0-25)
       meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 or ((.[-1].stage_sha // $sha) != $sha) then . + [{}] else . end)
                                  | .stage2[-1] += {review_id:$rid, posted_at:$at, stage_sha:$sha, new_comments:$c}' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
     stage3)
       # On a rerun against a different commit, move the previous round to stage3_history — merging would overwrite its review_id and stage_sha (L0-43)
       meta_update "$repo" "$pr" '((.stage3 != null) and ((.stage3.stage_sha // $sha) != $sha)) as $new
                                  | (if $new then .stage3_history = ((.stage3_history // []) + [.stage3]) | .stage3 = null else . end)
                                  | .stage3 = ((.stage3 // {}) + {review_id:$rid, posted_at:$at, stage_sha:$sha, comments:$c})
                                  | .stage3.replies = ((.stage3.replies // {}) + (.stage3_replies // {})) | del(.stage3_replies)' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
   esac
 
-  echo "posted — review_id=$review_id, $(jq 'length' <<<"$merged") inline comments"
   jq -r '.[] | select(.id == null) | "warning — comment with no id found: \(.code) \(.path):\(.line)"' <<<"$merged" >&2
 }
 
