@@ -23,18 +23,54 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 | Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
 
 ```mermaid
-flowchart LR
-  C["Stage 1 → author fixes → Stage 2 → Stage 3<br/>→ (author fixes → Stage 2)*"] --> MG{"Merge gate<br/>blocking 0 · regressed 0 · no test failures<br/>did the bot review the current head?"}
+flowchart TD
+  RQ(["Bot requested<br/>as reviewer"]) --> S1["Stage 1 ·<br/>review<br/>up to 5 rounds"]
+  RQ -. "held-large:<br/>>50 files or<br/>>3,000 lines" .-> BL[blocked]
+  S1 -. "held-large or<br/>conflict with<br/>main" .-> BL
+  S1 --> A1["Author pass 1<br/>fixes Stage 1<br/>comments"]
+  A1 --> S2["Stage 2 ·<br/>followup<br/>verdict per<br/>thread"]
+  S2 --> S3["Stage 3 ·<br/>measured<br/>build, tests,<br/>missed defects"]
+  S3 --> A2["Author pass 2<br/>fixes what<br/>is left"]
+  A2 -- pushed --> S2b["Stage 2 ·<br/>followup"]
+  A2 -- nothing to push --> G(["Gates (below)"])
+  S2b --> G
+```
+
+```mermaid
+flowchart TD
+  G(["After the<br/>author loop"]) --> MG{"Merge gate<br/>0 blocking<br/>0 regressed<br/>no failed tests<br/>head reviewed"}
   MG -- no --> B[blocked]
-  MG -- "critical/major in Stage 3 P" --> H
+  MG -- "Stage 3 found<br/>missed<br/>critical/major" --> H
   MG -- yes --> RG{"Risk gate<br/>0–100 points"}
   RG -- "low (0–14)" --> A{"auto_merge"}
-  A -- true --> M[gh pr merge]
+  A -- true --> M["merged<br/>(gh pr merge)"]
   A -- "false (default)" --> R["ready<br/>a human merges"]
-  RG -- "medium or higher" --> H["needs-human<br/>a human reviews and merges"]
+  RG -- "medium or higher" --> H["needs-human<br/>a human reviews<br/>and merges"]
 ```
 
 The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically. Rules: [`rules/03-risk.md`](rules/03-risk.md).
+
+<details>
+<summary>Inside one Stage 1 round (judges → challenger → verifiers)</summary>
+
+```mermaid
+flowchart TD
+  subgraph J["Four judges · separate axes · no shared results"]
+    direction LR
+    J1[Judge 1] ~~~ J2[Judge 2] ~~~ J3[Judge 3] ~~~ J4[Judge 4]
+  end
+  J --> D["Deduplicate<br/>by fix"]
+  D --> C["Challenger<br/>checks each<br/>critical or<br/>major finding"]
+  C --> DR["Draft summary<br/>+ comments"]
+  DR --> V["Three verifiers<br/>check the draft"]
+  V --> X{"Exit conditions<br/>converged,<br/>round 5, or<br/>same spot<br/>rewritten 4×?"}
+  X -- no --> J
+  X -- yes --> P(["Post summary<br/>+ inline<br/>comments<br/>unmet items<br/>listed if not<br/>converged"])
+```
+
+Converged: the exit conditions in [`rules/01-stages.md`](rules/01-stages.md) §4.
+
+</details>
 
 ### Example
 
@@ -105,6 +141,23 @@ git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 Keep this clone on main and make harness changes in a different clone or worktree, so a half-edited harness never runs a real review.
 
 ## Setup
+
+Where pr-quorum keeps its files:
+
+```text
+~/.config/pr-quorum/bot.env          bot PAT (chmod 600)
+~/.pr-quorum/
+├── config.json                      owner · bot · auto_merge · repos
+├── profiles/<profile>.md            review axes per repository
+├── learnings.md                     lessons read by review sessions
+├── human-labels.md                  your grades of the bot's comments
+├── settings.json                    review session permissions (rendered by chain.sh)
+├── author-settings.json             author session permissions (rendered by chain.sh)
+└── runs/<repo>-pr<N>/               per-PR state and logs
+<parent of repo clone>/<repo>-worktrees/
+├── pr-author-<N>/                   author's worktree
+└── pr-quorum-<N>-<sha7>/            Stage 3 worktree per measured commit
+```
 
 ### 1. Bot account
 
@@ -265,6 +318,21 @@ For the marketplace install, `claude plugin update pr-quorum@pr-quorum` picks up
 ## Security
 
 Each chain session runs with `claude -p --settings <rendered-settings-file> --permission-mode dontAsk`, which refuses any tool not on the allow list ([`templates/`](templates/)). Review sessions can write only under `~/.pr-quorum/runs/`, post to GitHub only through `scripts/pr-quorum.sh`, and cannot read the token file. The author session pushes only through `scripts/author-push.sh`, which refuses force pushes and other branches.
+
+```mermaid
+flowchart LR
+  R1["Review sessions<br/>Stage 1 · 2 · 3"]
+  A1["Author session"]
+  R1 -- "post via" --> PQ["scripts/<br/>pr-quorum.sh<br/>(bot token)"]
+  R1 -. "denied by<br/>name only" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "denied by<br/>name only" .-> TOK
+  R1 -- write --> RUNS["~/.pr-quorum/<br/>runs/"]
+  A1 -- write --> RUNS
+  A1 -- write --> WT["worktree<br/>pr-author-N/"]
+  A1 -- "push, reply" --> AS["author-push.sh<br/>author-reply.sh<br/>your gh account<br/>push: no force"]
+```
+
+Not shown: the token deny matches only commands that name the file, Stage 3 builds and tests the PR in its own worktree, and the merge gate trusts the author session's own report (tests, open blockers).
 
 Other safeguards:
 
