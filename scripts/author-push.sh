@@ -36,7 +36,8 @@ urls="$(git remote get-url --push --all origin)"
 # A commit holding a token is not pushed (exit 3, as pr-quorum.sh's gate violation). The matched text is never echoed
 git cat-file -e "$remote_head^{commit}" 2>/dev/null || die "PR head ${remote_head:0:7} is not in this clone — git fetch origin $head first"
 out="$(mktemp)"; trap 'rm -f "$out"' EXIT
-{ git diff --text "$remote_head..HEAD"; git log --format=%B "$remote_head..HEAD"; } > "$out"
+# log -p, not a net diff: a token added in one commit and removed in the next still goes out in the pushed history. -m includes merge diffs
+git log -p -m --text --format=%B "$remote_head..HEAD" > "$out"
 scan_tokens "$out" || { echo "author-push.sh: the commits to push hold a token — nothing was pushed. Remove it and rewrite the commit" >&2; exit 3; }
 
 # The refspec has no +, so GitHub rejects anything that is not a fast-forward
