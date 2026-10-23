@@ -75,6 +75,12 @@ SANDBOX_SEATBELT='(version 1)
 (deny process-exec (literal "/usr/bin/open") (literal "/usr/bin/osascript") (literal "/bin/launchctl") (literal "/usr/bin/security"))
 (deny network-outbound (remote unix-socket (path-regex #"^/private/var/run/com\.apple\.launchd\.[^/]+/Listeners$")))'
 
+# sandbox_canon <path> — the path with its parent folder resolved (pwd -P), as the sandbox matches real paths. Fails if the parent is missing
+sandbox_canon() {
+  local d; d="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)" || return 1
+  echo "$d/$(basename "$1")"
+}
+
 # sandbox_run <seatbelt|bwrap|off> <worktree root> <dir> <command> [passthrough names...]
 # Runs bash -c <command> in <dir>. The exit code is the command's own. off runs it as before this file existed — inherited environment, no sandbox.
 # BOT_ENV, when set, is hidden too (its location can be moved with PR_QUORUM_BOT_ENV)
@@ -84,9 +90,12 @@ sandbox_run() {
   [ "$mode" = off ] && { (cd "$dir" && exec bash -c "$cmd"); return; }
   home="$(cd "$HOME" && pwd -P)"
   tmp="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+  # Resolved before ghdir exists, so a failure leaves nothing behind. Unresolvable means the rules would not match: fail closed
   cache="$home/.cache/pr-quorum-build"
-  mkdir -p "$cache/gradle" "$cache/npm" "$cache/m2" "$cache/xdg" || return 2   # before ghdir, so nothing is left behind
-  bot="${BOT_ENV:-$home/.config/pr-quorum/bot.env}"
+  mkdir -p "$cache/gradle" "$cache/npm" "$cache/m2" "$cache/xdg" && cache="$(sandbox_canon "$cache")" \
+    || { echo "build-sandbox: cannot resolve the cache root $cache" >&2; return 2; }
+  bot="$(sandbox_canon "${BOT_ENV:-$home/.config/pr-quorum/bot.env}")" \
+    || { echo "build-sandbox: cannot resolve the folder of the bot token file ${BOT_ENV:-$home/.config/pr-quorum/bot.env}" >&2; return 2; }
   gitdir="$(cd "$wt" && cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" 2>/dev/null && pwd -P)" || gitdir="$wt/.git"
   no=/usr/bin/false; [ -x "$no" ] || no=/bin/false
   ghdir="$(mktemp -d)"   # gh finds no login in an empty config folder
