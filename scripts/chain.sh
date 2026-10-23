@@ -6,7 +6,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"
+require_dotcom
 # The bot login is read from config.json's bot, the same way watch.sh does. The merge gate uses it to find the bot's reviews
 BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,6 +23,8 @@ REPO="$1"; PR="$2"
 [ -n "$BOT" ] || { echo "bot login not found: set bot in $PR_QUORUM_HOME/config.json" >&2; exit 2; }
 REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
 [ -n "$REPO_ROOT" ] || { echo "repository is not in config.json repos: $REPO" >&2; exit 1; }
+SLUG="$(repo_slug "$REPO")" || exit 2
+trust_check || exit 2
 # Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json
 render_settings "$HARNESS_DIR" author-settings.json
@@ -47,7 +49,9 @@ last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 
 # Starts one headless session. Why tool permissions and MCP are isolated from this machine's settings is explained in the comments before the claude -p call below.
 run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
-  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() r p d out rc=0 started
+  local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() caps=() r p d out rc=0 started
+  local budget timeout_min sub_model secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
+  SESSION_CAP=""   # Set when the session was cut by a cap — step() then stops instead of retrying
   # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each
   for r in $(cfg '.repos | keys[]'); do
     p="$(cfg --arg r "$r" '.repos[$r].path')"
@@ -57,17 +61,47 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   done
   # Also open this PR's run folder — the state folder is outside the working folder, so Bash ls/wc were denied (PR #61)
   [ -d "$RUN" ] && add_dirs+=("$RUN")
+  # Caps from config.json limits.<step> and models. A missing key adds nothing, so the session runs as before
+  budget="$(cfg --arg s "$name" '.limits[$s].budget_usd // empty')"
+  timeout_min="$(cfg --arg s "$name" '.limits[$s].timeout_min // empty')"
+  [ -n "$budget" ] && caps+=(--max-budget-usd "$budget")
+  [ -n "$(cfg '.models.session // empty')" ] && caps+=(--model "$(cfg '.models.session')")
+  sub_model="$(cfg '.models.subagent // empty')"
   # --setting-sources "": do not read the target repository's .claude/settings*.json or ~/.claude/settings.json. --settings is read regardless of this value.
   # Skills and agents are loaded via --plugin-dir and run regardless of this value (measured). The repository CLAUDE.md is not loaded either, so the skill reads it directly
   # dontAsk: anything not in allow is denied without asking. acceptEdits approved edits inside the working folder and mkdir/rm/mv etc. regardless of allow (measured)
   started="$(date +%s)"
-  out="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
+  # Runs in the background so the watchdog below can stop it — macOS has no timeout command. exec makes $! the claude process itself,
+  # and set -m gives it its own process group, so a kill on -$pid also reaches the processes it started (MCP servers, tool commands)
+  set -m
+  ( cd "$REPO_ROOT"
+    [ -z "$sub_model" ] || export CLAUDE_CODE_SUBAGENT_MODEL="$sub_model"
+    exec claude -p --output-format json --permission-mode dontAsk \
       --settings "$settings" --setting-sources "" --plugin-dir "$HARNESS_DIR" \
       --mcp-config "$HARNESS_DIR/mcp.json" --strict-mcp-config \
       --disallowedTools AskUserQuestion \
       --append-system-prompt "This is chain mode. No human will respond. Do not ask a person or wait for confirmation; choose the option the rule documents recommend and continue. Append each decision to $RUN/decisions.md as one line, 'time · step · situation · choice · reason', using the Edit or Write tool (mv and cp are denied by permissions, so do not use the '> tmp && mv' pattern)." \
-      ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
-      -- "$prompt" < /dev/null )" || { rc=$?; log "session exited with $rc — success is judged from the records"; }
+      ${caps[0]+"${caps[@]}"} ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
+      -- "$prompt" ) < /dev/null > "$outf" &
+  pid=$!; SESSION_PID=$pid
+  set +m
+  # Watchdog: TERM after timeout_min (fractions allowed), KILL 30 seconds later if still alive. The flag file tells this shell it fired
+  if [ -n "$timeout_min" ]; then
+    secs="$(awk -v m="$timeout_min" 'BEGIN { printf "%d", m * 60 }')"
+    ( trap 'kill "$s" 2>/dev/null; exit 0' TERM
+      sleep "$secs" & s=$!; wait "$s"
+      kill -TERM -- "-$pid" 2>/dev/null || exit 0
+      : > "$outf.timeout"
+      sleep 30 & s=$!; wait "$s"
+      kill -KILL -- "-$pid" 2>/dev/null || true ) > /dev/null 2>&1 &
+    wd=$!
+  fi
+  wait "$pid" 2>/dev/null || { rc=$?; log "session exited with $rc — success is judged from the records"; }
+  SESSION_PID=""
+  [ -z "$wd" ] || kill "$wd" 2>/dev/null || true
+  [ ! -f "$outf.timeout" ] || { timed_out=true; SESSION_CAP="wall-clock cap of $timeout_min min reached"; }
+  out="$(cat "$outf" 2>/dev/null || true)"
+  rm -f "$outf" "$outf.timeout"
   # Send the result text to the log as before. If it is not JSON, print it as received
   jq -r '.result // empty' <<<"$out" 2>/dev/null || printf '%s\n' "$out"
   # Record per-step time, cost, and tool denials — evidence for whether small PRs can skip steps and which denials keep recurring.
@@ -77,28 +111,34 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   # Measure the whole session time here instead
   wall_ms=$(( ($(date +%s) - started) * 1000 ))
   if jq -e 'type == "object"' <<<"$out" >/dev/null 2>&1; then
+    # subtype is why the session ended (success, error_max_budget_usd, error_max_turns, …)
+    [ "$(jq -r '.subtype // empty' <<<"$out")" != "error_max_budget_usd" ] || SESSION_CAP="budget cap \$$budget reached"
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w,
-      session_id:$r.session_id, duration_ms:$r.duration_ms, cost_usd:$r.total_cost_usd, num_turns:$r.num_turns, is_error:$r.is_error,
+      session_id:$r.session_id, subtype:$r.subtype, duration_ms:$r.duration_ms, cost_usd:$r.total_cost_usd, num_turns:$r.num_turns, is_error:$r.is_error,
       permission_denials:($r.permission_denials | if type == "array" then length else null end),
-      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end)}])' \
-      --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson r "$out" \
+      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end)}
+      + (if $to then {timed_out:true} else {} end)])' \
+      --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson r "$out" --argjson to "$timed_out" \
       || log "could not write the session record to meta.json"
   else
     # Leave at least one line so failed tries are not missing from the record
-    meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w, json:false}])' \
-      --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" \
+    meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w, json:false}
+      + (if $to then {timed_out:true} else {} end)])' \
+      --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson to "$timed_out" \
       || log "could not write the session record to meta.json"
     log "could not parse the session result as JSON; recorded the try without time or cost"
   fi
 }
 
 # Runs one step and judges success by whether the expected record was left. If both tries fail, the chain stops.
+# A session cut by a budget or wall-clock cap is not retried — a second try would only double the cost.
 step() {  # step <name> <completion check function> <settings> <prompt>
   local name="$1" check="$2" settings="$3" prompt="$4" t
   for (( t=1; t<=MAX_STEP_TRIES; t++ )); do
     chain_state "$name" "try $t"
     run_session "$settings" "$prompt" "$name" "$t"
     "$check" && return 0
+    [ -z "$SESSION_CAP" ] || { CAP_STEP="$name"; chain_state "blocked" "$name: $SESSION_CAP — not retried"; exit 4; }
     log "$name left no record (try $t)"
   done
   chain_state "blocked" "$name left no record $MAX_STEP_TRIES times in a row"
@@ -108,7 +148,11 @@ step() {  # step <name> <completion check function> <settings> <prompt>
 EVAL_SETTINGS="$PR_QUORUM_HOME/settings.json"
 AUTHOR_SETTINGS="$PR_QUORUM_HOME/author-settings.json"
 
-run_stage1() { step stage1 stage1_done "$EVAL_SETTINGS" "/pr-quorum:review stage1 $REPO $PR --auto"; }
+# The Stage 1 round cap goes to the session as an argument, like --auto. Without limits.stage1.max_rounds the skill's own cap applies
+run_stage1() {
+  local rounds; rounds="$(cfg '.limits.stage1.max_rounds // empty')"
+  step stage1 stage1_done "$EVAL_SETTINGS" "/pr-quorum:review stage1 $REPO $PR --auto${rounds:+ --max-rounds $rounds}"
+}
 run_stage3() { step stage3 stage3_done "$EVAL_SETTINGS" "/pr-quorum:review stage3 $REPO $PR --auto"; }
 
 run_stage2() {
@@ -129,7 +173,7 @@ author_pushed() { [ "$(jq -r '.pushed' "$(last_author)")" = "true" ]; }
 pr_state() {
   local i out
   for i in 1 2 3 4 5 6; do
-    out="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json state,isDraft,mergeable)" || return 1
+    out="$(gh pr view "$PR" --repo "$SLUG" --json state,isDraft,mergeable)" || return 1
     [ "$(jq -r '.mergeable' <<<"$out")" != "UNKNOWN" ] && break
     sleep 10
   done
@@ -158,7 +202,7 @@ merge_gate() {
   fi
   # The records above are files the session wrote, so they can be rewritten. Check on GitHub that the bot actually left a review or reply on this head
   local bot_reviews
-  bot_reviews="$(gh api --paginate "repos/$OWNER/$REPO/pulls/$PR/reviews" \
+  bot_reviews="$(gh api --paginate "repos/$SLUG/pulls/$PR/reviews" \
     | jq -s --arg b "$BOT" --arg s "$head" '[add // [] | .[] | select(.user.login == $b and .commit_id == $s)] | length')" || bot_reviews=""
   [ "${bot_reviews:-0}" -gt 0 ] || reasons+=("no review by the bot ($BOT) on head $head found on GitHub")
 
@@ -196,36 +240,79 @@ risk_gate() {
   fi
 }
 
+# Posts one comment when the chain stops at blocked, so a stopped PR is not left for someone to find in meta.json. It does not resume the chain.
+# needs-human gets none: the risk gate posts its scorecard, and Stage 3 posted the missed defects as its review.
+# The state|reason key in chain.notified keeps a rerun that stops for the same reason from posting again. A failed post is only logged
+CAP_STEP=""; NO_NOTICE=""
+notify_stop() {
+  local state reason key body="$RUN/outputs/chain-stopped.md"
+  [ -z "$NO_NOTICE" ] || return 0
+  state="$(jq -r '.chain.state // empty' "$M")"
+  [ "$state" = "blocked" ] || return 0
+  reason="$(jq -r '.chain.reason // ""' "$M")"; key="$state|$reason"
+  [ "$key" != "$(jq -r '.chain.notified.key // empty' "$M")" ] || return 0
+  [ "$(gh pr view "$PR" --repo "$SLUG" --json state --jq '.state' 2>/dev/null)" = "OPEN" ] \
+    || { log "stop notice not posted — the PR is not open or its state could not be read"; return 0; }
+  mkdir -p "$RUN/outputs"
+  { printf 'The automated review chain stopped at `%s`: %s\n\n' "$state" "$reason"
+    printf 'It does not resume on its own. Once the cause is dealt with, run `<plugin-dir>/scripts/chain.sh %s %s` to continue from where it stopped.\n' "$REPO" "$PR"
+    case "$CAP_STEP" in stage1|stage2|stage3)
+      printf '\nThe %s session was cut off and may have left its review lock in place. The next run takes that lock over because its process has exited (a lock also expires after 3 hours); if it still reports `lock held`, release it with `<plugin-dir>/scripts/pr-quorum.sh unlock %s %s`.\n' "$CAP_STEP" "$REPO" "$PR" ;;
+    esac; } > "$body"
+  if "$PR_QUORUM" comment "$REPO" "$PR" "$body" >/dev/null; then
+    meta_set '.chain.notified = {key:$k, at:$at}' --arg k "$key" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      || log "posted the stop notice but could not record it in meta.json"
+  else
+    log "failed to post the stop notice — chain.state is recorded in meta.json"
+  fi
+}
+
 do_merge() {
   # --match-head-commit: pass the commit the gate saw. Re-reading head would merge whatever was pushed in between
-  gh pr merge "$PR" --repo "$OWNER/$REPO" --merge --match-head-commit "$GATE_SHA" \
+  gh pr merge "$PR" --repo "$SLUG" --merge --match-head-commit "$GATE_SHA" \
     || { chain_state "blocked" "gh pr merge failed"; exit 4; }
   meta_set '.chain.merged_sha = $s' --arg s "$GATE_SHA"
   chain_state "merged" "head=$GATE_SHA"
 }
 
 # ---------- Main ----------
-# Same check as watch.sh — even if a person calls chain.sh directly, a PR opened by someone else never reaches a session
-assoc="$(gh api "repos/$OWNER/$REPO/pulls/$PR" --jq '.author_association')" || die "could not check the PR author" 4
-[ "$assoc" = "OWNER" ] || die "author is not the repository owner ($assoc) — not running the chain" 3
+# Same check as watch.sh, read again from the API — even if a person calls chain.sh directly, a PR from an untrusted author never reaches a session
+author="$(gh api "repos/$SLUG/pulls/$PR" --jq '"\(.user.login) \(.author_association)"')" || die "could not check the PR author" 4
+trust_rc=0; is_trusted "${author% *}" "${author#* }" || trust_rc=$?
+[ "$trust_rc" != 2 ] || die "trust in config.json is invalid" 2
+[ "$trust_rc" = 0 ] || die "author is not trusted (${author% *}, ${author#* }) — not running the chain" 3
 
 [ -f "$M" ] || "$PR_QUORUM" init "$REPO" "$PR" >/dev/null
 mkdir -p "$AUTHOR_DIR"
+
+# Prevent double runs — so a watcher resume and a manual call do not overlap. mkdir is atomic (macOS has no flock), so only one caller gets the folder.
+# A folder whose pid is dead is stale; the .reap folder lets only one caller remove and retake it
+CHAIN_LOCK="$RUN/.chain.lock"
+if ! mkdir "$CHAIN_LOCK" 2>/dev/null; then
+  other="$(cat "$CHAIN_LOCK/pid" 2>/dev/null || true)"
+  [ -n "$other" ] || die "chain lock has no pid yet — another chain is starting (if none is, remove $CHAIN_LOCK)" 5
+  ! kill -0 "$other" 2>/dev/null || die "another chain (pid=$other) is running" 5
+  mkdir "$CHAIN_LOCK.reap" 2>/dev/null || die "lost the chain lock race (if this repeats, remove $CHAIN_LOCK.reap)" 5
+  [ "$(cat "$CHAIN_LOCK/pid" 2>/dev/null || true)" != "$other" ] || { rm -rf "$CHAIN_LOCK"; log "cleared a stale chain lock (pid=$other)"; }
+  mkdir "$CHAIN_LOCK" 2>/dev/null || { rmdir "$CHAIN_LOCK.reap"; die "lost the chain lock race" 5; }
+  rmdir "$CHAIN_LOCK.reap"
+fi
+echo "$$" > "$CHAIN_LOCK/pid"
+# The pid is also kept in meta.json so the chain can be seen running
+meta_set '.chain = ((.chain // {}) + {pid:$p})' --argjson p "$$"
+# A background job ignores Ctrl-C, so a session still running when the chain exits is stopped here. The stop notice goes out before the lock is released
+SESSION_PID=""
+trap '[ -z "$SESSION_PID" ] || kill -TERM -- "-$SESSION_PID" 2>/dev/null; notify_stop || true
+      meta_set ".chain.pid = null" 2>/dev/null || true; rm -rf "$CHAIN_LOCK"' EXIT
 
 case "$(jq -r '.chain.state // empty' "$M")" in
   merged) log "already merged"; exit 0 ;;
 esac
 case "$(jq -r '.status' "$M")" in
+  # held-large already has its notice — the large-PR comment, or the one posted when Stage 1 held it
+  held-large|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
   held-*|보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
 esac
-
-# Prevent double runs — so a watcher resume and a manual call do not overlap
-other="$(jq -r '.chain.pid // empty' "$M")"
-if [ -n "$other" ] && [ "$other" != "$$" ] && kill -0 "$other" 2>/dev/null; then
-  die "another chain (pid=$other) is running" 5
-fi
-meta_set '.chain = ((.chain // {}) + {pid:$p})' --argjson p "$$"
-trap 'meta_set ".chain.pid = null" 2>/dev/null || true' EXIT
 
 # The large-PR cutoff is checked here, not left to the session. The notice comment is posted once — a later call stops at the hold check above first
 pre_rc=0
@@ -237,6 +324,7 @@ case "$pre_rc" in
      printf 'This change is too large for automated review (%s; cutoff: more than 50 files or 3,000 lines). Please split the PR or have a person review it.\n' \
        "$(head -1 <<<"$pre_out" | sed 's/ (cut.*//')" > "$RUN/outputs/large-pr.md"
      "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "failed to post the large-PR notice comment"
+     NO_NOTICE=1   # The large-PR comment is this stop's notice
      chain_state "blocked" "hit the large-PR cutoff"; exit 3 ;;
   *) chain_state "blocked" "large-PR check failed (exit $pre_rc)"; exit 4 ;;
 esac

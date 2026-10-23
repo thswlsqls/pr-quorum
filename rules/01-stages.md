@@ -27,7 +27,7 @@ and merges only PRs that pass both. With `auto_merge` off, it does not merge and
 | **Challenger** | If `critical`+`major` ≤10, every one. If >10, every `critical`; if that is still under 3, fill from `major` | Every `regressed` (N) verdict | Every `critical` + every `P` |
 | **Dedup priority** | J1 > J2 > J3 > J4 — a wrong design or data is the premise for the rest | Fix accuracy > fidelity of the fix > do docs and code match > regression lock — "done right" beats "done" | Same as Stage 1 |
 | **Invalidation conditions** | The 8 common ones in `00-criteria.md` §1 | Common + **I-S2** *"Only quoted the Stage 1 comment; did not show it is still present in the current code"* | Common + **I-S3** *"No origin class (P/Q/N)"* |
-| **Exit** | S1–S3 in §4. **Round cap 5** | Ends after one verdict pass | Ends after the `P` verdict in §5 |
+| **Exit** | S1–S3 in §4. **Round cap** — `--max-rounds N` (the chain passes `limits.stage1.max_rounds`, 3 in the template), 5 without it | Ends after one verdict pass | Ends after the `P` verdict in §5 |
 
 Dedupe **by fix, not by location.** Even at the same location, if one axis's fix does not resolve the other, keep both.
 Fold the fixes of rolled-back findings into the surviving comment body as a union.
@@ -106,7 +106,7 @@ What does not get read is URL links. Rules, invalidation conditions, and quotes 
 ```
 End of round NN
  ├ S1–S3 met              → pass PGs → §3-4 pre-post edit → post and end the session
- ├ not met & NN < cap (5) → write prompts/round-(NN+1).md and continue to round NN+1 in the same session
+ ├ not met & NN < cap     → write prompts/round-(NN+1).md and continue to round NN+1 in the same session
  └ not met & NN = cap     → list the unmet items in the summary → §3-4 pre-post edit → post
 ```
 
@@ -123,7 +123,7 @@ When the cap is reached, list the unmet items in the summary and post.
 
 - S1–S3 met (= converged)
 - The same location rewritten **4 times**
-- **Round cap 5 reached** — list the unmet items and post
+- **Round cap reached** (`--max-rounds N`, 5 without it) — list the unmet items and post
 
 ### 3-4. Phase 3.7 — pre-post edit (all stages)
 
@@ -224,26 +224,32 @@ the merge gate stops with `needs-human` — a PR on which a defect the review mi
 
 ### 5-1. Measurement — infrastructure limits
 
-`docker-compose.yml` has neither Redis nor MongoDB (only kafka · 4 mysql instances · the observability stack).
+Run builds, tests, and lint only through the harness wrapper, on the worktree for the sha you measure (below):
 
-| Profile | Measurements |
-|---|---|
-| backend | `./gradlew :<affected-module>:test` · `:<affected-module>:build` · `EXPLAIN` on the problem query. Checking that the service runs only when Redis and MongoDB are available |
-| frontend | `npm run build` · `npx tsc --noEmit` · `npm run lint` (app only) · build output size |
+```
+<plugin-dir>/scripts/pr-quorum.sh build <repo> <PR-number> <absolute worktree path> build|test|lint [target]
+```
 
-**Write what cannot be measured as `not measured`.** Do not disguise an estimate as a measurement.
+The command comes from `repos.<repo>.commands` in `~/.pr-quorum/config.json`; you pass only the kind and the target that fills its `<target>`
+(the affected module or path, e.g. `:api-auth` or `tests/api` — letters, digits, and `: _ . / -` only).
+Without `commands`, a worktree with `gradlew` runs `./gradlew <target>:build|test`, and one with `package.json` runs `npm run build`, `npm run lint`, and `npx --no -- tsc --noEmit` for `test` (target = app folder, e.g. `app`).
+The wrapper refuses a dirty tree, a HEAD that is not a SHA this PR pinned, and a worktree outside `<repo>-worktrees/`. Running build tools directly is denied by permissions.
+Other measurements (`EXPLAIN` on the problem query, build output size, …) and the infrastructure the repo lacks locally follow the measurement baseline in the profile's §6.
+
+**Write what cannot be measured as `not measured`** — including a kind the wrapper refuses as not configured. Do not disguise an estimate as a measurement.
 
 Create a new worktree for each sha you measure. Do not move an existing worktree to a new sha.
 The author's fix commits are objects in the same repo, so they are there without a fetch.
 
 ```
-git worktree add --detach ../<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
+git worktree add --detach <absolute path of the repo's parent>/<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
 ```
 
-Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`). If the working folder is not that repo, call `cd <that path>` separately first (one-line `cd … && git` chains are denied).
+Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`) — chain sessions start there. Give the new worktree as an absolute path, and pass that same path to the build wrapper.
+`cd` and `git -C` are denied by permissions. If the working folder is not that repo, do not create the worktree; write the measurements as `not measured`.
 
-The parent folder is the same one `tools/pipeline/impl-config.yml` already uses. **The leaf name `pr-quorum-` is the only distinction**,
-so first check that the impl side's cleanup does not delete these folders.
+If another tool also uses the `<repo>-worktrees/` parent folder, **the leaf name `pr-quorum-` is the only distinction**,
+so first check that its cleanup does not delete these folders.
 
 ---
 
@@ -310,10 +316,10 @@ There are two output shapes, so there are two checks.
 JSON (`comments.json`) — are the fields and the body's first line unchanged. If `false`, revert the changed comments from the snapshot.
 
 ```bash
-cd ~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>
+d=~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>
 jq -s 'map(map({code, path, line, side:(.side//"RIGHT"), axis, grade,
                 head:(.body | split("\n")[0])})) | .[0] == .[1]' \
-   pre-polish/comments.json comments.json
+   "$d/pre-polish/comments.json" "$d/comments.json"
 ```
 
 Markdown (`summary.md` · `replies/*.md` · `patches/*.md`) — did anchors and numbers disappear.
@@ -321,8 +327,8 @@ If tokens show up that exist only in the snapshot, the edit removed evidence.
 
 ```bash
 tok() { grep -ohE '[A-Za-z0-9_./-]+\.[a-z]+:[0-9]+|[0-9]+(\.[0-9]+)?' "$@" | sort -u; }
-comm -23 <(tok pre-polish/summary.md pre-polish/replies/*.md pre-polish/patches/*.md) \
-         <(tok summary.md replies/*.md patches/*.md)
+comm -23 <(tok "$d"/pre-polish/summary.md "$d"/pre-polish/replies/*.md "$d"/pre-polish/patches/*.md) \
+         <(tok "$d"/summary.md "$d"/replies/*.md "$d"/patches/*.md)
 ```
 
 Empty output is a pass. Check the printed tokens one by one — **reducing an anchor written twice to once while merging sentences

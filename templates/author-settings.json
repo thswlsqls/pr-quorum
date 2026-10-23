@@ -11,6 +11,7 @@
       "Agent",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh sha:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh meta:*)",
+      "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh author-build:*)",
       "Bash(__PLUGIN_ROOT__/scripts/gh-get.sh:*)",
       "Bash(__PLUGIN_ROOT__/scripts/author-push.sh:*)",
       "Bash(__PLUGIN_ROOT__/scripts/author-reply.sh:*)",
@@ -26,10 +27,6 @@
       "Bash(grep:*)",
       "Bash(wc:*)",
       "Bash(jq:*)",
-      "Bash(./gradlew:*)",
-      "Bash(npm run build:*)",
-      "Bash(npm run lint:*)",
-      "Bash(npx tsc:*)",
       "mcp__context7__resolve-library-id",
       "mcp__context7__query-docs",
       "Bash(cat:*)",
@@ -70,11 +67,13 @@
       "Bash(rtk:*)",
       "Read(~/.config/pr-quorum/**)",
       "Read(~/.config/gh/**)",
+      "Read(~/.config/**)",
       "Edit(/__PLUGIN_ROOT__/scripts/**)",
       "Edit(/*.json)",
       "Edit(/*.md)",
       "Edit(/profiles/**)",
-      "Edit(/runs/*/learning-candidates.md)"
+      "Edit(/runs/*/learning-candidates.md)",
+      "Edit(/runs/*/meta.json)"
     ]
   }
 }

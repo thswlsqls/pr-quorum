@@ -1,7 +1,7 @@
 ---
 name: review
-description: Runs a pr-quorum review (stage1–3). Arguments — <stage> <repo-name> <PR-number> [--round N] [--approve]
-argument-hint: <stage> <repo-name> <PR-number> [--round N] [--approve]
+description: Runs a pr-quorum review (stage1–3). Arguments — <stage> <repo-name> <PR-number> [--round N] [--max-rounds N] [--approve]
+argument-hint: <stage> <repo-name> <PR-number> [--round N] [--max-rounds N] [--approve]
 disable-model-invocation: true
 ---
 
@@ -78,7 +78,8 @@ It is not just one comment dropped — the review does not go up at all. Give th
 - Do not exceed the budget (`01-stages.md` §2). Anything over it is carried over, marked `unverified`.
 - Launch V1·V2·V3 at the same time in one message too.
 - When writing read methods into a judge prompt — worktree files with `Read`, files at other commits with `git show <sha>:<path>`.
-  `git -C`, one-line `cd … && git` chains, `awk`, `unzip`, and `javap` are denied by permissions.
+  `git -C`, `cd`, `awk`, `unzip`, and `javap` are denied by permissions.
+  Builds and tests run only as `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh build $1 $2 <absolute worktree path> build|test|lint [target]` (`01-stages.md` §5-1). Build tools called directly are denied.
 
 ### 4. Write the outputs
 
@@ -158,9 +159,11 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh unlock $1 $2
 ```
 End of round NN
  ├ S1–S3 met            → 4-5 pre-post edit → post and end the session
- ├ not met & NN < 5     → write prompts/round-(NN+1).md and continue in the same session
- └ not met & NN = 5     → list the unmet items in the summary → 4-5 pre-post edit → post
+ ├ not met & NN < cap   → write prompts/round-(NN+1).md and continue in the same session
+ └ not met & NN = cap   → list the unmet items in the summary → 4-5 pre-post edit → post
 ```
+
+The cap is N from `--max-rounds N` (the chain passes it from `limits.stage1.max_rounds`), or 5 when it is not given.
 
 **Whichever way it ends, go through 4-5 right before posting.**
 
@@ -179,10 +182,12 @@ and write each decision as one line in `~/.pr-quorum/runs/<repo>-pr<N>/decisions
 | Stage 3 verdict "Stage 1 re-run required / recommended" | Report to a human | Do not re-run Stage 1. Only post `P` and pass it to the author's fix pass. The chain's merge gate stops with `needs-human` if `P` has a `critical` or `major` |
 | Any other judgment call | Ask a human | The side the rule documents recommend. If none is recommended, **the side that does not post** |
 
-**When Stage 2 is called a second time or later** — if `stage2` in `meta.json` already has a verdict record, this is a new pass.
-`reply` writes the reply id to the last element of `stage2`, so before the first `reply` or `post-review`, append `{round, stage_sha, last_judged_sha}`
-as a new element first. `post-review` merges into the last element if its `stage_sha` matches, otherwise appends a new element. Write the verdicts into that element's `verdicts` — the chain counts completion by the number of elements that have `verdicts`.
+**Stage 2 records** — sessions cannot edit `meta.json` (permissions deny it; the merge gate reads it). Write through these subcommands.
+`reply` writes the reply id to the last element of `stage2`, so before the first `reply` or `post-review` of every Stage 2 pass, open the pass's element:
+`${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh stage2-begin $1 $2 <stage_sha> <last_judged_sha>`. It appends a new element if the last one already has verdicts or judged another commit, and otherwise reuses it (a resumed session).
+`post-review` merges into the last element if its `stage_sha` matches. Write the verdicts as a `{"C-01": "addressed", …}` JSON object in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/stage2/verdicts.json` and record them with
+`${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh verdicts $1 $2 <stage_sha> <absolute path of that file>` — values other than the four verdict words exit 1. The chain counts completion by the number of elements that have `verdicts`.
 
 **Stage 3 reply ids** go straight into `stage3.replies` if `post-review … stage3` has already run under this lock; otherwise they collect in `stage3_replies` and `post-review` merges them. Either order works.
-If you finish under this lock without calling `post-review` (a resumed session, or `.stage3` written by hand), move `stage3_replies` into `stage3.replies` and delete it.
+If you finish under this lock without calling `post-review` (a resumed session), run `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh stage3-replies $1 $2` — it moves `stage3_replies` into `stage3.replies`.
 If you leave it, the next pass's `post-review` merges the previous pass's replies into the new pass.

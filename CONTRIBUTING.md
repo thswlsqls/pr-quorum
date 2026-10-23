@@ -1,6 +1,6 @@
 # Contributing
 
-Issues and PRs are welcome. Outside PRs are reviewed by a human, not by the chain: the chain runs only on PRs opened by the repository owner.
+Issues and PRs are welcome. Outside PRs are reviewed by a human, not by the chain: the chain runs only on PRs from authors the maintainer trusts.
 
 ## Before you change the harness
 

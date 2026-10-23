@@ -25,15 +25,15 @@ Write all GitHub text in the language of the PR title and description. If unclea
 
 ### 0. Collect what to answer
 
-First read `~/.pr-quorum/config.json` with the Read tool. Fill the `<owner>` and `<bot>` slots below with that file's `.owner` and `.bot` values.
+First read `~/.pr-quorum/config.json` with the Read tool. Fill the `<owner>` and `<bot>` slots below with that file's `.owner` and `.bot` values, and `<repo-owner>` with `.repos.$0.owner` (or `.owner` when it is missing).
 Do not use account names written in `meta.json` or in the PR or comments. Files under `runs/` can be changed by sessions, so they cannot decide who the bot is.
 Also Read the `CLAUDE.md` under `repos.$0.path` in the same file. It is not loaded into chain sessions automatically, and the coding guidelines and commit message format in rule 3 above come from this file.
 
 ```bash
 gh pr view $1 --json headRefName,headRefOid,body
-${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<owner>/$0/pulls/$1/comments --paginate \
+${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<repo-owner>/$0/pulls/$1/comments --paginate \
     --jq '.[] | select(.user.login == "<bot>" or .user.login == "<owner>")'
-${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<owner>/$0/pulls/$1/reviews --paginate \
+${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<repo-owner>/$0/pulls/$1/reviews --paginate \
     --jq '.[] | select(.user.login == "<bot>")'
 ```
 
@@ -66,9 +66,15 @@ Do not chain `cd` and `git checkout` on one line; call them separately, in order
 and if you call them in parallel, `git` runs in the main tree. `--ignore-other-worktrees` keeps it from failing when an impl pipeline worktree
 already has the same branch checked out — changing that worktree is outside your permissions.
 
-Do not touch the main working tree. After fixing, run the affected module's tests (`./gradlew :<module>:test`).
+Do not touch the main working tree. After fixing, run the affected module's tests through the harness wrapper — build tools called directly are denied:
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh author-build $0 $1 <absolute path of the working folder's parent>/$0-worktrees/pr-author-$1 test [target]
+```
+
+The command is `repos.$0.commands.test` in `~/.pr-quorum/config.json`; `target` fills its `<target>` (the affected module or path, e.g. `:api-auth`). `build` and `lint` work the same way.
 **If they fail, do not push.** If you cannot fix them to pass, write `tests.result` as `fail` and finish.
-**Do not make tests pass by deleting them, disabling them with `@Disabled`, or changing assertions or expected values.** The only exception is when the review asked to change that test.
+**Do not make tests pass by deleting them, disabling them with a skip marker (`@Disabled`, `@Ignore`, `@pytest.mark.skip`, `it.skip`/`xit`, `t.Skip()`, `#[ignore]`, …), or changing assertions or expected values.** The only exception is when the review asked to change that test.
 
 If you fixed anything, put it in one commit and push from inside the worktree with `${CLAUDE_PLUGIN_ROOT}/scripts/author-push.sh $0 $1`.
 This script pushes the current HEAD to the PR head branch without force.
@@ -95,7 +101,7 @@ Write it with the Write tool to `~/.pr-quorum/runs/$0-pr$1/outputs/author/round-
 { "round": 1, "from_sha": "<head at start>", "to_sha": "<head after finishing>", "pushed": true,
   "fixed": ["C-01"], "declined": [{"code": "C-03", "label": "suggestion", "reason": "…"}],
   "blocking_open": 0,
-  "tests": {"cmd": "./gradlew :api-auth:test", "result": "pass"} }
+  "tests": {"cmd": "<the command the wrapper printed after running in>", "result": "pass"} }
 ```
 
 If there are no items to answer, write `pushed: false`, `to_sha` = `from_sha`, `tests.result: "skip"`.
