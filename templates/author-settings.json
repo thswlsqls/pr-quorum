@@ -50,6 +50,10 @@
       "Bash(git rev-parse:*)"
     ],
     "deny": [
+      "Bash(git diff *--output*)",
+      "Bash(git log *--output*)",
+      "Bash(git show *--output*)",
+      "Bash(git diff *--no-index*)",
       "Bash(git push:*)",
       "Bash(git -C:*)",
       "Bash(git -c:*)",

@@ -59,6 +59,10 @@
       "Bash(gh pr checks:*)"
     ],
     "deny": [
+      "Bash(git diff *--output*)",
+      "Bash(git log *--output*)",
+      "Bash(git show *--output*)",
+      "Bash(git diff *--no-index*)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(gh pr merge:*)",
