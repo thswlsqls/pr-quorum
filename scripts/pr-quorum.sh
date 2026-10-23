@@ -613,20 +613,46 @@ cmd_post_review() {
   cmd_pg5 "$sfile" "$cfile" "$stage"
 
   load_bot_token
-  mktmp; local tmp="$TMP"
+  mktmp; local tmp="$TMP" known rid posting
+  # The draft as posted. When a later call adopts the review, this copy stands in for comments.json — a retrying session may have
+  # rewritten that file, and its codes must not land on the earlier review's comments. Removed once the review is recorded
+  posting="$(run_dir "$repo" "$pr")/outputs/$stage/posting-${sha:0:7}.json"
+
+  # Adoption — a bot review on this SHA carrying this stage's marker that meta.json does not know was posted by an earlier call
+  # that died before recording it, or whose POST response was lost. Record that one instead of posting a second.
+  # Reviews already recorded are left out, so rerunning a stage on purpose still posts. A failed check posts nothing
+  known="$(jq -c '[.stage1[]?.review_id, .stage2[]?.review_id, .stage3.review_id?, .stage3_history[]?.review_id] | map(select(. != null))' \
+    "$(meta_path "$repo" "$pr")")"
+  rid="$(api --paginate "repos/$SLUG/pulls/$pr/reviews" \
+    | jq -s -r --arg b "$(cfg '.bot // empty')" --arg s "$sha" --arg mk "<!-- pr-quorum:$stage -->" --argjson k "$known" '
+        [add // [] | .[] | select(.user.login == $b and ((.commit_id // "") | startswith($s)) and ((.body // "") | contains($mk))
+                                 and ((.id as $i | $k | index($i)) == null))]
+        | last | .id // empty')" \
+    || die "$E_API" "could not list the PR's reviews to check for an unrecorded earlier post — nothing was posted"
+  if [ -n "$rid" ]; then
+    [ -f "$posting" ] || posting="$cfile"
+    record_review "$repo" "$pr" "$stage" "$rid" "$sha" "$posting" \
+      || die "$E_API" "review_id=$rid is on GitHub but recording it in meta.json failed — rerun the same post-review command"
+    [ "$posting" = "$cfile" ] || rm -f "$posting"
+    echo "adopted — review_id=$rid (already posted, now recorded)"
+    return 0
+  fi
 
   # Only path/line/side/body are posted. code/axis/grade are for the meta record.
-  jq -n --arg cid "$sha" --rawfile body "$sfile" --slurpfile c "$cfile" '
-    {commit_id:$cid, event:"COMMENT", body:$body,
+  # The body ends with a stage marker (an HTML comment, not rendered) — the adoption check above looks for it
+  jq -n --arg cid "$sha" --rawfile body "$sfile" --slurpfile c "$cfile" --arg st "$stage" '
+    {commit_id:$cid, event:"COMMENT", body:($body + "\n\n<!-- pr-quorum:" + $st + " -->"),
      comments: ($c[0] | map({path, line, side:(.side // "RIGHT"), body}))}
   ' > "$tmp/payload.json"
 
+  mkdir -p "$(dirname "$posting")"; cp "$cfile" "$posting"
   local resp; resp="$(gh api "repos/$SLUG/pulls/$pr/reviews" --input "$tmp/payload.json")" \
-    || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7)"
+    || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7). If the review did go up, rerunning the same post-review command records it without posting again"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
-  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$cfile" \
+  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$posting" \
     || die "$E_API" "review posted (review_id=$review_id) but not recorded in meta.json — rerun the same post-review command; it records this review without posting again"
+  rm -f "$posting"
   echo "posted — review_id=$review_id, $(jq 'length' "$cfile") inline comments"
 }
 
