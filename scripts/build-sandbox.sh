@@ -110,8 +110,10 @@ sandbox_run() {
   for p in "$cache/gradle" "$cache/gradle/init.d" "$cache/gradle/gradle.properties" "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts"; do
     [ ! -L "$p" ] || { echo "build-sandbox: $p is a link — a build may have planted it; remove it by hand" >&2; return 2; }
   done
-  rm -rf "$cache/gradle/init.d" && mkdir "$cache/gradle/init.d" && : > "$cache/gradle/gradle.properties" \
-    && rm -f "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts" \
+  # Unlink before creating: truncating in place would empty whatever a planted hard link points at (a user's ~/.zshrc)
+  rm -rf "$cache/gradle/init.d" && mkdir "$cache/gradle/init.d" \
+    && rm -f "$cache/gradle/gradle.properties" "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts" \
+    && : > "$cache/gradle/gradle.properties" \
     || { echo "build-sandbox: cannot reset the Gradle init files under $cache/gradle" >&2; return 2; }
   bot="$(sandbox_canon "${BOT_ENV:-$home/.config/pr-quorum/bot.env}")" \
     || { echo "build-sandbox: cannot resolve the folder of the bot token file ${BOT_ENV:-$home/.config/pr-quorum/bot.env}" >&2; return 2; }
