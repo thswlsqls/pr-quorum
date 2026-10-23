@@ -11,148 +11,112 @@
   </picture>
 </p>
 
-一个 Claude Code 插件：把 GitHub PR 的审查分给多个 Claude 会话完成，在作者处理审查意见后再次核对并重新测量，并用风险分数决定是否合并。
-在 PR 上把机器人账号指定为审查者即开始审查，审查结果像人类审查者一样发布：一条摘要加上附在代码行上的行内评论。
+一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
 
-它原本是在个人仓库（tech-n-ai-backend）的 `tools/pr-eval/` 中运行的工具链（harness），现已迁移为插件。下文中的 PR 编号均指该仓库中的 PR。
+在 PR 上把机器人账号设为评审人，其余流程无人值守地完成。评审像人类评审一样发布：一条总结，加上挂在代码行上的行内评论。
 
-## 功能
+## 工作方式
 
-审查分三个阶段进行。如果只审查一次就结束，就没有人去核对意见是否真的被处理，也没有人检查审查是否遗漏了什么。
-
-| 阶段 | 问题 | 做什么 |
-|---|---|---|
-| Stage 1 · review | 这个 PR 有哪些缺陷？ | 四个评审者（judge）分担审查维度，在互相看不到结果的情况下寻找缺陷。挑战者（challenger）对照实际代码复核每条 `critical`（致命）/`major`（重大）意见，三个验证者（verifier）分别从证据、引用和作者的角度重读审查。未达到标准时再跑一轮，最多 5 轮 |
-| Stage 2 · followup | 作者是否按审查要求做了？ | 在每条评论的讨论串中回复一个判定：`addressed`（已处理，반영）、`partial`（部分处理，부분）、`not-addressed`（未处理，미반영）或 `regressed`（倒退，역행）。`regressed` 表示修改引入了新的缺陷 |
-| Stage 3 · measured | 审查经得起测量吗？ | 在包含修改的提交上重新运行构建和测试，并寻找审查遗漏的缺陷（`P`） |
-
-评审者、挑战者和验证者都以 `pr-quorum:judge` 代理运行，由 `/pr-quorum:review` 技能驱动各阶段。
-处理审查意见的不是机器人，而是单独的作者会话（`/pr-quorum:author`）。作者会话只用用户的 gh 账号推送到 PR 分支，从不强制推送、合并或批准。
-
-机器人被指定为审查者后，监视器（`scripts/watch.sh`）会在 60 秒内发现并启动链（`scripts/chain.sh`）。链在无人参与的情况下按以下顺序运行。
+| 阶段 | 做什么 |
+|---|---|
+| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。最多 5 轮 |
+| 作者 | 独立的会话(`/pr-quorum:author`)修改代码，用你的 gh 账号推送到 PR 分支。从不强制推送、合并或批准 |
+| Stage 2 · followup | 在每个讨论串中回复 `addressed`(已落实)、`partial`(部分)、`not-addressed`(未落实) 或 `regressed`(倒退，修复引入了新缺陷) |
+| Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
 
 ```mermaid
 flowchart LR
-  C["Stage 1 → 作者修改 → Stage 2 → Stage 3<br/>→ (作者修改 → Stage 2)*"] --> MG{"合并门禁<br/>blocking 0 · regressed 0 · 无测试失败<br/>机器人是否审查了当前 head？"}
+  C["Stage 1 → 作者修复 → Stage 2 → Stage 3<br/>→ (作者修复 → Stage 2)*"] --> MG{"合并关卡<br/>blocking 0 · regressed 0 · 无测试失败<br/>机器人评审过当前 head 吗？"}
   MG -- "否" --> B[blocked]
   MG -- "Stage 3 P 中有 critical/major" --> H
-  MG -- "是" --> RG{"风险门禁<br/>0–100 分"}
+  MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M[gh pr merge]
-  A -- "false（默认）" --> R["ready<br/>由人合并"]
-  RG -- "medium 及以上" --> H["needs-human<br/>由人审查并合并"]
+  A -- "false (默认)" --> R["ready<br/>由人合并"]
+  RG -- "medium 及以上" --> H["needs-human<br/>由人评审并合并"]
 ```
 
-风险门禁不判断代码好坏，只根据改了哪些文件、改了多少来打分。涉及认证代码、密钥、CI、构建脚本或工具链本身的 PR 分数更高，不会被自动合并。机器人会把评分表作为 PR 评论留下。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
+风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
 
-## 真实审查示例
+### 示例
 
-这是机器人在 tech-n-ai-backend PR #69 上留下的审查（该 PR 让 `ScrapedDataCleaner` 最后再替换 `&amp;`，避免实体被解码两次）。该 PR 使用中文，所以机器人也用中文撰写。
+机器人在 tech-n-ai-backend(本 harness 的起源仓库) PR #69 上留下的评审。评审文字跟随 PR 的语言。
 
-审查摘要。先列出可能阻止合并的内容，再用表格列出每个审查维度指出了什么、无法验证什么。
+![机器人在 PR #69 上留下的评审总结](assets/review-summary-zh-CN.png)
 
-![机器人在 PR #69 上留下的审查摘要](assets/review-summary-zh-CN.png)
+![PR #69 的行内评论与后续判定](assets/inline-comment-zh-CN.png)
 
-一条行内评论。它附在问题所在的行上，并写明作为证据引用的文件和行号。中间是作者的回复，下方是作者修改后机器人在同一讨论串中留下的 Stage 2 判定。
+Stage 1 留下了 1 条 nitpick 和 2 条表扬。Stage 2 判定这条 nitpick 为 `addressed`，Stage 3 未发现遗漏，风险分 0(`low`)，链路完成了合并。
 
-![PR #69 上的行内评论与后续判定](assets/inline-comment-zh-CN.png)
+## 设计取舍
 
-在这个 PR 上，Stage 1 留下了 3 条评论（1 条 nitpick、2 条表扬）。作者修改后，Stage 2 判定这条 nitpick 为 `addressed`，Stage 3 没有发现审查遗漏的缺陷。风险门禁打出 0 分（`low`），由链路自动合并。
-
-## 与其他审查工具的区别
-
-这里只列出运行记录和规则文档能够证实的内容。它说明的是流程更严格，而不是证明审查更准确（见下文“尚不清楚的事”）。
-
-- **它对证据分级，并单独检查引用是否真的支持结论。** 证据分为四类：仓库的规范性文档、官方文档的引用、代码中的 `file:line`，以及直接运行得到的结果。超出其等级所允许范围的主张会作为无效被丢弃。引用本身正确但结论超出引用范围的情况，由验证者 V2 发现（[`rules/00-criteria.md`](rules/00-criteria.md) §4、[`rules/02-judges.md`](rules/02-judges.md) §6）。
-- **它单独判断修改是否让情况变得更糟（`regressed`），并在修改后重新测量。** PR #33 的第一次 Stage 2 得出 2 条 `regressed` 和 1 条 `not-addressed`，Stage 3 发现了遗漏的缺陷：#33 上 2 处，#34 上 1 处。
-- **它把已确认的事实固定在 `frozen.md` 中。** 为避免每轮重复同样的争论，推翻已确认的事实需要提出该事实错误的新证据（失效条件 I-4）。
-- **规则、提示词和门禁全部公开，可查看、可修改。** 规则在 [`rules/`](rules/)，给评审者的指令在 [`rules/02-judges.md`](rules/02-judges.md)，门禁在 [`scripts/`](scripts/)。可以通过 `~/.pr-quorum/runs/` 中的各轮日志追溯某条意见被提出的原因。
-
-审查不使用分数。总分会让作者去争论分数而不是修改代码，所以只有四个等级：`critical`、`major`、`minor`（轻微）、`nit`（细枝末节）。审查中始终至少写一条表扬。
+- **证据分级。** 每条意见必须引用仓库规范文档、官方文档原文、`file:line` 或亲自运行的结果之一。超出证据支撑范围的主张会被剔除([`rules/00-criteria.md`](rules/00-criteria.md) §4)。
+- **评审不打分。** 只有 `critical`、`major`、`minor`(轻微)、`nit`(琐碎) 四个等级，并且至少写一条值得肯定之处。
+- **已确认的事实固定在 `frozen.md` 中**，没有新证据时各轮不再重复争论。
+- **一切都可查看。** 规则在 [`rules/`](rules/)，评审员指令在 [`rules/02-judges.md`](rules/02-judges.md)，关卡在 [`scripts/`](scripts/)，逐轮记录在 `~/.pr-quorum/runs/`。
 
 ### 标准的出处
 
-审查维度的顺序以及每个维度的范围来自公开的代码审查指南。本工具链会丢弃超出引用内容的主张，因此规则本身也限定在其引用的范围内。
+评审维度及各维度的边界取自公开的指南，每条规则都不超出其引文所说的范围。
 
-| 工具链规则 | 出处 | 所依据的句子 |
+<details>
+<summary>出处与引文</summary>
+
+| Harness 规则 | 出处 | 所依据的句子 |
 |---|---|---|
-| 先检查设计——这就是 `R-A` 作为第一个维度、去重时 J1 优先的原因 | Google, [What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html) | "The most important thing to cover in a review is the overall design of the CL." |
-| 并发单独作为一个维度（`R-C`） | 同一文档，Functionality 一节 | "…if there is some sort of **parallel programming** going on in the CL that could theoretically cause deadlocks or race conditions." |
-| 测试维度判定的措辞——不是“有没有测试”，而是“代码坏了测试会不会失败” | 同一文档，Tests 一节 | "Will the tests actually fail when the code is broken?" |
-| 始终至少写一条表扬 | 同一文档，Good Things 一节 · [Conventional Comments](https://conventionalcomments.org/) | "If you see something nice in the CL, tell the developer…" · "Try to leave at least one of these comments per review." |
-| 判定措辞不是“这是不是理想的设计”，而是“是否损害代码健康度” | Google, [The Standard of Code Review](https://google.github.io/eng-practices/review/reviewer/standard.html) | "reviewers should favor approving a CL once it is in a state where it definitely improves the overall code health of the system being worked on, even if the CL isn't perfect." |
-| 没有证据的个人偏好最高只到 `nitpick` | 同一文档 | "On matters of style, the style guide is the absolute authority. Any purely style point (whitespace, etc.) that is not in the style guide is a matter of personal preference." |
-| 评论标签——`issue (blocking)` · `suggestion` · `nitpick (non-blocking)` · `praise` | [Conventional Comments](https://conventionalcomments.org/) | 原样沿用“标签 + 括号修饰（blocking / non-blocking）”的格式 |
-| 安全维度（`R-I`）的第一项为何是缺少授权 | OWASP, [ASVS 5.0.0](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md) V8 Authorization, 8.2.2 (Level 1) | "Verify that the application ensures that data-specific access is restricted to consumers with explicit permissions to specific data items to mitigate insecure direct object reference (IDOR) and broken object level authorization (BOLA)." |
-| 把日志中残留的令牌或凭据视为缺陷的依据 | [同一标准](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md) V16 Security Logging and Error Handling, 16.2.5 (Level 2) | "Verify that when logging sensitive data, the application enforces logging based on the data's protection level. For example, it may not be allowed to log certain data, such as credentials or payment details. Other data, such as session tokens, may only be logged by being hashed or masked, either in full or partially." |
+| 最先检查设计 — 这是 `R-A` 为第一维度、去重时 J1 优先的原因 | Google, [What to look for in a code review](https://google.github.io/eng-practices/review/reviewer/looking-for.html) | "The most important thing to cover in a review is the overall design of the CL." |
+| 将并发单独拆为一个维度(`R-C`) | 同一文档，Functionality 节 | "…if there is some sort of **parallel programming** going on in the CL that could theoretically cause deadlocks or race conditions." |
+| 测试维度的判定措辞 — 不是"有没有测试"，而是"代码坏了时测试会不会失败" | 同一文档，Tests 节 | "Will the tests actually fail when the code is broken?" |
+| 必须至少写一条值得肯定之处 | 同一文档 Good Things 节 · [Conventional Comments](https://conventionalcomments.org/) | "If you see something nice in the CL, tell the developer…" · "Try to leave at least one of these comments per review." |
+| 判定措辞不是"这是否是理想设计"，而是"是否让代码健康度变差" | Google, [The Standard of Code Review](https://google.github.io/eng-practices/review/reviewer/standard.html) | "reviewers should favor approving a CL once it is in a state where it definitely improves the overall code health of the system being worked on, even if the CL isn't perfect." |
+| 没有依据的个人偏好最多只写到 `nitpick` | 同一文档 | "On matters of style, the style guide is the absolute authority. Any purely style point (whitespace, etc.) that is not in the style guide is a matter of personal preference." |
+| 评论标签 — `issue (blocking)` · `suggestion` · `nitpick (non-blocking)` · `praise` | [Conventional Comments](https://conventionalcomments.org/) | 原样沿用"标签 + 括号修饰(blocking / non-blocking)"的格式 |
+| 安全维度(`R-I`)的第一项是授权缺失的原因 | OWASP, [ASVS 5.0.0](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x17-V8-Authorization.md) V8 Authorization, 8.2.2 (Level 1) | "Verify that the application ensures that data-specific access is restricted to consumers with explicit permissions to specific data items to mitigate insecure direct object reference (IDOR) and broken object level authorization (BOLA)." |
+| 将令牌或凭据留在日志中视为缺陷的依据 | [同一标准](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x25-V16-Security-Logging-and-Error-Handling.md) V16 Security Logging and Error Handling, 16.2.5 (Level 2) | "Verify that when logging sensitive data, the application enforces logging based on the data's protection level. For example, it may not be allowed to log certain data, such as credentials or payment details. Other data, such as session tokens, may only be logged by being hashed or masked, either in full or partially." |
 
-这也是测试维度不强硬要求的原因。它所依据的句子 *"Ask for unit, integration, or end-to-end tests **as appropriate** for the change."* 给出的是选择，因此写“缺少这些测试，所以 blocking”就超出了引用所支持的范围。
+测试维度不咄咄逼人，是因为其依据 *"Ask for unit, integration, or end-to-end tests **as appropriate** for the change."* 给出的是选择。写成"缺少这些测试，所以 blocking"就超出了引文。
 
-> Google eng-practices 仓库已归档（最后一次推送为 2024-09-19）。上面的引用来自该日期的文档。
->
-> ASVS 并不作为检查清单执行。这两条引用只作为安全维度定义的依据。该标准的许多要求只有查看配置、架构和运行环境才能判断，而机器人看到的是 PR 的 diff，所以执行整份清单只会产生大量找不到可引用代码行作为证据的意见。
+Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引文以当时为准。ASVS 不作为检查清单运行：它的大部分要求需要 PR diff 中看不到的配置和运行环境才能判断。
 
-审查维度的定义，以及每个维度看什么、不看什么，见 [`examples/profiles/`](examples/profiles/)。
+</details>
 
-## 尚不清楚的事
+评审维度的定义见 [`examples/profiles/`](examples/profiles/)。
 
-- **没有人工判断审查是否正确。** 用于由人把已发布评论标记为正确、错误或越界的 `human-labels.md` 是空的。因此本工具链“流程越严格，审查越好”的假设尚未得到检验。
-- **成本高。** 对一个 30–70 行的 PR，完整的链大约花费 $30（#52 $30.2，#55 $28.2）。迁移为插件后运行的第一个 PR #61（9 个文件，新增 384 行，删除 13 行）从 Stage 1 到作者第二轮处理用了约 47 分钟，记录的总成本为 $29.54。不过，我们尚未确认这个成本值（`claude -p` 的 `total_cost_usd`）是否涵盖整个会话，包括评审者、挑战者、验证者等子代理。如果不涵盖，实际成本会更高。
-- **实际只在一个后端仓库上运行过。** [`examples/profiles/frontend.md`](examples/profiles/frontend.md) 只是草稿，没有在前端 PR 上运行的记录。
+## 环境要求
+
+- macOS(watcher 示例基于 launchd，脚本为 bash)
+- [Claude Code](https://code.claude.com/docs)、用你自己的账号登录的 `gh`、`jq`、`git`
+- 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
+- 你本人拥有的个人仓库。其他人开的 PR 会被跳过
 
 ## 安装
 
-通过插件市场安装：
+要在日常的 Claude Code 会话中调用技能，从 marketplace 安装：
 
 ```
 /plugin marketplace add thswlsqls/pr-quorum
 /plugin install pr-quorum@pr-quorum
 ```
 
-使用 Claude Code 2.1.275 或更高版本时，也可以在会话中用一行完成。
-
-```
-/plugin install pr-quorum --marketplace thswlsqls/pr-quorum
-```
-
-通过插件市场安装的插件，只有在 `.claude-plugin/plugin.json` 中的 `version` 提高时才会收到新版本。如果有提交合并到 main 但版本号不变，已安装的插件不会变化（[官方文档](https://code.claude.com/docs/en/plugins/host-marketplace#release-a-new-version)）。按如下方式在 shell 中获取新版本。各版本的变更见 [`CHANGELOG.md`](CHANGELOG.md)。
-
-```bash
-claude plugin update pr-quorum@pr-quorum
-```
-
-**不过，无人值守的链不使用插件市场安装的版本，而是用 `--plugin-dir` 加载克隆下来的文件夹。** 原因有两个。
-
-- 从插件市场安装的插件位于 `~/.claude/plugins/cache/` 下按版本划分的文件夹中，每次更新路径都会变。launchd 配置没有固定路径可指向。
-- 为了让工具权限与本机设置相互隔离，链不读取用户设置（`--setting-sources ""`）。因此在用户设置中启用的安装不会被加载到链的会话中。
-
-所以对于链，请克隆仓库，并让监视器和手动运行都指向该文件夹。本文中 `<plugin-dir>` 指该克隆的绝对路径。
+无人值守的链路**不使用**这个安装。链路以 `--setting-sources ""` 运行(不会加载用户设置中启用的插件)，并且需要固定路径，所以它用 `--plugin-dir` 加载一个克隆。本文中 `<plugin-dir>` 指该克隆的绝对路径。
 
 ```bash
 git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 ```
 
-**让运行用的克隆与开发用的副本分开。** 用 `--plugin-dir` 加载的插件在每次会话启动时读取该文件夹中当时的文件。让监视器指向只跟踪 main 的克隆，在另一个克隆或 worktree 中修改工具链。这样改到一半的工具链就不会执行真实的审查。
+让这个克隆停留在 main，在另一个克隆或 worktree 中修改 harness，避免改到一半的 harness 跑真实评审。
 
-**运行用的克隆不会自动更新。** 用 `--plugin-dir` 加载的克隆按原样读取克隆中的文件，与 `version` 无关。因此 `claude plugin update` 不会改变它，即使有新提交合并到 main，链也仍在克隆中的旧文件上运行。要使用这些变更，请自行用 `git pull` 拉取。
-
-```bash
-git -C <plugin-dir> switch main && git -C <plugin-dir> pull --ff-only
-```
-
-## 一次性设置
-
-需要 `claude`、`gh`（以你的用户账号登录）、`jq` 和 `git`。监视器示例针对 macOS launchd。
+## 配置
 
 ### 1. 机器人账号
 
-每个使用本插件的人都要自己另建一个用于发布审查的 GitHub 机器人账号。没有共用的机器人。
+创建你自己的 GitHub 机器人账号；没有共享的机器人。
 
-- 把它以 **read 权限的协作者（collaborator）** 身份邀请到要审查的仓库。read 权限足以接收审查请求。
-- 令牌使用该机器人账号的 PAT，scope 为 `public_repo`。
-- 机器人只发布审查和评论，不批准也不请求修改。如果由机器人掌握合并决定，人们就会为了通过机器人而扭曲审查。
+- 以 **collaborator read** 邀请它加入每个要评审的仓库。这足以接收评审请求。
+- 为它创建 scope 为 `public_repo` 的 PAT。
+- 保持 read 权限。`public_repo` 能写公开仓库，一旦把机器人提升为 write，这个令牌就能推送。
 
-阻止机器人修改代码的唯一手段是协作者的 read 角色。`public_repo` scope 包含对公开仓库的写权限，所以一旦把机器人提升为 write，这个令牌就能推送。
+机器人只发布评审和评论，从不批准或请求修改。
 
 ### 2. 令牌文件
 
@@ -164,11 +128,9 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-键名使用 `PR_QUORUM_BOT_TOKEN` 或 `GH_TOKEN` 均可。只有一个写入 GitHub 的脚本（`scripts/pr-quorum.sh`）会在内部读取此文件，审查会话被禁止读取它。**不要把它提交到任何仓库。**
+键名也可以用 `GH_TOKEN`。只有 `scripts/pr-quorum.sh` 读取这个文件，评审会话被禁止读取。切勿提交它。
 
 ### 3. `~/.pr-quorum/config.json`
-
-按 PR 累积的状态和设置统一放在插件之外的 `~/.pr-quorum/` 中。复制示例 [`templates/config.json`](templates/config.json) 后进行修改。
 
 ```bash
 mkdir -p ~/.pr-quorum/profiles
@@ -178,27 +140,26 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 | 键 | 含义 |
 |---|---|
-| `owner` | 要审查的仓库所属的 GitHub owner 登录名。监视器在该 owner 的仓库中查找发给机器人的审查请求 |
-| `bot` | 第 1 步创建的机器人账号登录名。必须与令牌文件对应的账号一致 |
-| `auto_merge` | 链是否合并通过了两道门禁的 PR。默认为 `false`，此时链停在 `ready`，只留下风险评分表 |
-| `repos` | 按仓库名指定其本地克隆的绝对路径（`path`）和要使用的配置档名（`profile`） |
+| `owner` | 你的 GitHub 登录名。watcher 在该所有者的仓库中查找评审请求 |
+| `bot` | 第 1 步创建的机器人登录名。必须与令牌的账号一致 |
+| `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready` |
+| `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
 
-`learnings.md` 是跨 PR 累积的学习记录，审查会话会读取它。`human-labels.md` 是由人来评判机器人评论的表格。两者都从空文件开始。
-链会在每个仓库克隆旁边放一个 `<repo-name>-worktrees/` 文件夹，并在其中为每个 PR 创建一个 worktree。
+`learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
-### 4. 配置档
+### 4. Profile
 
-配置档（profile）是定义审查维度以及每个评审者看什么、不看什么的文档。复制一个示例并按你的仓库结构调整。文件名即 `config.json` 中的 `profile` 值。
+Profile 定义评审维度，以及每名评审员看什么、不看什么。复制一个样例并按你的仓库调整；文件名就是 `profile` 的值。
 
 ```bash
 cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
-两个示例（[`backend.md`](examples/profiles/backend.md) · [`frontend.md`](examples/profiles/frontend.md)）是为 tech-n-ai 的 Spring Boot 后端和 Next.js 前端编写的。
+样例([`backend.md`](examples/profiles/backend.md)、[`frontend.md`](examples/profiles/frontend.md))是为 Spring Boot 后端和 Next.js 前端写的。
 
-### 5. 监视器（可选）
+### 5. Watcher(可选)
 
-监视器不运行时，指定审查者不会有任何效果。在 macOS 上，把以下内容放入 `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` 并运行 `launchctl load`。它用 `caffeinate -i` 包裹，使机器不会进入睡眠。
+Watcher 每 60 秒查找发给机器人的评审请求。没有它，请求评审不会触发任何事，需要手动运行链路([用法](#用法))。在 macOS 上，把下面的内容保存为 `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist`，然后对它执行 `launchctl load`。`caffeinate -i` 让机器保持唤醒。
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -224,48 +185,102 @@ cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 </plist>
 ```
 
-只运行一次时，使用 `<plugin-dir>/scripts/watch.sh --once`。
-监视器按顺序一次处理一个 PR，机器关机时不运行。重新开机后，它会先处理积压的 PR。
+不经 launchd 试运行一次：`<plugin-dir>/scripts/watch.sh --once`。Watcher 一次处理一个 PR；机器关机期间到达的请求会在开机后处理。
 
-## 安全措施与遗留风险
+## 用法
 
-**工具权限由命令行设定，而不是由插件设定。** 链用 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 启动每个会话，不在允许列表中的工具一律直接拒绝、不作询问。审查会话不能修改 `~/.pr-quorum/runs/` 以外的任何内容，只能通过指定脚本写入 GitHub，也不能读取机器人令牌文件。`chain.sh` 每次运行时都会从 [`templates/`](templates/) 中的模板把设置文件渲染到 `~/.pr-quorum/`。
+下文中 `<repo>` 是 `config.json` 中 `repos` 下的仓库名，`<pr>` 是 PR 编号。
 
-所以 **当人以交互方式调用 `/pr-quorum:review` 时，这层保护不存在。** 手动运行时如需相同权限，请按如下方式启动。`~/.pr-quorum/settings.json` 在 `chain.sh` 运行过一次后才存在。
+### 评审一个 PR
+
+以非草稿状态打开 PR，并把机器人账号添加为评审人。一分钟内 watcher 会启动链路，从 Stage 1 一直运行到合并判断。
+
+通过 watcher 日志或 PR 的状态文件查看进度：
+
+```bash
+tail -f ~/Library/Logs/pr-quorum-watch.log
+jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
+```
+
+链路以下列状态之一结束(`chain.state`)：
+
+| 状态 | 含义 | 你要做什么 |
+|---|---|---|
+| `merged` | 在 `auto_merge: true` 下通过了两道关卡 | 无 |
+| `ready` | 通过了两道关卡，但 `auto_merge` 关闭 | 自己合并 |
+| `needs-human` | 风险为 `medium` 及以上，或 Stage 3 发现遗漏的 `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
+| `blocked` | 合并关卡未通过、合并冲突、会话未留下记录，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路 |
+
+### 手动运行链路
+
+不用 watcher，或要继续一个 `blocked` 的链路时，直接运行它。它会从停下的地方继续。
+
+```bash
+<plugin-dir>/scripts/chain.sh <repo> <pr>
+```
+
+### 只运行一个阶段
+
+要交互式地运行单个阶段，用与链路相同的权限启动 Claude Code。普通会话没有这些权限。`~/.pr-quorum/settings.json` 在 `chain.sh` 运行过一次后才会生成。
 
 ```bash
 claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <plugin-dir> \
   --permission-mode dontAsk --mcp-config <plugin-dir>/mcp.json --strict-mcp-config
 ```
 
-其他安全措施：
+然后在会话中调用：
 
-- 链只接受仓库 owner 开启的 PR。监视器先过滤一次，`chain.sh` 启动时再检查一次。这样可以避免他人撰写的 PR 描述或 diff 进入以用户账号推送和合并的会话。
-- 审查会话把 PR 描述、评论和 diff 中的文档当作数据，而不是指令。作者会话只从机器人账号发出的评论中接受任务。
-- 作者会话只通过 `scripts/author-push.sh` 推送，该脚本拒绝强制推送和推送到其他分支。
+```
+/pr-quorum:review stage1 <repo> <pr>
+/pr-quorum:review stage2 <repo> <pr>
+/pr-quorum:review stage3 <repo> <pr>
+/pr-quorum:author <repo> <pr>
+```
 
-**有三项风险尚未解决。**
+变更文件超过 50 个或变更行数超过 3,000 行的 PR 会以 `held-large` 搁置。若仍要评审，在 Stage 1 加上 `--approve`。
 
-- **不写出文件名而读取令牌文件的命令不会被阻止。** 禁止读取令牌文件夹的规则只对写明该文件的命令生效。官方文档指出，像 `cd ~/.config/pr-quorum && grep -r TOKEN .` 这样不使用文件名的命令不会被阻止，而审查会话和作者会话都可以使用 `cd` 和 `grep`。
-- **构建和测试会执行 PR 中的代码。** `./gradlew` 和 `npm run build` 会原样运行 PR 中的构建脚本。“链只在仓库 owner 开启的 PR 上运行”这一检查是承受该风险的前提。
-- **测试结果是会话对自身的报告值。** 合并门禁从作者会话写入的文件中读取测试是否通过以及剩余多少 blocking 意见。改用 CI 结果只对有 CI 的仓库有意义，因此改为默认关闭 `auto_merge`。
+### 维护
 
-启用 Claude Code 的 [沙箱](https://code.claude.com/docs/en/sandboxing)，在操作系统层面阻止读取 `~/.config` 和网络访问，这三项风险都会减小。仅靠权限 deny 规则无法限制所运行的程序。
+| 命令 | 何时使用 |
+|---|---|
+| `git -C <plugin-dir> pull --ff-only` | 让链路用上新版本时。克隆不会自动更新 |
+| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 把以往运行中的经验候选整理到 `~/.pr-quorum/runs/_dream/<time>/proposal.md`。是否写入 `learnings.md` 由你决定 |
+| `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 列出最近 N 个已合并 PR(默认 30)的风险分，并对照 14 天内的修复或回滚 PR，用于调整自动合并阈值 |
+| `<plugin-dir>/scripts/selftest.sh` | 修改关卡脚本后。不用 LLM，在以往产出上重跑关卡 |
 
-## 范围与限制
+Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@pr-quorum` 获取新版本。变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
-- **它是为个人仓库设计的。** 链只接受 `author_association == OWNER` 的 PR。在组织仓库中，成员开启的 PR 也会被跳过。它采用失败即关闭（fail closed）的方式，有人提出需求时再修改。
-- **风险分数规则是按 tech-n-ai 的结构定制的。** 风险分数只使用变更的文件路径和行数，所以同样的 diff 总是得到同样的分数。但路径规则（`common/security/`、Gateway 的 `filter/`、`/api/bff/auth/` 等）是按 tech-n-ai 定制的，在其他仓库中修改认证代码可能不会提高分数。这就是 `auto_merge` 默认关闭的原因。开启前，请确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 也适合你的仓库。
-- **不审查大型 PR。** 如果变更的文件超过 50 个，或新增加删除的行数超过 3,000，链会搁置该 PR，只在上面留下通知。
-- **路径中不能出现某些字符。** 链用 `sed` 填充设置模板，因此如果插件文件夹路径包含 `|` 或 `&`，或 `config.json` 中的仓库路径包含 `*` 或 `[`，权限规则就会失效。
-- **只支持 GitHub，且只在单台机器上运行。** 监视器采用轮询，所以机器必须开着。
-- **审查文字使用 PR 的语言。** 由脚本生成的风险评分表和通知是英文的。
+## 安全
 
-## 改进建议
+每个链路会话都以 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 运行，不在允许列表([`templates/`](templates/))中的工具一律直接拒绝。评审会话只能写入 `~/.pr-quorum/runs/` 之下，只能通过 `scripts/pr-quorum.sh` 向 GitHub 发布，且无法读取令牌文件。作者会话只通过 `scripts/author-push.sh` 推送，该脚本拒绝强制推送和其他分支。
 
-`learnings.md` 按用户分别累积在 `~/.pr-quorum/` 中。如果 `scripts/dream.sh` 给出的提案中有也适用于其他仓库的条目，欢迎在本仓库提 issue 或 PR。外部提交的 PR 由人审查，而不是由链审查。
+其他防护：
 
-修改或运维插件时应阅读的内部文档是 [`docs/harness.md`](docs/harness.md)。其中包括脚本约定、输出规格以及经测量确认的事实。
+- 只运行仓库所有者开的 PR。Watcher 先过滤，`chain.sh` 再检查一次。
+- PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
+
+仍然存在的风险：
+
+- **令牌文件可以被间接读取。** 拒绝规则只匹配点名该文件的命令；`cd ~/.config/pr-quorum && grep -r TOKEN .` 不会被拦截。
+- **构建和测试会执行 PR 的代码**(`./gradlew`、`npm run build`)。之所以能接受这一点，是因为链路只运行所有者自己开的 PR。
+- **测试结果是会话自报的。** 合并关卡从作者会话写的文件中读取结果。这也是 `auto_merge` 默认关闭的原因。
+
+开启 Claude Code 的 [sandbox](https://code.claude.com/docs/en/sandboxing)，在操作系统层面阻止读取 `~/.config` 和网络访问，可以同时减轻这三项风险。
+
+## 限制
+
+- **效果未经验证。** 还没有人评判过评审是否正确(`human-labels.md` 为空)，"流程越严格评审越好"这一假设尚未检验。
+- **成本高。** 30–70 行的 PR 跑完整条链路约 $30。一个 9 个文件、约 400 行的 PR 用时约 47 分钟。这些数字来自 `total_cost_usd`，可能不含子代理的成本。
+- **只在一个后端仓库上跑过。** 前端 profile 从未运行过。
+- **风险规则贴合 tech-n-ai 的路径**(`common/security/`、`filter/`、`/api/bff/auth/` …)。开启 `auto_merge` 前，先确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 适合你的仓库。
+- **仅限个人仓库。** 在组织仓库中，成员开的 PR 也会被跳过。
+- **仅支持 GitHub，单台机器。** Watcher 采用轮询，机器必须开着。
+- **路径限制。** 插件路径不能含 `|` 或 `&`，`config.json` 中的仓库路径不能含 `*` 或 `[`。
+- 脚本生成的评分表和通知是英文；评审文字跟随 PR 的语言。
+
+## 参与贡献
+
+欢迎提交 issue 和 PR。请参阅 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 ## 许可证
 
