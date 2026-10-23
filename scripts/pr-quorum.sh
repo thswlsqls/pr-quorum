@@ -588,6 +588,14 @@ need_run_file() {
 
 # Runs before the bot token is loaded and before any API call. Exit 3, and the matched text is never echoed
 need_clean_body() { scan_tokens "$@" || die "$E_GATE" "outgoing body holds a token — nothing was posted. Remove it from the file"; }
+# comments.json goes out through jq, which decodes escapes such as \u0067hp_…, so scan the decoded strings too, not only the file as written.
+# A file jq cannot parse fails closed
+need_clean_json() {
+  local d; d="$(mktemp)"
+  jq -r '.. | strings' "$1" > "$d" 2>/dev/null || { rm -f "$d"; die "$E_GATE" "could not decode $1 for the token scan — nothing was posted"; }
+  scan_tokens "$d" || { rm -f "$d"; die "$E_GATE" "outgoing comments hold a token once decoded — nothing was posted. Remove it from $1"; }
+  rm -f "$d"
+}
 
 cmd_post_review() {
   local repo="$1" pr="$2" sha="$3" sfile="$4" cfile="$5" stage="${6:-stage1}"
@@ -765,7 +773,7 @@ case "$sub" in
   stage3-replies) [ $# -eq 2 ] || usage; cmd_stage3_replies "$@" ;;
   build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
   author-build) [ $# -ge 4 ] && [ $# -le 5 ] || usage; BUILD_AUTHOR=1; cmd_build "$@" ;;
-  post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; need_clean_body "$4" "$5"; cmd_post_review "$@" ;;
+  post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; need_clean_body "$4" "$5"; need_clean_json "$5"; cmd_post_review "$@" ;;
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch "$@" ;;
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
