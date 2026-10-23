@@ -38,7 +38,7 @@ The risk gate scores only which files changed and by how much, not code quality.
 
 ### Example
 
-The bot's review on PR #67 of tech-n-ai-backend, where this harness came from. The review follows the PR's language.
+A review the bot left on a real PR. The review follows the PR's language.
 
 ![Review summary the bot left on PR #67](assets/review-summary-en.png)
 
@@ -270,7 +270,7 @@ Enabling Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to 
 - **Unvalidated.** No human has yet graded whether the reviews were right (`human-labels.md` is empty), so "a stricter process gives better reviews" is untested.
 - **Expensive.** About $30 per full chain for a 30–70 line PR. A 9-file, ~400-line PR took about 47 minutes. These figures come from `total_cost_usd` and may not include subagent cost.
 - **Tested on one backend repository.** The frontend profile has never run.
-- **Risk rules are fitted to tech-n-ai's paths** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
+- **Risk rules are fitted to the repository they were written for** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
 - **Personal repositories only.** In an organization, PRs from members are skipped too.
 - **GitHub only, one machine.** The watcher polls, so the machine must be on.
 - **Path restrictions.** The plugin path must not contain `|` or `&`, and repository paths in `config.json` must not contain `*` or `[`.

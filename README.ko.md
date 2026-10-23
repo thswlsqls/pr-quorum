@@ -40,7 +40,7 @@ flowchart LR
 
 ### 예시
 
-이 하니스가 처음 돌던 tech-n-ai-backend 의 PR #68 에 봇이 남긴 리뷰다. 리뷰 글은 PR 의 언어를 따른다.
+실제 PR 에 봇이 남긴 리뷰다. 리뷰 글은 PR 의 언어를 따른다.
 
 ![PR #68 에 봇이 남긴 리뷰 요약](assets/review-summary-ko.png)
 
@@ -272,7 +272,7 @@ Claude Code 의 [sandbox](https://code.claude.com/docs/en/sandboxing) 를 켜서
 - **효과가 검증되지 않았다.** 리뷰가 맞았는지 사람이 채점한 기록이 아직 없다(`human-labels.md` 가 비어 있다). "절차가 엄격하면 리뷰가 낫다"는 가정은 검증 전이다.
 - **비싸다.** 30~70줄 PR 하나에 체인 전체가 약 $30 든다. 9개 파일·약 400줄 PR 은 약 47분 걸렸다. 수치는 `total_cost_usd` 기준이라 하위 에이전트 비용이 빠졌을 수 있다.
 - **백엔드 저장소 하나에서만 돌려 봤다.** 프런트엔드 프로파일은 한 번도 돈 적이 없다.
-- **리스크 규칙이 tech-n-ai 의 경로에 맞춰져 있다**(`common/security/`, `filter/`, `/api/bff/auth/` …). `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 `scripts/risk.jq` 가 자기 저장소에 맞는지 확인한다.
+- **리스크 규칙이 처음 만든 저장소의 경로에 맞춰져 있다**(`common/security/`, `filter/`, `/api/bff/auth/` …). `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 `scripts/risk.jq` 가 자기 저장소에 맞는지 확인한다.
 - **개인 저장소 전용이다.** organization 저장소에서는 구성원이 연 PR 도 건너뛴다.
 - **GitHub 만, 한 머신에서 돈다.** watcher 가 폴링 방식이라 머신이 켜져 있어야 한다.
 - **경로 제약.** 플러그인 경로에 `|`·`&` 가, `config.json` 의 저장소 경로에 `*`·`[` 가 있으면 안 된다.
