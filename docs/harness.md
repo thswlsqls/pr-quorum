@@ -30,7 +30,7 @@ A harness that evaluates incoming PRs axis by axis and posts the review. This is
 | `~/.pr-quorum/human-labels.md` | Table in which a human judges posted bot comments as right, wrong, or overreaching. Sessions do not write it |
 | `~/.pr-quorum/runs/<repo>-pr<N>/` | Working folder for one PR. Thrown away per PR. `learning-candidates.md` holds the learning candidates written by evaluation sessions (denied to the author session) |
 | `~/.pr-quorum/runs/_dream/<timestamp>/proposal.md` | Learnings proposal produced by `dream.sh`. A human marks each item accept, reject, or hold |
-| `scripts/` | `pr-quorum.sh` (the only posting path) · `watch.sh` (automatic trigger · cleans up `pr-quorum-*` and `pr-author-*` worktrees of merged PRs) · `chain.sh` (Stage 1 through merge) · `risk.jq` (risk score) · `risk-audit.sh` (tracks follow-up fixes after merge) · `selftest.sh` (re-runs PG5 and PG6 on past outputs; run once after changing a gate) · `gh-get.sh` (how sessions read GitHub; GET only) · `author-push.sh` (the only way the author session pushes to the PR branch; no force) · `author-reply.sh` (how the author session posts thread replies, PR comments, and PR description replacements; bodies only from files under `runs/`) · `dream.sh` (gathers learning candidates from runs and produces a proposal; called by hand) |
+| `scripts/` | `pr-quorum.sh` (the only posting path) · `watch.sh` (automatic trigger · cleans up `pr-quorum-*` and `pr-author-*` worktrees of merged or closed PRs) · `chain.sh` (Stage 1 through merge) · `risk.jq` (risk score) · `risk-audit.sh` (tracks follow-up fixes after merge) · `selftest.sh` (re-runs PG5 and PG6 on past outputs; run once after changing a gate) · `gh-get.sh` (how sessions read GitHub; GET only) · `author-push.sh` (the only way the author session pushes to the PR branch; no force) · `author-reply.sh` (how the author session posts thread replies, PR comments, and PR description replacements; bodies only from files under `runs/`) · `dream.sh` (gathers learning candidates from runs and produces a proposal; called by hand) |
 | `templates/settings.json` · `templates/author-settings.json` · `templates/dream-settings.json` · `templates/config.json` · root `mcp.json` · `scripts/config.sh` | Tool allow/deny templates for evaluation, author, and dream sessions · sample `~/.pr-quorum/config.json` · config that restricts chain sessions' MCP to context7 alone (dream sessions run without MCP) · functions that read `config.json` and render the settings. Every time `chain.sh` or `dream.sh` runs, it replaces `__PLUGIN_ROOT__` in the templates with the plugin folder path and writes them to `~/.pr-quorum/` |
 
 ## 2. Three stages
@@ -166,7 +166,7 @@ Nothing to install. The chain loads the skills (`/pr-quorum:review`, `/pr-quorum
 
 ### 5-4. Running the watcher continuously (optional)
 
-Put the following in `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` and run `launchctl load` (a minimal example; the plist in use wraps it in `/usr/bin/caffeinate -i` and logs to `~/Library/Logs/pr-quorum-watch.log`). For debugging, `scripts/watch.sh --once`.
+Put the following in `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` and run `launchctl load` (a minimal example; the plist in use wraps it in `/usr/bin/caffeinate -i` and logs to `~/Library/Logs/pr-quorum-watch.log`). For debugging, `scripts/watch.sh --once`. Worktree cleanup asks each worktree's PR state and runs at most every 30 minutes (`~/.pr-quorum/.gc-stamp`); `scripts/watch.sh --gc-only` runs it now.
 
 ```xml
 <key>ProgramArguments</key>
