@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `12d880f`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `5aefd06`
 
 <p align="center">
   <picture>
@@ -71,6 +71,50 @@ flowchart TD
 ```
 
 수렴: [`rules/01-stages.md`](rules/01-stages.md) §4 의 종료 조건.
+
+</details>
+
+<details>
+<summary>Stage 2 안에서 (코멘트마다 판정 하나)</summary>
+
+```mermaid
+flowchart TD
+  IN(["봇 코멘트<br/>+ 수정 커밋"]) --> L
+  subgraph L["위원 4인 · 관점 하나씩"]
+    direction LR
+    L1["L1 수정의<br/>충실도"] ~~~ L2["L2 정확성,<br/>역행"] ~~~ L3["L3 문서와<br/>코드 일치"] ~~~ L4["L4 재발<br/>방지"]
+  end
+  L --> V{"코멘트마다<br/>판정"}
+  V -- regressed --> C["반박자가<br/>다시 확인"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["답글 초안<br/>+ 새 코멘트<br/>최대 3건"]
+  C --> D
+  D --> P(["스레드마다<br/>한 번 답함"])
+```
+
+`regressed` 판정이 하나라도 남으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+
+</details>
+
+<details>
+<summary>Stage 3 안에서 (측정한 뒤 결함을 원인별로 나눔)</summary>
+
+```mermaid
+flowchart TD
+  IN(["고친 커밋"]) --> S
+  subgraph S["동시에 진행"]
+    direction LR
+    J["위원 4인<br/>Stage 1 축"] ~~~ M["worktree 에서<br/>빌드·테스트"]
+  end
+  S --> C["반박자가<br/>P 와 critical<br/>마다 확인"]
+  C --> O{"결함마다<br/>원인 분류"}
+  O -- "P: 리뷰가 놓침" --> NP["새 리뷰<br/>코멘트"]
+  O -- "Q: 일부만 고침<br/>N: 수정이 만듦" --> T["Stage 2<br/>스레드에 답함"]
+  NP --> G{"critical/major<br/>P 가 있나?"}
+  G -- "예" --> H["게이트에서<br/>needs-human"]
+  G -- "아니오" --> OK(["평소대로<br/>게이트"])
+```
+
+측정할 수 없는 것은 `not measured` 로 적는다. 원인 분류: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
 
 </details>
 

@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `12d880f`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `5aefd06`
 
 <p align="center">
   <picture>
@@ -71,6 +71,50 @@ flowchart TD
 ```
 
 已收敛：指 [`rules/01-stages.md`](rules/01-stages.md) §4 中的退出条件。
+
+</details>
+
+<details>
+<summary>Stage 2 的内部(每条评论一个判定)</summary>
+
+```mermaid
+flowchart TD
+  IN(["机器人的评论<br/>+ 修复提交"]) --> L
+  subgraph L["四名评审员 · 各管一个视角"]
+    direction LR
+    L1["L1 修复的<br/>忠实度"] ~~~ L2["L2 准确性、<br/>倒退"] ~~~ L3["L3 文档<br/>与代码一致"] ~~~ L4["L4 倒退<br/>锁定"]
+  end
+  L --> V{"逐条评论<br/>给出判定"}
+  V -- regressed --> C["质询者<br/>复查该判定"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["回复草稿<br/>+ 最多 3 条<br/>新评论"]
+  C --> D
+  D --> P(["在每个讨论串<br/>回复一次"])
+```
+
+只要还留有 `regressed` 判定，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
+
+</details>
+
+<details>
+<summary>Stage 3 的内部(先测量，再按来源归类缺陷)</summary>
+
+```mermaid
+flowchart TD
+  IN(["修复后的提交"]) --> S
+  subgraph S["并行"]
+    direction LR
+    J["四名评审员<br/>Stage 1 维度"] ~~~ M["在 worktree 中<br/>构建和测试"]
+  end
+  S --> C["质询者<br/>核查每条 P<br/>和 critical"]
+  C --> O{"每个缺陷<br/>的来源"}
+  O -- "P：评审遗漏" --> NP["新的<br/>评审评论"]
+  O -- "Q：只修了一部分<br/>N：由修复引入" --> T["在 Stage 2<br/>讨论串中回复"]
+  NP --> G{"有 critical<br/>或 major<br/>的 P 吗？"}
+  G -- "是" --> H["关卡给出<br/>needs-human"]
+  G -- "否" --> OK(["照常进入关卡"])
+```
+
+无法测量的内容报告为 `not measured`。来源分类见 [`rules/01-stages.md`](rules/01-stages.md) §2-2。
 
 </details>
 
