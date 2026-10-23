@@ -585,7 +585,7 @@ cmd_build() {
     *) die "$E_ENV" "build.sandbox must be \"require\" or \"off\": $sb" ;;
   esac
 
-  echo "pr-quorum: running in $real: $c" >&2
+  echo "pr-quorum: running in $real (sandbox=$sb): $c" >&2
   # The command's own exit code and output pass through as-is
   local rc=0
   # shellcheck disable=SC2086  # pass holds checked variable names, one per word
