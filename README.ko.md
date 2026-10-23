@@ -33,14 +33,14 @@ GitHub PR 을 여러 Claude 세션이 나눠 리뷰하고, 작성자가 반영�
 
 ```mermaid
 flowchart LR
-  C["Stage 1 → author fixes → Stage 2 → Stage 3<br/>→ (author fixes → Stage 2)*"] --> MG{"Merge gate<br/>blocking 0 · regressed 0 · no test failures<br/>did the bot review the current head?"}
-  MG -- no --> B[blocked]
-  MG -- "critical/major in Stage 3 P" --> H
-  MG -- yes --> RG{"Risk gate<br/>0–100 points"}
+  C["Stage 1 → 저자 반영 → Stage 2 → Stage 3<br/>→ (저자 반영 → Stage 2)*"] --> MG{"머지 게이트<br/>blocking 0 · regressed 0 · 테스트 실패 없음<br/>봇이 현재 head 를 리뷰했나?"}
+  MG -- "아니오" --> B[blocked]
+  MG -- "Stage 3 P 에 critical/major" --> H
+  MG -- "예" --> RG{"리스크 게이트<br/>0–100점"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M[gh pr merge]
-  A -- "false (default)" --> R["ready<br/>a human merges"]
-  RG -- "medium or higher" --> H["needs-human<br/>a human reviews and merges"]
+  A -- "false (기본값)" --> R["ready<br/>사람이 머지한다"]
+  RG -- "medium 이상" --> H["needs-human<br/>사람이 리뷰하고 머지한다"]
 ```
 
 리스크 게이트는 코드가 좋은지를 보지 않고, 어떤 파일을 얼마나 바꿨는지만 보고 점수를 매긴다. 인증 코드·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동으로 머지되지 않는다. 점수표는 봇이 PR 코멘트로 남긴다. 규칙은 [`rules/03-risk.md`](rules/03-risk.md) 에 있다.

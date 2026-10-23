@@ -33,14 +33,14 @@
 
 ```mermaid
 flowchart LR
-  C["Stage 1 → author fixes → Stage 2 → Stage 3<br/>→ (author fixes → Stage 2)*"] --> MG{"Merge gate<br/>blocking 0 · regressed 0 · no test failures<br/>did the bot review the current head?"}
-  MG -- no --> B[blocked]
-  MG -- "critical/major in Stage 3 P" --> H
-  MG -- yes --> RG{"Risk gate<br/>0–100 points"}
+  C["Stage 1 → 作者修改 → Stage 2 → Stage 3<br/>→ (作者修改 → Stage 2)*"] --> MG{"合并门禁<br/>blocking 0 · regressed 0 · 无测试失败<br/>机器人是否审查了当前 head？"}
+  MG -- "否" --> B[blocked]
+  MG -- "Stage 3 P 中有 critical/major" --> H
+  MG -- "是" --> RG{"风险门禁<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M[gh pr merge]
-  A -- "false (default)" --> R["ready<br/>a human merges"]
-  RG -- "medium or higher" --> H["needs-human<br/>a human reviews and merges"]
+  A -- "false（默认）" --> R["ready<br/>由人合并"]
+  RG -- "medium 及以上" --> H["needs-human<br/>由人审查并合并"]
 ```
 
 风险门禁不判断代码好坏，只根据改了哪些文件、改了多少来打分。涉及认证代码、密钥、CI、构建脚本或工具链本身的 PR 分数更高，不会被自动合并。机器人会把评分表作为 PR 评论留下。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
