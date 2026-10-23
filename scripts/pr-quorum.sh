@@ -800,20 +800,22 @@ cmd_reply() {
 # and attached to the previous round's object it would be pushed into history along with it on a rerun.
 record_reply() {
   local repo="$1" pr="$2" cid="$3" rid="$4" m stage code
+  # Every reply id stays known to the adoption check (a second reply under the same code key overwrites the first). It is written
+  # in the same update as the stage record, so a half-written record cannot hide this reply from adoption and post it again
+  local known_ids='.posted_reply_ids = ((.posted_reply_ids // []) + [$rid] | unique)'
   m="$(meta_path "$repo" "$pr")"
   stage="$(jq -r '.lock.stage // empty' "$m")" || return 1
   code="$(jq -r --argjson id "$cid" 'first(([.stage1[]?.comments[]?] + [.stage2[]?.new_comments[]?] + [.stage3.comments[]?])[]
                                            | select(.id == $id) | .code) // empty' "$m")" || return 1
   case "$stage" in
-    2) meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 then [{}] else . end) | .stage2[-1].replies[$k] = $rid' \
+    2) meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 then [{}] else . end) | .stage2[-1].replies[$k] = $rid | '"$known_ids" \
          --arg k "${code:-$cid}" --argjson rid "$rid" ;;
     3) meta_update "$repo" "$pr" 'if .stage3 != null and (.stage3.posted_at // "") >= (.lock.started_at // "~")
-                                  then .stage3.replies[$k] = $rid else .stage3_replies[$k] = $rid end' \
+                                  then .stage3.replies[$k] = $rid else .stage3_replies[$k] = $rid end | '"$known_ids" \
          --arg k "${code:-$cid}" --argjson rid "$rid" ;;
-    *) echo "warning — the lock has no stage 2 or 3, so reply id ($rid) was not recorded in meta.json" >&2 ;;
-  esac || return 1
-  # Every reply id stays known to the adoption check: a second reply under the same code key overwrites the first
-  meta_update "$repo" "$pr" '.posted_reply_ids = ((.posted_reply_ids // []) + [$rid] | unique)' --argjson rid "$rid"
+    *) echo "warning — the lock has no stage 2 or 3, so reply id ($rid) was recorded only as posted" >&2
+       meta_update "$repo" "$pr" "$known_ids" --argjson rid "$rid" ;;
+  esac
 }
 
 cmd_patch() {

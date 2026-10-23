@@ -31,7 +31,9 @@ render_settings "$HARNESS_DIR" author-settings.json
 # Hooks under a relative core.hooksPath (husky) live in the worktree, which PRs and builds write — no git call below runs them (harness.md §3-1)
 [ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ] \
   || { echo "git 2.31+ is needed (GIT_CONFIG_COUNT) to turn off repository hooks in sessions" >&2; exit 2; }
-n="${GIT_CONFIG_COUNT:-0}"; export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n+1))
+n="${GIT_CONFIG_COUNT:-0}"
+[[ "$n" =~ ^[0-9]+$ ]] || { echo "GIT_CONFIG_COUNT in the environment is not a number ($n) — unset it or fix it" >&2; exit 2; }
+export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n+1))
 RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
@@ -273,9 +275,10 @@ notify_stop() {
     case "$CAP_STEP" in stage1|stage2|stage3)
       printf '\nThe %s session was cut off and may have left its review lock in place. The next run takes that lock over because its process has exited (a lock also expires after 3 hours); if it still reports `lock held`, release it with `<plugin-dir>/scripts/pr-quorum.sh unlock %s %s`.\n' "$CAP_STEP" "$REPO" "$PR" ;;
     esac; } > "$body"
-  # Keyed by state|reason too, so a notice that went up without being recorded is not posted again
-  if "$PR_QUORUM" comment "$REPO" "$PR" "$body" "stop-$(printf '%s' "$key" | cksum | cut -d' ' -f1)" >/dev/null; then
-    meta_set '.chain.notified = {key:$k, at:$at}' --arg k "$key" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  # Keyed by state|reason and the count of recorded notices, so a notice that went up without being recorded is not posted again,
+  # while the same stop coming back after a different one gets a new key
+  if "$PR_QUORUM" comment "$REPO" "$PR" "$body" "stop-$(printf '%s' "$key" | cksum | cut -d' ' -f1)-$(jq -r '.chain.notified.n // 0' "$M")" >/dev/null; then
+    meta_set '.chain.notified = {key:$k, at:$at, n:((.chain.notified.n // 0) + 1)}' --arg k "$key" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       || log "posted the stop notice but could not record it in meta.json"
   else
     log "failed to post the stop notice — chain.state is recorded in meta.json"

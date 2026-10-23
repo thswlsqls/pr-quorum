@@ -386,11 +386,29 @@ c3_same_stop_once() {
   c1_gate_state_fails || return 1
   printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'
 }
+# C5 — stop A, then a different stop B, then A again: A comes back, so it gets a notice again (three in total)
+c5_stop_returns() {
+  local rc
+  c1_gate_state_fails || return 1
+  printf 'ok\nok\nHTTP 404: Not Found\n' > "$STUB/state/fail-pr"; rc=0; stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_notices)" = 2 ] || { echo "B: exit $rc, notices $(stub_notices) (want 4, 2)"; return 1; }
+  rm -f "$STUB/state/fail-pr"; printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; rc=0
+  stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_notices)" = 3 ] || { echo "A again: exit $rc, notices $(stub_notices) (want 4, 3)"; return 1; }
+}
+# C6 — a GIT_CONFIG_COUNT that is not a number stops the chain before any session instead of breaking every git call
+c6_bad_git_config_count() {
+  local rc=0 out
+  stub_chain_home; out="$(stub_run env GIT_CONFIG_COUNT=x "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'GIT_CONFIG_COUNT' <<<"$out" && ! grep -q '^claude' "$STUB/state/calls.log" || { echo "exit $rc (want 2)"; echo "$out"; return 1; }
+}
 check "chain C1 gate PR-state read fails → blocked, one notice" c1_gate_state_fails
 check "chain C2 gate head read fails → blocked, one notice"     c2_gate_head_fails
 # C4 — the conflict check before the author pass gets a 502
 c4_conflict_check_fails() { stub_chain_home; printf 'HTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'before the author pass'; }
 check "chain C3 same stop again posts no second notice"        c3_same_stop_once
+check "chain C5 a stop that comes back gets a notice again"    c5_stop_returns
+check "chain C6 non-numeric GIT_CONFIG_COUNT → exit 2"           c6_bad_git_config_count
 check "chain C4 conflict-check read fails → blocked, one notice" c4_conflict_check_fails
 
 # F1–F3 — chain.sh on a fork PR with no Stage 1 record: it stops at held-fork (exit 3) with one fork notice and no session

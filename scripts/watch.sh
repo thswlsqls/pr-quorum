@@ -64,6 +64,8 @@ gc_worktrees() {
   local repo slug path dir wt name n st
   [ -z "$(find "$PR_QUORUM_HOME/.gc-stamp" -mmin -30 2>/dev/null)" ] || return 0
   touch "$PR_QUORUM_HOME/.gc-stamp"
+  # Temp files a killed script left behind (scripts keep them under ~/.pr-quorum/tmp, which the OS does not clean)
+  [ ! -d "$PR_QUORUM_HOME/tmp" ] || find "$PR_QUORUM_HOME/tmp" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
   [ -n "$GC_CACHE" ] || GC_CACHE="$(pq_mktemp)"
   : > "$GC_CACHE"
   for repo in $(cfg '.repos | keys[]'); do
