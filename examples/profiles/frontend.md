@@ -1,175 +1,175 @@
-# 프로파일: frontend (`tech-n-ai-frontend`)
+# Profile: frontend (`tech-n-ai-frontend`)
 
-Stage 1·3의 축 정의문이다. 오케스트레이터가 **해당 위원 절 전문**을 프롬프트 본문에 복사해 넘긴다.
+Axis definitions for Stages 1 and 3. The orchestrator copies **the full section for each judge** into the prompt body.
 
-> **이 프로파일은 백엔드 Stage 1을 한 번 돌린 뒤 조정한다**(설계서 D-7).
-> 지금은 초안이고, 프런트 PR을 처음 돌릴 때 축 경계를 다시 본다.
-
----
-
-## 0. 위원이 알고 있어야 할 프로젝트 맥락 (전 위원에게 싣는다)
-
-**스택** — Next.js 16 (App Router) · React 19 · TypeScript strict · Tailwind 4 · Radix UI + CVA ·
-Neo-Brutalism 디자인 시스템.
-
-**앱이 둘이다.** `app/` (공개 사용자 앱, 포트 3000)과 `admin/` (내부 관리자 앱, 포트 3001).
-각각 자체 `CLAUDE.md`를 둔다. **둘은 별개 프로젝트다** — `app/`의 규칙을 `admin/`에 적용하지 않는다.
-
-**백엔드 ID는 문자열로 온다.** TSID(64비트 Long)가 `Number.MAX_SAFE_INTEGER`를 넘어서
-백엔드가 전역으로 `Long`→`String` 직렬화를 건다. **프런트에서 `Number()`·`parseInt`로 파싱하면 정밀도가 깨진다.**
-
-**명령** — 각 앱 디렉터리에서 `npm run dev | build | lint`.
+> **This profile is adjusted after running backend Stage 1 once** (design doc D-7).
+> For now it is a draft; axis boundaries get revisited the first time a frontend PR is run.
 
 ---
 
-## 1. 리뷰 8축 정의 — frontend
+## 0. Project context every judge must know (loaded for all judges)
 
-축 **코드는 backend와 같지만 세 축의 뜻이 다르다.** 코드만 보고 backend 정의를 적용하지 마라.
+**Stack** — Next.js 16 (App Router) · React 19 · TypeScript strict · Tailwind 4 · Radix UI + CVA ·
+Neo-Brutalism design system.
 
-| 축 | 이름 | 이 프로파일에서의 뜻 |
+**There are two apps.** `app/` (public user app, port 3000) and `admin/` (internal admin app, port 3001).
+Each has its own `CLAUDE.md`. **They are separate projects** — do not apply `app/` rules to `admin/`.
+
+**Backend IDs arrive as strings.** TSIDs (64-bit Long) exceed `Number.MAX_SAFE_INTEGER`,
+so the backend applies `Long`→`String` serialization globally. **Parsing them with `Number()` or `parseInt` on the frontend breaks precision.**
+
+**Commands** — `npm run dev | build | lint` in each app directory.
+
+---
+
+## 1. The eight review axes — frontend
+
+The axis **codes are the same as backend, but three axes mean something different.** Do not apply the backend definition just from the code.
+
+| Axis | Name | Meaning in this profile |
 |---|---|---|
-| **R-A** | 설계 ↔ 구현 정합성 | App Router 경계(server/client) 오용. `revalidate`·캐시 태그가 실제 갱신 시점과 맞는가 |
-| **R-B** | 데이터 정확성 | **ID를 number로 파싱해 정밀도가 깨지는가.** 날짜·타임존 변환이 값을 바꾸는가. 낙관적 갱신이 서버 상태와 어긋난 채 남는가 |
-| **R-C** | **상태 경합** | 비동기 경합·중복 요청 · `useEffect` 의존성 배열 · 언마운트 후 setState |
-| **R-D** | 인터페이스 계약 | API 클라이언트가 백엔드 스펙과 맞는가. 에러 응답 처리 |
-| **R-E** | **클라이언트 성능** | 번들 크기 · 불필요 리렌더 · 이미지·폰트 로딩 |
-| **R-F** | 장애 격리 | 에러 바운더리 · 실패 fallback · 인증 만료 처리 |
-| **R-G** | 테스트 | **조건부 축** — 아래 참고 |
-| **R-H** | 유지보수성 (접근성 포함) | 디자인 시스템 일관성 · **접근성** · 죽은 코드 |
+| **R-A** | Design–implementation consistency | Misuse of App Router boundaries (server/client). Do `revalidate` and cache tags match when data actually updates? |
+| **R-B** | Data correctness | **Does parsing an ID as a number break precision?** Does date/time zone conversion change the value? Does an optimistic update stay out of sync with server state? |
+| **R-C** | **State races** | Async races and duplicate requests · `useEffect` dependency arrays · setState after unmount |
+| **R-D** | Interface contract | Does the API client match the backend spec? Error response handling |
+| **R-E** | **Client performance** | Bundle size · unnecessary re-renders · image and font loading |
+| **R-F** | Failure isolation | Error boundaries · failure fallbacks · auth expiry handling |
+| **R-G** | Tests | **Conditional axis** — see below |
+| **R-H** | Maintainability (incl. accessibility) | Design system consistency · **accessibility** · dead code |
 
-**코멘트 본문에 쓸 축 표기** — 위 표의 이름을 글자 그대로 쓴다. **backend 와 세 축의 이름이 다르다.**
+**Axis notation for comment bodies** — use the names in the table above exactly as written. **Three axis names differ from backend.**
 
 ```
-R-A (설계 ↔ 구현 정합성)   R-B (데이터 정확성)   R-C (상태 경합)        R-D (인터페이스 계약)
-R-E (클라이언트 성능)      R-F (장애 격리)       R-G (테스트)          R-H (유지보수성)
+R-A (Design–implementation consistency)   R-B (Data correctness)   R-C (State races)      R-D (Interface contract)
+R-E (Client performance)                  R-F (Failure isolation)  R-G (Tests)            R-H (Maintainability)
 ```
 
-> **접근성은 R-H 안에서 본다.** 별도 축을 만들지 않는다.
+> **Accessibility is checked inside R-H.** No separate axis is created.
 >
-> **R-G는 조건부다.** 이 저장소에는 테스트 파일도 러너도 0건이다.
-> **"테스트가 없다"는 사실 자체는 감점이 아니다.** PR이 테스트를 추가한 경우에만 R-G를 본다.
-> 그 외에는 축 커버리지 판정에 `비해당`으로 적는다.
+> **R-G is conditional.** This repository has zero test files and zero runners.
+> **The fact that "there are no tests" is not in itself a deduction.** Look at R-G only when the PR adds tests.
+> Otherwise, record it as `not applicable` in the axis coverage verdict.
 
 ---
 
-## 2. 위원 J1 — 설계·데이터 정확성 (리뷰축 R-A · R-B)
+## 2. Judge J1 — design and data correctness (review axes R-A · R-B)
 
-### 볼 것
+### What to look at
 
 **R-A**
-- **server/client 경계.** `'use client'`가 필요 없는 곳에 붙어 트리 전체가 클라이언트로 내려가는가.
-  반대로 서버 컴포넌트에서 브라우저 API·이벤트 핸들러를 쓰는가.
-- 서버 전용 값(토큰, 내부 URL)이 클라이언트 번들로 새는가. `NEXT_PUBLIC_` 접두사를 잘못 붙였는가.
-- **`revalidate`·캐시 태그가 실제 갱신 시점과 맞는가.** 쓰기 후 무효화가 빠져 화면이 옛 값을 계속 보여주는가.
-- PR 본문·설계 문서가 선언한 것을 코드가 지키는가.
+- **The server/client boundary.** Is `'use client'` attached where it is not needed, pushing the whole tree down to the client?
+  Conversely, does a server component use browser APIs or event handlers?
+- Do server-only values (tokens, internal URLs) leak into the client bundle? Was the `NEXT_PUBLIC_` prefix attached by mistake?
+- **Do `revalidate` and cache tags match when data actually updates?** Is invalidation missing after a write, so the screen keeps showing the old value?
+- Does the code keep what the PR description and design documents declare?
 
 **R-B**
-- **ID를 `Number()`·`parseInt`·`+id`로 파싱하는가.** 백엔드 TSID는 문자열로 오고, 숫자로 바꾸면 뒷자리가 잘린다.
-- 날짜 문자열을 타임존 없이 `new Date()`로 파싱해 하루가 밀리는가.
-- 낙관적 갱신이 실패했을 때 되돌아가는가. 안 되돌아가면 화면과 서버가 영구히 어긋난다.
+- **Is an ID parsed with `Number()`, `parseInt`, or `+id`?** Backend TSIDs arrive as strings, and converting them to numbers cuts off the last digits.
+- Is a date string parsed with `new Date()` without a time zone, shifting it by a day?
+- Does an optimistic update roll back when it fails? If not, the screen and the server diverge permanently.
 
-### 보지 않을 것
-- 경합 그 자체 → J2 · 에러 처리 → J2 · API 스펙 불일치 → J3 · 번들 크기 → J3 · 접근성·죽은 코드 → J4
+### What not to look at
+- The race itself → J2 · error handling → J2 · API spec mismatch → J3 · bundle size → J3 · accessibility, dead code → J4
 
-### 등급 예시
-- **치명**: 목록 아이템 키와 상세 조회 파라미터에 `Number(id)`를 써서 특정 ID가 다른 리소스를 가리킨다.
-- **중대**: 쓰기 후 `revalidateTag`가 없어 목록이 갱신되지 않는다.
-- **중대**: 서버 전용 API 키가 클라이언트 컴포넌트에서 참조된다.
-- **경미**: `'use client'`를 페이지 최상단에 붙여 필요 없는 부분까지 클라이언트로 내려간다.
-
----
-
-## 3. 위원 J2 — 상태·장애 격리 (리뷰축 R-C · R-F)
-
-### 볼 것
-
-**R-C 상태 경합**
-- 같은 요청이 두 번 나가는가 (연타 방지·중복 제출 가드가 없는가).
-- **응답 순서가 뒤바뀌면 옛 응답이 새 상태를 덮는가** (취소·시퀀스 확인이 없는가).
-- `useEffect` 의존성 배열이 실제 참조와 맞는가. 빠뜨려 옛 값을 잡고 있는가, 너무 넣어 무한 루프가 되는가.
-- 언마운트 후 상태를 갱신하는가. cleanup에서 요청을 취소하는가.
-
-**R-F 장애 격리**
-- 요청 실패에 **사용자가 보는 fallback**이 있는가. 조용히 빈 화면이 되는가.
-- 에러 바운더리·`error.tsx`·`not-found.tsx`가 이 경로를 덮는가.
-- **인증 만료** 시 무한 리다이렉트나 무한 재시도에 빠지는가.
-- 한 위젯의 실패가 페이지 전체를 무너뜨리는가.
-
-### 보지 않을 것
-- 값이 틀리는 것 자체 → J1 · API 스펙·성능 → J3 · 접근성·죽은 코드 → J4
-
-### 등급 예시
-- **중대**: 검색 입력마다 요청을 보내면서 취소하지 않아, 느린 응답이 나중에 도착해 결과를 덮는다.
-- **중대**: 제출 버튼에 중복 방지가 없어 연타하면 같은 리소스가 두 번 만들어진다.
-- **중대**: 401을 받으면 로그인으로 보내는데 로그인 페이지도 같은 요청을 해서 리다이렉트 루프가 된다.
-- **경미**: `useEffect` 의존성에 함수를 넣었는데 매 렌더 새로 만들어져 필요 없이 재실행된다.
+### Grade examples
+- **`critical`**: `Number(id)` is used for list item keys and detail query parameters, so a particular ID points to a different resource.
+- **`major`**: There is no `revalidateTag` after a write, so the list does not update.
+- **`major`**: A server-only API key is referenced from a client component.
+- **`minor`**: `'use client'` is placed at the top of the page, pushing parts that do not need it down to the client.
 
 ---
 
-## 4. 위원 J3 — 인터페이스 계약·성능 (리뷰축 R-D · R-E)
+## 3. Judge J2 — state and failure isolation (review axes R-C · R-F)
 
-### 볼 것
+### What to look at
+
+**R-C State races**
+- Does the same request go out twice? (Is there no guard against rapid clicks or duplicate submits?)
+- **If responses arrive out of order, does an old response overwrite new state?** (Is there no cancellation or sequence check?)
+- Does the `useEffect` dependency array match what is actually referenced? Is something missing so it holds an old value, or is too much included so it loops forever?
+- Does code update state after unmount? Does cleanup cancel the request?
+
+**R-F Failure isolation**
+- Is there **a fallback the user sees** when a request fails? Does the screen silently go blank?
+- Do error boundaries, `error.tsx`, and `not-found.tsx` cover this path?
+- On **auth expiry**, does it fall into an infinite redirect or infinite retry?
+- Does one widget's failure bring down the whole page?
+
+### What not to look at
+- The value being wrong, in itself → J1 · API spec, performance → J3 · accessibility, dead code → J4
+
+### Grade examples
+- **`major`**: A request is sent on every search keystroke without cancellation, so a slow response arriving later overwrites the results.
+- **`major`**: The submit button has no duplicate guard, so rapid clicks create the same resource twice.
+- **`major`**: A 401 redirects to login, but the login page makes the same request, causing a redirect loop.
+- **`minor`**: A function is put in `useEffect` dependencies, but it is recreated on every render, so the effect reruns needlessly.
+
+---
+
+## 4. Judge J3 — interface contract and performance (review axes R-D · R-E)
+
+### What to look at
 
 **R-D**
-- API 클라이언트의 경로·메서드·파라미터가 백엔드 스펙(`docs/reference/api-specifications/`)과 맞는가.
-- 응답 타입 선언이 실제 응답과 맞는가. `any`로 덮어 계약이 사라졌는가.
-- **에러 응답 처리** — `res.ok`를 확인하는가. 4xx/5xx를 성공으로 읽는가.
+- Do the API client's paths, methods, and parameters match the backend spec (`docs/reference/api-specifications/`)?
+- Do response type declarations match the actual response? Was the contract erased by covering it with `any`?
+- **Error response handling** — does code check `res.ok`? Does it read 4xx/5xx as success?
 
-**R-E 클라이언트 성능**
-- **번들 크기** — 무거운 라이브러리를 최상위에서 정적 import하는가. 아이콘·차트 라이브러리를 통째로 들이는가.
-- **불필요 리렌더** — 렌더마다 새 객체·배열·함수를 자식 props로 내리는가. 컨텍스트 값이 매 렌더 새로 만들어지는가.
-- 이미지에 `next/image`와 크기가 지정됐는가. 폰트가 레이아웃 이동을 만드는가.
+**R-E Client performance**
+- **Bundle size** — is a heavy library statically imported at the top level? Is an icon or chart library pulled in whole?
+- **Unnecessary re-renders** — are new objects, arrays, or functions passed to child props on every render? Is a context value recreated on every render?
+- Do images use `next/image` with a size set? Do fonts cause layout shift?
 
-### 보지 않을 것
-- 경합·에러 바운더리 → J2 · 정밀도·캐시 무효화 → J1 · 접근성 → J4
+### What not to look at
+- Races, error boundaries → J2 · precision, cache invalidation → J1 · accessibility → J4
 
-### 등급 예시
-- **치명**: `res.ok`를 확인하지 않아 에러 본문을 정상 데이터로 렌더한다.
-- **중대**: 응답 타입을 `any`로 받아 백엔드 필드명이 바뀌어도 아무 데서도 안 잡힌다.
-- **중대**: 차트 라이브러리를 최상위에서 정적 import해 첫 페이지 번들에 들어간다.
-- **경미**: 컨텍스트 `value`를 인라인 객체로 만들어 소비자가 매 렌더 다시 그린다.
-
----
-
-## 5. 위원 J4 — 접근성·유지보수성 (리뷰축 R-H 중심, R-G 조건부)
-
-### 볼 것
-
-**R-H (접근성 포함)**
-- **Radix/CVA 디자인 시스템 일관성** — 이미 있는 컴포넌트·variant를 두고 새로 만들었는가.
-  Neo-Brutalism 토큰을 두고 색·간격을 직접 박았는가.
-- **접근성** — 클릭 핸들러를 `div`에 붙였는가(키보드로 못 쓴다). 아이콘 버튼에 이름이 없는가.
-  폼 입력에 라벨이 연결됐는가. 포커스 순서·포커스 표시가 사라졌는가.
-- 죽은 코드. **내 변경과 무관한 기존 죽은 코드는 언급만 하고 지우라고 하지 않는다.**
-- 하드코딩된 URL·키.
-- ⚠ **취향의 한계** — `app/`에는 `eslint.config.mjs`가 있고 `admin/`에는 없다.
-  **`admin/`의 스타일 지적에는 eslint를 근거로 들 수 없다.** 각 앱의 `CLAUDE.md`는 양쪽 다 근거가 된다(I-6).
-
-**R-G (조건부)**
-- **PR이 테스트를 추가한 경우에만 본다.** 그 외에는 `비해당`으로 판정한다.
-- 추가했다면 러너 설정이 함께 들어왔는가. 깨졌을 때 실제로 실패하는가.
-
-### 보지 않을 것
-- 리렌더 비용 → J3 · 경합 → J2 · 정밀도 → J1
-
-### 등급 예시
-- **중대**: 모달 닫기를 `div` `onClick`으로만 만들어 키보드 사용자가 빠져나올 수 없다.
-- **중대**: API base URL이 컴포넌트에 하드코딩됐다.
-- **경미**: 기존 `Button` variant로 되는 것을 새 컴포넌트로 만들었다.
-- **사소**: 미사용 import.
-
-> 이 축은 **치명 등급을 거의 쓰지 않는다.** 쓰려면 근거가 매우 강해야 한다.
+### Grade examples
+- **`critical`**: `res.ok` is not checked, so an error body is rendered as normal data.
+- **`major`**: The response type is received as `any`, so a backend field rename is caught nowhere.
+- **`major`**: A chart library is statically imported at the top level and lands in the first-page bundle.
+- **`minor`**: The context `value` is built as an inline object, so consumers redraw on every render.
 
 ---
 
-## 6. 측정 기준선
+## 5. Judge J4 — accessibility and maintainability (review axis R-H primarily, R-G conditional)
 
-| 무엇 | 값 | 산출 명령 | 측정일 | 이 명령이 놓칠 수 있는 것 |
+### What to look at
+
+**R-H (incl. accessibility)**
+- **Radix/CVA design system consistency** — was something built anew when an existing component or variant would do?
+  Were colors or spacing hardcoded instead of using Neo-Brutalism tokens?
+- **Accessibility** — is a click handler attached to a `div` (unusable by keyboard)? Does an icon button lack a name?
+  Are form inputs linked to labels? Has focus order or the focus indicator disappeared?
+- Dead code. **Existing dead code unrelated to my change is only mentioned, not asked to be removed.**
+- Hardcoded URLs and keys.
+- ⚠ **Limits on taste** — `app/` has `eslint.config.mjs`; `admin/` does not.
+  **Style findings on `admin/` cannot cite eslint as grounds.** Each app's `CLAUDE.md` is grounds for both (I-6).
+
+**R-G (conditional)**
+- **Look only when the PR adds tests.** Otherwise, the verdict is `not applicable`.
+- If tests were added, did runner configuration come with them? Do they actually fail when the code breaks?
+
+### What not to look at
+- Re-render cost → J3 · races → J2 · precision → J1
+
+### Grade examples
+- **`major`**: Closing a modal is implemented only as a `div` `onClick`, so keyboard users cannot get out.
+- **`major`**: The API base URL is hardcoded in a component.
+- **`minor`**: A new component was built for something an existing `Button` variant already handles.
+- **`nit`**: Unused import.
+
+> This axis **almost never uses the `critical` grade.** Using it requires very strong evidence.
+
+---
+
+## 6. Measurement baseline
+
+| What | Value | Command | Measured on | What this command can miss |
 |---|---|---|---|---|
-| `app` lint | **3 errors — PR 이전부터 실패한다** | `cd app && npm run lint` | 2026-08-20 | 기존 실패를 PR 탓으로 돌리지 않도록 먼저 박아 둔다. 값이 3이 아니면 다시 재고 이 표를 고친다 |
-| `admin` lint | **실행 불가** — eslint 설정 파일이 없다 | `cd admin && npm run lint` | 2026-08-20 | `admin/`에는 lint를 근거로 든 지적을 쓸 수 없다 |
-| `app` 타입 | clean | `cd app && npx tsc --noEmit` | 2026-08-20 | 런타임 타입 불일치는 못 본다 |
-| `admin` 타입 | clean | `cd admin && npx tsc --noEmit` | 2026-08-20 | 같음 |
-| 테스트 | **0건** (파일·러너 모두 없음) | `find app admin -name '*.test.*' -o -name '*.spec.*'` | 2026-08-20 | — |
+| `app` lint | **3 errors — already failing before the PR** | `cd app && npm run lint` | 2026-08-20 | Pinned first so existing failures are not blamed on the PR. If the value is not 3, measure again and update this table |
+| `admin` lint | **Cannot run** — no eslint config file | `cd admin && npm run lint` | 2026-08-20 | Findings that cite lint as grounds cannot be written for `admin/` |
+| `app` types | clean | `cd app && npx tsc --noEmit` | 2026-08-20 | Cannot see runtime type mismatches |
+| `admin` types | clean | `cd admin && npx tsc --noEmit` | 2026-08-20 | Same |
+| Tests | **0** (no files, no runner) | `find app admin -name '*.test.*' -o -name '*.spec.*'` | 2026-08-20 | — |
 
-**기준선을 갱신하면 측정일을 함께 고친다.**
+**When you update the baseline, update the measurement date with it.**
