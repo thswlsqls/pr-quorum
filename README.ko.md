@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `52054fd`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `5dadc1b`
 
 <p align="center">
   <picture>
@@ -23,6 +23,9 @@ PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다
 | 저자 | 별도 세션(`/pr-quorum:author`)이 코드를 고쳐 사용자의 gh 계정으로 PR 브랜치에 push 한다. force push·머지·승인은 하지 않는다 |
 | Stage 2 · followup | 스레드마다 `addressed`(반영)·`partial`(부분)·`not-addressed`(미반영)·`regressed`(역행, 고치다가 새 결함을 만듦) 중 하나로 답한다 |
 | Stage 3 · measured | 고친 커밋으로 빌드와 테스트를 다시 돌리고, 리뷰가 놓친 결함(`P`)을 찾는다 |
+
+<details>
+<summary>Stage 1·2·3 한눈에 보기</summary>
 
 ```mermaid
 flowchart TD
@@ -52,6 +55,11 @@ flowchart TD
 
 스테이지마다 자세한 흐름은 아래 접힌 절에 그려 두었다.
 
+</details>
+
+<details>
+<summary>머지 게이트와 리스크 게이트</summary>
+
 ```mermaid
 flowchart TD
   G(["저자 루프<br/>이후"]) --> MG{"머지 게이트<br/>blocking 0<br/>regressed 0<br/>테스트 실패 0<br/>head 리뷰 완료"}
@@ -63,6 +71,8 @@ flowchart TD
   A -- "false (기본값)" --> R["ready<br/>사람이<br/>머지한다"]
   RG -- "medium 이상" --> H["needs-human<br/>사람이 리뷰하고<br/>머지한다"]
 ```
+
+</details>
 
 리스크 게이트는 코드 품질이 아니라 어떤 파일을 얼마나 바꿨는지만 본다. 인증·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동 머지되지 않는다. 규칙: [`rules/03-risk.md`](rules/03-risk.md).
 
