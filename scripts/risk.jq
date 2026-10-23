@@ -2,7 +2,7 @@
 # Input: the array from gh api repos/{o}/{r}/pulls/{N}/files. Arguments: $sha · $at
 # Looks only at file paths and changed lines. No session judgment goes in — the same diff always gets the same score.
 
-def doc:        test("\\.(md|png|jpe?g|gif|svg|drawio)$|(^|/)(docs|contents)/"; "i");
+def doc:        test("\\.(md|png|jpe?g|gif|svg|drawio)$|^(docs|contents)/"; "i");   # Only top-level doc folders. A code path such as .../contents/auth/ is not a document
 def test_file:  test("(^|/)src/test/|(^|/)__tests__/|Tests?\\.(java|kt)$|\\.(test|spec)\\.[jt]sx?$");
 # Code that can have tests. .tf, .sql, and .sh have no test tooling in this repository, and their risk is already counted by "Hard-to-reverse changes"
 def testable:   test("\\.(java|kt|ts|tsx|js|jsx|mjs|py)$");

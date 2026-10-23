@@ -10,6 +10,29 @@ PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 source "$HARNESS_DIR/scripts/config.sh"
 RUNS="$PR_QUORUM_HOME/runs"
 
+pass=0; fail=0
+check() {  # check <name> <command...>
+  local name="$1" out; shift
+  if out="$("$@" 2>&1)"; then pass=$((pass+1)); else
+    fail=$((fail+1)); echo "FAIL — $name"; sed 's/^/    /' <<<"$out"
+  fi
+}
+
+# risk.jq — document classification (rules/03-risk.md). One file, 400 added lines. Needs no network and no runs/
+risk_score() {  # risk_score <filename> <expected score>
+  local got
+  got="$(jq -nc --arg f "$1" '[{filename:$f, additions:400, deletions:0, patch:"+x"}]' \
+        | jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" | jq -r .score)" || return 1
+  [ "$got" = "$2" ] || { echo "$1: expected $2, got $got"; return 1; }
+}
+check "risk doc top-level docs/"     risk_score "docs/guide.md" 0
+check "risk doc contents/ image"     risk_score "contents/api-auth/flow.png" 0
+check "risk doc contents/ .mmd"      risk_score "contents/api-auth/flow.mmd" 0
+check "risk doc nested .md"          risk_score "api/auth/docs/design.md" 0
+check "risk code under nested docs/" risk_score "src/main/java/com/acme/docs/auth/JwtAuthFilter.java" 40
+check "risk code under contents/"    risk_score "src/main/java/com/acme/contents/auth/JwtAuthFilter.java" 40
+check "risk harness rule .md"        risk_score "rules/03-risk.md" 15
+
 # Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
 for t in "$HARNESS_DIR"/README.*.md; do
   [ -f "$t" ] || continue
@@ -18,15 +41,7 @@ for t in "$HARNESS_DIR"/README.*.md; do
   [ "$n" = 0 ] || echo "warning — $(basename "$t") is $n commit(s) behind README.md (base ${base:-missing})"
 done
 
-[ -d "$RUNS" ] || { echo "no runs/ — skipping"; exit 0; }
-
-pass=0; fail=0
-check() {  # check <name> <command...>
-  local name="$1" out; shift
-  if out="$("$@" 2>&1)"; then pass=$((pass+1)); else
-    fail=$((fail+1)); echo "FAIL — $name"; sed 's/^/    /' <<<"$out"
-  fi
-}
+[ -d "$RUNS" ] || { echo "no runs/ — skipping PG5/PG6"; echo "selftest — passed $pass · failed $fail"; [ "$fail" = 0 ] || exit 3; exit 0; }
 
 # PG5 — folders with both a summary and comments. The stage comes from the path (in early runs, outputs/ itself is Stage 1).
 while IFS= read -r d; do
