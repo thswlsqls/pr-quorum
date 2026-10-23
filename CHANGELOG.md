@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+No new `config.json` keys. The risk score counts more files, so some PRs that were `low` now are not.
+
+- The risk score counts more files that run in CI, at build or test time, or as agent configuration: composite actions (`.github/actions/`, and `action.yml` at the top level or under `.github/`), git hooks (`.husky/`, `.pre-commit-config.yaml`), `tox.ini`, `noxfile.py`, `build.rs`, `.mcp.json`, `CLAUDE.local.md`, and `CODEOWNERS` (removal included) each add 15 points, so a PR changing only one of them is `medium`. The plugin's own top-level `mcp.json`, which every chain session loads, counts toward the harness signal. A secret added to a `.toml`, `.ini`, or `.cfg` file counts like one in `.yml` (30, `critical`). Re-scoring the last 30 merged PRs gave no change.
+- When the merge gate cannot read the PR head or state from GitHub, the chain stops at `blocked` (exit 4) and posts the stop notice, instead of exiting with the PR left unmerged and no comment.
+- New sample profile [`examples/profiles/generic.md`](examples/profiles/generic.md): stack-neutral judge sections with `<fill in>` lines only for project context and measurement baselines.
+- `doctor.sh` reports template values left in `config.json` (`your-github-login`, `your-repo`, `/absolute/path/to/...`) as one `FAIL`, tells a missing or invisible repository (404) apart from a bot that is not a collaborator, prints the error when GitHub cannot be reached, warns when a profile is an unmodified copy of a sample or still has `<fill in` lines, and checks that each `repos.<name>.commands` entry can start (`./gradlew` with no `gradlew` in the repository is a `FAIL`; an npm-family command with no `package.json` is a warning).
+
 ## 0.4.0
 
 New `config.json` keys are optional. Builds now run in a sandbox by default (first item), and session permissions are narrower; both can change what an existing setup is allowed to do.
