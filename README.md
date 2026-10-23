@@ -260,7 +260,7 @@ A profile defines the review axes and what each judge does and does not look at.
 cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
-The samples ([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md)) were written for a Spring Boot backend and a Next.js frontend.
+The samples ([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md)) were written for a Spring Boot backend and a Next.js frontend. For another stack, start from [`generic.md`](examples/profiles/generic.md) and fill in its `<fill in>` lines; `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
 Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json`, each repository's path and profile, the gh login, the token file's mode and account, the bot's invitation) and exits 2 if any line is `FAIL`. It reads only and posts nothing.
 
