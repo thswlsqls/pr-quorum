@@ -6,7 +6,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"
+require_dotcom
 # The bot login is read from config.json's bot, the same way watch.sh does. The merge gate uses it to find the bot's reviews
 BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,6 +23,8 @@ REPO="$1"; PR="$2"
 [ -n "$BOT" ] || { echo "bot login not found: set bot in $PR_QUORUM_HOME/config.json" >&2; exit 2; }
 REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
 [ -n "$REPO_ROOT" ] || { echo "repository is not in config.json repos: $REPO" >&2; exit 1; }
+SLUG="$(repo_slug "$REPO")" || exit 2
+trust_check || exit 2
 # Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json
 render_settings "$HARNESS_DIR" author-settings.json
@@ -171,7 +173,7 @@ author_pushed() { [ "$(jq -r '.pushed' "$(last_author)")" = "true" ]; }
 pr_state() {
   local i out
   for i in 1 2 3 4 5 6; do
-    out="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json state,isDraft,mergeable)" || return 1
+    out="$(gh pr view "$PR" --repo "$SLUG" --json state,isDraft,mergeable)" || return 1
     [ "$(jq -r '.mergeable' <<<"$out")" != "UNKNOWN" ] && break
     sleep 10
   done
@@ -200,7 +202,7 @@ merge_gate() {
   fi
   # The records above are files the session wrote, so they can be rewritten. Check on GitHub that the bot actually left a review or reply on this head
   local bot_reviews
-  bot_reviews="$(gh api --paginate "repos/$OWNER/$REPO/pulls/$PR/reviews" \
+  bot_reviews="$(gh api --paginate "repos/$SLUG/pulls/$PR/reviews" \
     | jq -s --arg b "$BOT" --arg s "$head" '[add // [] | .[] | select(.user.login == $b and .commit_id == $s)] | length')" || bot_reviews=""
   [ "${bot_reviews:-0}" -gt 0 ] || reasons+=("no review by the bot ($BOT) on head $head found on GitHub")
 
@@ -240,16 +242,18 @@ risk_gate() {
 
 do_merge() {
   # --match-head-commit: pass the commit the gate saw. Re-reading head would merge whatever was pushed in between
-  gh pr merge "$PR" --repo "$OWNER/$REPO" --merge --match-head-commit "$GATE_SHA" \
+  gh pr merge "$PR" --repo "$SLUG" --merge --match-head-commit "$GATE_SHA" \
     || { chain_state "blocked" "gh pr merge failed"; exit 4; }
   meta_set '.chain.merged_sha = $s' --arg s "$GATE_SHA"
   chain_state "merged" "head=$GATE_SHA"
 }
 
 # ---------- Main ----------
-# Same check as watch.sh — even if a person calls chain.sh directly, a PR opened by someone else never reaches a session
-assoc="$(gh api "repos/$OWNER/$REPO/pulls/$PR" --jq '.author_association')" || die "could not check the PR author" 4
-[ "$assoc" = "OWNER" ] || die "author is not the repository owner ($assoc) — not running the chain" 3
+# Same check as watch.sh, read again from the API — even if a person calls chain.sh directly, a PR from an untrusted author never reaches a session
+author="$(gh api "repos/$SLUG/pulls/$PR" --jq '"\(.user.login) \(.author_association)"')" || die "could not check the PR author" 4
+trust_rc=0; is_trusted "${author% *}" "${author#* }" || trust_rc=$?
+[ "$trust_rc" != 2 ] || die "trust in config.json is invalid" 2
+[ "$trust_rc" = 0 ] || die "author is not trusted (${author% *}, ${author#* }) — not running the chain" 3
 
 [ -f "$M" ] || "$PR_QUORUM" init "$REPO" "$PR" >/dev/null
 mkdir -p "$AUTHOR_DIR"

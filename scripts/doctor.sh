@@ -7,6 +7,7 @@ set -uo pipefail
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 source "$HARNESS_DIR/scripts/config.sh"
+require_dotcom
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"   # same default as pr-quorum.sh
 
 fails=0
@@ -29,9 +30,17 @@ done
 if [ "$(cfg '.repos | type == "object" and length > 0')" = true ]; then ok "config repos ($(cfg '.repos | length'))"
 else bad "config.json repos must be a non-empty object — README Setup §3"; finish; fi
 OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
+# trust — who may run the chain. A warning (associations beyond OWNER, MEMBER, COLLABORATOR) does not fail
+if err="$(trust_check 2>&1)"; then
+  ok "config trust (authors: $(cfg '.trust.authors // [] | join(", ") | if . == "" then "-" else . end'); associations: $(cfg '.trust.associations // ["OWNER"] | join(", ")'))"
+  [ -z "$err" ] || warn "${err#warning — }"
+else
+  bad "$err"
+fi
 
-# 3) Per repository: path is a git repository, profile file exists
+# 3) Per repository: owner resolves (repos.<name>.owner, else owner), path is a git repository, profile file exists
 for r in $(cfg '.repos | keys[]'); do
+  if slug="$(repo_slug "$r" 2>&1)"; then ok "$r owner ${slug%/*}"; else bad "$slug"; fi
   p="$(cfg --arg r "$r" '.repos[$r].path // empty')"
   if [ -n "$p" ] && git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then ok "$r path $p"
   else bad "$r path is not a git repository: ${p:-<unset>} — fix repos.$r.path"; fi
@@ -64,11 +73,12 @@ else
   bad "pr-quorum.sh whoami failed: $(tail -1 <<<"$login") — check the token in $BOT_ENV"
 fi
 
-# 7) Bot is a collaborator on each repository (owner token; 204 = yes). A pending invitation means the bot has not accepted it
-if [ -n "$OWNER" ] && [ -n "$BOT" ]; then
+# 7) Bot is a collaborator on each repository (gh login token, per-repository owner; 204 = yes). A pending invitation means the bot has not accepted it
+if [ -n "$BOT" ]; then
   for r in $(cfg '.repos | keys[]'); do
-    if gh api "repos/$OWNER/$r/collaborators/$BOT" >/dev/null 2>&1; then ok "$r bot is a collaborator"
-    elif gh api "repos/$OWNER/$r/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
+    slug="$(repo_slug "$r" 2>/dev/null)" || continue   # already reported in 3)
+    if gh api "repos/$slug/collaborators/$BOT" >/dev/null 2>&1; then ok "$r bot is a collaborator"
+    elif gh api "repos/$slug/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
       bad "$r bot invitation is pending — sign in as $BOT and accept it"
     else
       bad "$r bot is not a collaborator — invite $BOT with read (README Setup §1)"

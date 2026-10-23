@@ -6,7 +6,8 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
-OWNER="$(cfg '.owner // empty')"
+require_dotcom
+SLUG=""   # <owner>/<repo> of the repository argument, set at the entry point (config.sh repo_slug)
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUNS_DIR="$PR_QUORUM_HOME/runs"
@@ -119,13 +120,13 @@ owner_pid() {
 
 # ---------- Read ----------
 
-cmd_sha() { api "repos/$OWNER/$1/pulls/$2" --jq '.head.sha'; }
+cmd_sha() { api "repos/$SLUG/pulls/$2" --jq '.head.sha'; }
 
 cmd_meta() { need_meta "$1" "$2"; cat "$(meta_path "$1" "$2")"; }
 
 cmd_precheck() {
   local repo="$1" pr="$2" j
-  j="$(api "repos/$OWNER/$repo/pulls/$pr")"
+  j="$(api "repos/$SLUG/pulls/$pr")"
   local files add del
   files="$(jq -r '.changed_files' <<<"$j")"
   add="$(jq -r '.additions' <<<"$j")"
@@ -146,7 +147,7 @@ emit_ranges() {
   base="$(jq -r '.base_sha' "$(meta_path "$repo" "$4")")"
   [ -n "$base" ] && [ "$base" != "null" ] || die "$E_ENV" "meta.json has no base_sha"
   # No --paginate — compare's files[] is a single response, and with it empty arrays come back from page 2 on.
-  api "repos/$OWNER/$repo/compare/$base...$sha" > "$out/compare.json"
+  api "repos/$SLUG/compare/$base...$sha" > "$out/compare.json"
   jq -r '
     .files[] | select(.patch != null) | . as $f
     | ($f.patch | split("\n")[] | select(startswith("@@"))
@@ -232,7 +233,7 @@ cmd_risk() {
   d="$(run_dir "$repo" "$pr")"; m="$(meta_path "$repo" "$pr")"
   sha="$(cmd_sha "$repo" "$pr")"
   mktmp; local tmp="$TMP"
-  api --paginate "repos/$OWNER/$repo/pulls/$pr/files" | jq -s 'add // []' > "$tmp/files.json"
+  api --paginate "repos/$SLUG/pulls/$pr/files" | jq -s 'add // []' > "$tmp/files.json"
   # A jq syntax error exits with 3, which would be confused with a gate violation (E_GATE). Exit separately as a scoring failure
   jq --arg sha "$sha" --arg at "$(now_iso)" -f "$HARNESS_DIR/scripts/risk.jq" "$tmp/files.json" > "$tmp/risk.json" \
     || die "$E_API" "risk.jq calculation failed"
@@ -282,7 +283,7 @@ cmd_init() {
   [ -f "$d/frozen.md" ] || printf '# Frozen — facts settled in this PR\n\nTo overturn one, bring *new evidence that the settled fact is wrong*.\n\n| # | Settled fact | Evidence | Round frozen |\n|---|---|---|---|\n' > "$d/frozen.md"
 
   local j base head
-  j="$(api "repos/$OWNER/$repo/pulls/$pr")"
+  j="$(api "repos/$SLUG/pulls/$pr")"
   base="$(jq -r '.base.sha' <<<"$j")"
   head="$(jq -r '.head.sha' <<<"$j")"
 
@@ -300,7 +301,7 @@ cmd_init() {
       echo "meta.json updated (existing records kept): $d/meta.json"
     fi
   else
-    jq -n --arg o "$OWNER" --arg r "$repo" --argjson p "$pr" \
+    jq -n --arg o "${SLUG%/*}" --arg r "$repo" --argjson p "$pr" \
           --arg b "$base" --arg h "$head" --arg prof "$prof" '
       {owner:$o, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
        lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"pending"}
@@ -612,12 +613,12 @@ cmd_post_review() {
      comments: ($c[0] | map({path, line, side:(.side // "RIGHT"), body}))}
   ' > "$tmp/payload.json"
 
-  local resp; resp="$(gh api "repos/$OWNER/$repo/pulls/$pr/reviews" --input "$tmp/payload.json")" \
+  local resp; resp="$(gh api "repos/$SLUG/pulls/$pr/reviews" --input "$tmp/payload.json")" \
     || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7)"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
-  gh api --paginate "repos/$OWNER/$repo/pulls/$pr/comments" \
+  gh api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
              | map({id, path, line, body})' > "$tmp/posted.json"
 
@@ -662,7 +663,7 @@ cmd_reply() {
   need_meta "$repo" "$pr"
   load_bot_token
   rid="$(jq -n --rawfile b "$bfile" '{body:$b}' \
-    | gh api "repos/$OWNER/$repo/pulls/$pr/comments/$cid/replies" --input - --jq '.id')" \
+    | gh api "repos/$SLUG/pulls/$pr/comments/$cid/replies" --input - --jq '.id')" \
     || die "$E_API" "reply failed (comment_id=$cid)"
   echo "$rid"
 
@@ -697,7 +698,7 @@ cmd_patch() {
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   load_bot_token
   jq -n --rawfile b "$bfile" '{body:$b}' \
-    | gh api -X PATCH "repos/$OWNER/$repo/pulls/comments/$cid" --input - --jq '.id' \
+    | gh api -X PATCH "repos/$SLUG/pulls/comments/$cid" --input - --jq '.id' \
     || die "$E_API" "patch failed (comment_id=$cid). The bot can edit only its own comments"
 }
 
@@ -707,7 +708,7 @@ cmd_patch_review() {
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   load_bot_token
   jq -n --rawfile b "$bfile" '{body:$b}' \
-    | gh api -X PUT "repos/$OWNER/$repo/pulls/$pr/reviews/$rid" --input - --jq '.id' \
+    | gh api -X PUT "repos/$SLUG/pulls/$pr/reviews/$rid" --input - --jq '.id' \
     || die "$E_API" "summary correction failed (review_id=$rid)"
 }
 
@@ -716,7 +717,7 @@ cmd_comment() {
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   load_bot_token
   jq -n --rawfile b "$bfile" '{body:$b}' \
-    | gh api "repos/$OWNER/$repo/issues/$pr/comments" --input - --jq '.id' \
+    | gh api "repos/$SLUG/issues/$pr/comments" --input - --jq '.id' \
     || die "$E_API" "comment post failed"
 }
 
@@ -741,7 +742,8 @@ sub="$1"; shift
 case "$sub" in
   pg5|pg6|snapshot|whoami) ;;
   *) profile_of "${1:-}" >/dev/null
-     [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR number must be a positive integer: ${2:-}" ;;
+     [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR number must be a positive integer: ${2:-}"
+     SLUG="$(repo_slug "$1")" || exit "$E_ENV" ;;
 esac
 case "$sub" in
   sha)         [ $# -eq 2 ] || usage; cmd_sha "$@" ;;

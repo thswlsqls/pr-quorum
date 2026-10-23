@@ -6,7 +6,6 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
-OWNER="$(cfg .owner)"  # The session calls this script, so read only from config.json, not from environment variables
 
 die() { echo "author-push.sh: $1" >&2; exit 1; }
 
@@ -14,13 +13,14 @@ die() { echo "author-push.sh: $1" >&2; exit 1; }
 REPO="$1"; PR="$2"
 [ "$(cfg --arg r "$REPO" '.repos | has($r)')" = true ] || die "unknown repository: $REPO"
 [[ "$PR" =~ ^[0-9]+$ ]] || die "PR number is not numeric: $PR"
+SLUG="$(repo_slug "$REPO")" || exit 2  # The session calls this script, so the owner comes only from config.json, not from environment variables
 
 # A PR from a fork would push to the same-named branch in the base repository, so reject it
-cross="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json isCrossRepository --jq .isCrossRepository)"
+cross="$(gh pr view "$PR" --repo "$SLUG" --json isCrossRepository --jq .isCrossRepository)"
 [ "$cross" = "false" ] || die "PR comes from a fork"
-head="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json headRefName --jq .headRefName)"
-remote_head="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json headRefOid --jq .headRefOid)"
-default="$(gh repo view "$OWNER/$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
+head="$(gh pr view "$PR" --repo "$SLUG" --json headRefName --jq .headRefName)"
+remote_head="$(gh pr view "$PR" --repo "$SLUG" --json headRefOid --jq .headRefOid)"
+default="$(gh repo view "$SLUG" --json defaultBranchRef --jq .defaultBranchRef.name)"
 current="$(git symbolic-ref --short HEAD 2>/dev/null)" || die "HEAD is not a branch (detached)"
 
 [ -n "$head" ] || die "could not read the head branch of PR #$PR"
@@ -29,8 +29,8 @@ current="$(git symbolic-ref --short HEAD 2>/dev/null)" || die "HEAD is not a bra
 # The worktree's origin must be this repository — called from another repository's worktree, it would create a branch in the wrong place
 # git push sends to every push URL if there are several. There must be exactly one, and it must be this repository
 urls="$(git remote get-url --push --all origin)"
-[ "$(wc -l <<<"$urls")" -eq 1 ] && [[ "$urls" =~ ^(https://|git@)github\.com[:/]$OWNER/$REPO(\.git)?$ ]] \
-  || die "origin push URL is not exactly $OWNER/$REPO"
+[ "$(wc -l <<<"$urls")" -eq 1 ] && [[ "$urls" =~ ^(https://|git@)github\.com[:/]$SLUG(\.git)?$ ]] \
+  || die "origin push URL is not exactly $SLUG"
 
 # What is about to go out — every commit's diff (as text, binary files included) and message since the PR head on GitHub.
 # A commit holding a token is not pushed (exit 3, as pr-quorum.sh's gate violation). The matched text is never echoed

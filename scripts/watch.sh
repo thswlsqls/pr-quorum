@@ -5,7 +5,8 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"
+require_dotcom
+trust_check || exit 2
 # The bot login is read only from config.json's bot — if this value and the token file's account disagree,
 # the watcher polls as the wrong account and the trigger silently never fires. (The token is not read here)
 BOT="$(cfg '.bot // empty')"
@@ -20,6 +21,12 @@ trap 'rm -f "$SEARCH_ERR"' EXIT
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 known_profile() { [ -n "$(cfg --arg r "$1" '.repos[$r].profile // empty')" ]; }
+
+# Distinct owners of the repositories in config.json — the search runs once per owner
+owners() {
+  local r s
+  for r in $(cfg '.repos | keys[]'); do s="$(repo_slug "$r")" || return 2; echo "${s%/*}"; done | sort -u
+}
 
 # Is meta.lock valid — it is valid if it started less than 3 hours ago and the pid is alive.
 lock_valid() {
@@ -37,12 +44,13 @@ lock_valid() {
 # Session permissions only include worktree add, and the chain cannot see merges done by a person, so the poller does it.
 # No --force — if there are uncommitted changes, git refuses and only a log line is left. Branches are not touched
 gc_worktrees() {
-  local repo path dir wt name merged
+  local repo slug path dir wt name merged
   for repo in $(cfg '.repos | keys[]'); do
     path="$(cfg --arg r "$repo" '.repos[$r].path')"
     dir="$(dirname "$path")/$repo-worktrees"
     [ -d "$dir" ] || continue
-    merged="$(gh pr list --repo "$OWNER/$repo" --state merged --limit 200 --json number --jq '.[].number')" || continue
+    slug="$(repo_slug "$repo")" || continue
+    merged="$(gh pr list --repo "$slug" --state merged --limit 200 --json number --jq '.[].number')" || continue
     for wt in "$dir"/pr-quorum-* "$dir"/pr-author-*; do
       [ -d "$wt" ] || continue
       name="$(basename "$wt")"
@@ -59,33 +67,43 @@ gc_worktrees() {
 }
 
 run_once() {
-  local prs n
+  local prs="[]" found n own o
   gc_worktrees || log "worktree cleanup step failed — polling continues"
-  # This is the only query that looks for review requests (apart from the merged-list query in the cleanup step above). PR comments are not polled.
+  own="$(owners)" || return 2
+  # This is the only query that looks for review requests (apart from the merged-list query in the cleanup step above), once per owner. PR comments are not polled.
   # A failed search (expired token, rate limit, network) exits 2 — it must not read as "no review requests"
-  if ! prs="$(gh search prs --owner "$OWNER" --review-requested="$BOT" --state=open --limit "$SEARCH_LIMIT" \
-          --json number,repository,isDraft,authorAssociation 2>"$SEARCH_ERR")"; then
-    log "error — search failed: $(head -3 "$SEARCH_ERR" | paste -sd ' ' -)" >&2
-    return 2
-  fi
+  for o in $own; do
+    if ! found="$(gh search prs --owner "$o" --review-requested="$BOT" --state=open --limit "$SEARCH_LIMIT" \
+            --json number,repository,isDraft,authorAssociation,author 2>"$SEARCH_ERR")"; then
+      log "error — search failed ($o): $(head -3 "$SEARCH_ERR" | paste -sd ' ' -)" >&2
+      return 2
+    fi
+    [ "$(jq 'length' <<<"$found")" -lt "$SEARCH_LIMIT" ] \
+      || log "warning — search for $o hit --limit $SEARCH_LIMIT; some review requests may be missed" >&2
+    prs="$(jq -c --argjson f "$found" '. + $f' <<<"$prs")"
+  done
   n="$(jq 'length' <<<"$prs")"
-  [ "$n" -lt "$SEARCH_LIMIT" ] || log "warning — search hit --limit $SEARCH_LIMIT; some review requests may be missed" >&2
   [ "$n" -gt 0 ] || { log "no review requests"; return 0; }
 
   local i
   for (( i=0; i<n; i++ )); do
-    local pr repo draft assoc m
+    local pr repo nwo draft assoc login rc m
     pr="$(jq -r ".[$i].number" <<<"$prs")"
     repo="$(jq -r ".[$i].repository.name" <<<"$prs")"
+    nwo="$(jq -r ".[$i].repository.nameWithOwner" <<<"$prs")"
     draft="$(jq -r ".[$i].isDraft" <<<"$prs")"
     assoc="$(jq -r ".[$i].authorAssociation" <<<"$prs")"
+    login="$(jq -r ".[$i].author.login // empty" <<<"$prs")"
 
     # 1) Repository with no known profile — the query is per --owner, so PRs from other repositories come back too.
-    known_profile "$repo" || { log "skip $repo#$pr — no profile"; continue; }
+    #    Matched by owner and name: with several owners, a same-named repository under another owner must not pass
+    { known_profile "$repo" && [ "$nwo" = "$(repo_slug "$repo")" ]; } || { log "skip $nwo#$pr — no profile"; continue; }
     # 2) draft
     [ "$draft" = "false" ] || { log "skip $repo#$pr — draft"; continue; }
-    # 2-1) Only PRs opened by the repository owner — the repository is public, so someone else's PR would feed its description and diff straight into a session that pushes and merges under the user's account
-    [ "$assoc" = "OWNER" ] || { log "skip $repo#$pr — author is not the owner ($assoc)"; continue; }
+    # 2-1) Only PRs from trusted authors (config.sh is_trusted) — someone else's PR would feed its description and diff straight into a session that pushes and merges under the user's account
+    rc=0; is_trusted "$login" "$assoc" || rc=$?
+    [ "$rc" != 2 ] || return 2
+    [ "$rc" = 0 ] || { log "skip $repo#$pr — author is not trusted ($login, $assoc)"; continue; }
 
     m="$PR_QUORUM_HOME/runs/$repo-pr$pr/meta.json"
     if [ -f "$m" ]; then
