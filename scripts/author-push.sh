@@ -35,7 +35,7 @@ urls="$(git remote get-url --push --all origin)"
 # What is about to go out — every commit's diff (as text, binary files included) and message since the PR head on GitHub.
 # A commit holding a token is not pushed (exit 3, as pr-quorum.sh's gate violation). The matched text is never echoed
 git cat-file -e "$remote_head^{commit}" 2>/dev/null || die "PR head ${remote_head:0:7} is not in this clone — git fetch origin $head first"
-out="$(mktemp)"; trap 'rm -f "$out"' EXIT
+out="$(pq_mktemp)"; trap 'rm -f "$out"' EXIT
 # The raw objects the push sends (commits, trees, blobs not reachable from the PR head), not a diff: a token added in one commit and removed
 # in the next still goes out, and diff output can be bent by textconv, ext-diff, or replace refs. --no-replace-objects reads the real objects
 git --no-replace-objects rev-list --objects "$remote_head..HEAD" | cut -d' ' -f1 | git --no-replace-objects cat-file --batch > "$out"

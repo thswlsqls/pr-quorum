@@ -10,6 +10,10 @@ cfg() {
   jq -r "$@" "$f"
 }
 
+# pq_mktemp [-d] — a temp file (or folder) under $PR_QUORUM_HOME/tmp. Builds may write $TMPDIR and /private/tmp but not ~/.pr-quorum,
+# so a process a build left running cannot rewrite what the harness reads back (harness.md §3-1)
+pq_mktemp() { mkdir -p "$PR_QUORUM_HOME/tmp" && mktemp "$@" "$PR_QUORUM_HOME/tmp/pq.XXXXXX"; }
+
 # render_settings <plugin root> <template name> — fills the placeholders in templates/<name> and writes $PR_QUORUM_HOME/<name>.
 # Permission rules have no variable substitution, so this is rebuilt on every run. Rules like /runs/** resolve relative to ~/.pr-quorum/, where this file lives.
 # __AUTHOR_WORKTREES__ is replaced, for each repository in config.json, with an Edit allow rule for <parent of path>/<name>-worktrees/pr-author-*.
