@@ -22,6 +22,9 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 | Stage 2 · followup | Replies in each thread with `addressed`, `partial`, `not-addressed`, or `regressed` (the fix introduced a new defect) |
 | Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
 
+<details>
+<summary>Stage 1, 2, and 3 at a glance</summary>
+
 ```mermaid
 flowchart TD
   RQ(["Bot requested<br/>as reviewer"]) --> S1
@@ -50,6 +53,11 @@ flowchart TD
 
 Each stage is drawn in detail in the folded sections further down.
 
+</details>
+
+<details>
+<summary>Merge gate and risk gate</summary>
+
 ```mermaid
 flowchart TD
   G(["After the<br/>author loop"]) --> MG{"Merge gate<br/>0 blocking<br/>0 regressed<br/>no failed tests<br/>head reviewed"}
@@ -61,6 +69,8 @@ flowchart TD
   A -- "false (default)" --> R["ready<br/>a human merges"]
   RG -- "medium or higher" --> H["needs-human<br/>a human reviews<br/>and merges"]
 ```
+
+</details>
 
 The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically. Rules: [`rules/03-risk.md`](rules/03-risk.md).
 
