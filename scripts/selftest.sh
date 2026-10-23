@@ -153,6 +153,10 @@ case "$path" in
   */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
   repos/acme/demo)
     [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    [ -e "$S/repo-ok" ] && exit 0
+    echo "HTTP 404: Not Found" >&2; exit 1 ;;
+  repos/acme/demo/collaborators/*)
+    [ ! -e "$S/fail-collab" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     echo "HTTP 404: Not Found" >&2; exit 1 ;;
   *) echo "HTTP 404: Not Found" >&2; exit 1 ;;
 esac
@@ -297,7 +301,10 @@ c3_same_stop_once() {
 }
 check "chain C1 gate PR-state read fails → blocked, one notice" c1_gate_state_fails
 check "chain C2 gate head read fails → blocked, one notice"     c2_gate_head_fails
+# C4 — the conflict check before the author pass gets a 502
+c4_conflict_check_fails() { stub_chain_home; printf 'HTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'before the author pass'; }
 check "chain C3 same stop again posts no second notice"        c3_same_stop_once
+check "chain C4 conflict-check read fails → blocked, one notice" c4_conflict_check_fails
 
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
@@ -363,6 +370,14 @@ d2_repo_404() {
   grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not found\|not a collaborator' <<<"$out" \
     || { echo "502: $out"; return 1; }
 }
+d2b_collaborator_error() {
+  local out; doctor_home || return 1
+  touch "$STUB/state/repo-ok" "$STUB/state/fail-collab"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo cannot check collaborator .* on acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" \
+    || { echo "502: $out"; return 1; }
+  rm "$STUB/state/fail-collab"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo bot is not a collaborator' <<<"$out" && ! grep -q 'cannot check collaborator' <<<"$out" || { echo "404: $out"; return 1; }
+}
 d3_sample_profile() {
   local out a b; doctor_home || return 1
   out="$(stub_doctor)"; a="$(grep -c '^warn — demo profile' <<<"$out")"
@@ -385,6 +400,7 @@ d4_commands() {
 }
 check "doctor D1 template values, one line"            d1_template_values
 check "doctor D2 repository 404 is not 'not a collaborator'" d2_repo_404
+check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborator_error
 check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
 check "doctor D4 commands that cannot start"           d4_commands
 

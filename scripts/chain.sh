@@ -345,7 +345,8 @@ esac
 
 # Check for conflicts with main before the author pass. Resolving a conflict changes head, so the later steps would have to run again.
 # Stopping before Stage 1 would make watch.sh see a PR with no review, restart it every minute, and end up at held-failed
-[ "$(pr_state | jq -r '.mergeable')" != "CONFLICTING" ] \
+PR_JSON="$(pr_state)" || { chain_state "blocked" "could not read the PR state from GitHub before the author pass — run the chain again"; exit 4; }
+[ "$(jq -r '.mergeable' <<<"$PR_JSON")" != "CONFLICTING" ] \
   || { chain_state "blocked" "conflicts with main — a person resolves the conflict, then runs the chain again"; exit 3; }
 
 [ "$(author_count)" -ge 1 ] || run_author
@@ -355,8 +356,9 @@ stage3_done || run_stage3
 # After Stage 3: loop (author → Stage 2) until the author says nothing more needs fixing
 while :; do
   # If Stage 2 has not run since the last author pass, run it first (the case where it died midway)
-  if author_pushed && [ "$(head_sha)" != "$(jq -r '.stage2[-1].stage_sha // empty' "$M")" ]; then
-    run_stage2
+  if author_pushed; then
+    HEAD_NOW="$(head_sha)" || { chain_state "blocked" "could not read the PR head from GitHub after the author pass — run the chain again"; exit 4; }
+    [ "$HEAD_NOW" = "$(jq -r '.stage2[-1].stage_sha // empty' "$M")" ] || run_stage2
   fi
   # The first pass addresses Stage 1. If there is no pass after Stage 3 yet, run one
   if [ "$(author_count)" -ge "$MAX_AUTHOR_ROUNDS" ]; then

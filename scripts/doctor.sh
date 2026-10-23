@@ -36,7 +36,7 @@ for k in owner bot; do
   v="$(cfg ".$k // empty | strings")"
   case "$v" in
     "") bad "config.json has no $k — set it (README Setup §3)" ;;
-    your-*-login) ;;   # reported with the other template values below
+    your-github-login|your-bot-login) ;;   # reported with the other template values below
     *) ok "config $k = $v" ;;
   esac
 done
