@@ -79,6 +79,7 @@ It is not just one comment dropped — the review does not go up at all. Give th
 - Launch V1·V2·V3 at the same time in one message too.
 - When writing read methods into a judge prompt — worktree files with `Read`, files at other commits with `git show <sha>:<path>`.
   `git -C`, one-line `cd … && git` chains, `awk`, `unzip`, and `javap` are denied by permissions.
+  Builds and tests run only as `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh build $1 $2 <absolute worktree path> build|test|lint [target]` (`01-stages.md` §5-1). Build tools called directly are denied.
 
 ### 4. Write the outputs
 

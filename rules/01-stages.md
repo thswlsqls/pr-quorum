@@ -224,14 +224,19 @@ the merge gate stops with `needs-human` — a PR on which a defect the review mi
 
 ### 5-1. Measurement — infrastructure limits
 
-`docker-compose.yml` has neither Redis nor MongoDB (only kafka · 4 mysql instances · the observability stack).
+Run builds, tests, and lint only through the harness wrapper, on the worktree for the sha you measure (below):
 
-| Profile | Measurements |
-|---|---|
-| backend | `./gradlew :<affected-module>:test` · `:<affected-module>:build` · `EXPLAIN` on the problem query. Checking that the service runs only when Redis and MongoDB are available |
-| frontend | `npm run build` · `npx tsc --noEmit` · `npm run lint` (app only) · build output size |
+```
+<plugin-dir>/scripts/pr-quorum.sh build <repo> <PR-number> <absolute worktree path> build|test|lint [target]
+```
 
-**Write what cannot be measured as `not measured`.** Do not disguise an estimate as a measurement.
+The command comes from `repos.<repo>.commands` in `~/.pr-quorum/config.json`; you pass only the kind and the target that fills its `<target>`
+(the affected module or path, e.g. `:api-auth` or `tests/api` — letters, digits, and `: _ . / -` only).
+Without `commands`, a worktree with `gradlew` runs `./gradlew <target>:build|test`, and one with `package.json` runs `npm run build`, `npm run lint`, and `npx tsc --noEmit` for `test` (target = app folder, e.g. `app`).
+The wrapper refuses a dirty tree, a HEAD that is not a SHA this PR pinned, and a worktree outside `<repo>-worktrees/`. Running build tools directly is denied by permissions.
+Other measurements (`EXPLAIN` on the problem query, build output size, …) and the infrastructure the repo lacks locally follow the measurement baseline in the profile's §6.
+
+**Write what cannot be measured as `not measured`** — including a kind the wrapper refuses as not configured. Do not disguise an estimate as a measurement.
 
 Create a new worktree for each sha you measure. Do not move an existing worktree to a new sha.
 The author's fix commits are objects in the same repo, so they are there without a fetch.
@@ -242,8 +247,8 @@ git worktree add --detach ../<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
 
 Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`). If the working folder is not that repo, call `cd <that path>` separately first (one-line `cd … && git` chains are denied).
 
-The parent folder is the same one `tools/pipeline/impl-config.yml` already uses. **The leaf name `pr-quorum-` is the only distinction**,
-so first check that the impl side's cleanup does not delete these folders.
+If another tool also uses the `<repo>-worktrees/` parent folder, **the leaf name `pr-quorum-` is the only distinction**,
+so first check that its cleanup does not delete these folders.
 
 ---
 

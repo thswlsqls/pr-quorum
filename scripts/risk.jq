@@ -3,11 +3,13 @@
 # Looks only at file paths and changed lines. No session judgment goes in — the same diff always gets the same score.
 
 def doc:        test("\\.(md|png|jpe?g|gif|svg|drawio)$|^(docs|contents)/"; "i");   # Only top-level doc folders. A code path such as .../contents/auth/ is not a document
-def test_file:  test("(^|/)src/test/|(^|/)__tests__/|Tests?\\.(java|kt)$|\\.(test|spec)\\.[jt]sx?$");
-# Code that can have tests. .tf, .sql, and .sh have no test tooling in this repository, and their risk is already counted by "Hard-to-reverse changes"
-def testable:   test("\\.(java|kt|ts|tsx|js|jsx|mjs|py)$");
+def test_file:  test("(^|/)src/test/|(^|/)__tests__/|Tests?\\.(java|kt)$|\\.(test|spec)\\.[jt]sx?$|(^|/)test_[^/]*\\.py$|_test\\.(py|go)$");
+# Code that can have tests. .tf, .sql, and .sh have no test tooling in this repository, and their risk is already counted by "Hard-to-reverse changes".
+# .rs is left out — Rust unit tests sit in the same file, so a path cannot tell whether tests changed
+def testable:   test("\\.(java|kt|ts|tsx|js|jsx|mjs|py|go)$");
 def conf_file:  test("\\.(ya?ml|properties|json|env|tfvars|conf|xml)$|(^|/)\\.env[^/]*$");
-# Lock files are counted by the dependency signal. They are generated, so they are left out of the scope line count
+# Lock files are counted by the dependency signal. They are generated, so they are left out of the scope line count.
+# poetry.lock, uv.lock, Cargo.lock, and go.sum are not added here — that would lower the scope points of PRs already scored
 def lock_file:  test("(^|/)package-lock\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$");
 def lines:      .additions + .deletions;
 def added:      (.patch // "") | split("\n") | map(select(startswith("+") and (startswith("+++") | not))) | join("\n");
@@ -33,11 +35,13 @@ def category($title; $max; $sigs): {title: $title, max: $max, signals: $sigs,
           "(?i)(password|passwd|secret([_-]?key)?|api[_-]?key|access[_-]?key|private[_-]?key|token)[\"']?\\s*[:=]\\s*[\"']?[^\\s\"'$<{]{8,}")))))),
       # This gate and the review harness itself. Rule documents (.md) are run-time rules the session follows, so the document exclusion does not apply. At 15 points this signal alone moves a PR out of low
       sig("Auto-merge gate/harness"; 15; $all | hits(.filename | test("^(skills|agents|rules|templates|\\.claude-plugin)/|^scripts/(pr-quorum|chain|watch|dream|selftest|risk-audit|gh-get|author-push|author-reply|config|doctor)\\.sh$|^scripts/risk\\.jq$"))),
-      # Instructions and settings agent sessions follow, files CI runs, and build scripts ./gradlew runs. .md files count too, for the same reason as the harness
+      # Instructions and settings agent sessions follow, files CI runs, and build scripts the build tool runs (Gradle, Maven, Python packaging). .md files count too, for the same reason as the harness
       sig("Agent instructions/CI/build scripts"; 15; $all | hits(.filename | test(
-        "(^|/)(CLAUDE|AGENTS)\\.md$|(^|/)\\.claude/|(^|/)\\.github/workflows/|(^|/)Jenkinsfile[^/]*$|\\.gradle(\\.kts)?$|(^|/)gradle\\.properties$|(^|/)gradle/wrapper/|(^|/)gradlew(\\.bat)?$"))),
+        "(^|/)(CLAUDE|AGENTS)\\.md$|(^|/)\\.claude/|(^|/)\\.github/workflows/|(^|/)Jenkinsfile[^/]*$|\\.gradle(\\.kts)?$|(^|/)gradle\\.properties$|(^|/)gradle/wrapper/|(^|/)gradlew(\\.bat)?$"
+        + "|(^|/)pom\\.xml$|(^|/)mvnw(\\.cmd)?$|(^|/)\\.mvn/wrapper/|(^|/)pyproject\\.toml$|(^|/)setup\\.py$"))),
       sig("Dependencies"; 10; $nd | hits(.filename | test(
-        "\\.gradle(\\.kts)?$|libs\\.versions\\.toml$|gradle-wrapper\\.properties$|(^|/)package(-lock)?\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$"))),
+        "\\.gradle(\\.kts)?$|libs\\.versions\\.toml$|gradle-wrapper\\.properties$|(^|/)package(-lock)?\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$"
+        + "|(^|/)pom\\.xml$|(^|/)pyproject\\.toml$|(^|/)setup\\.py$|(^|/)requirements[^/]*\\.txt$|(^|/)(poetry|uv|Cargo)\\.lock$|(^|/)go\\.(mod|sum)$|(^|/)Cargo\\.toml$"))),
       sig("Infrastructure permissions (IAM)"; 15; $nd | hits((.filename | test("\\.tf$")) and ((.patch // "") | test("aws_iam_|\"Action\"|actions\\s*=|iam:"))))
     ]),
     category("Breaking changes"; 25; [

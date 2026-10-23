@@ -18,7 +18,7 @@ Each has its own `CLAUDE.md`. **They are separate projects** — do not apply `a
 **Backend IDs arrive as strings.** TSIDs (64-bit Long) exceed `Number.MAX_SAFE_INTEGER`,
 so the backend applies `Long`→`String` serialization globally. **Parsing them with `Number()` or `parseInt` on the frontend breaks precision.**
 
-**Commands** — `npm run dev | build | lint` in each app directory.
+**Commands** — `npm run dev | build | lint` in each app directory. Sessions run `build`, `lint`, and `test` (`npx tsc --noEmit`) only through `pr-quorum.sh build <repo> <PR-number> <worktree> build|lint|test <app>`, e.g. target `app`.
 
 ---
 
@@ -171,5 +171,7 @@ R-E (Client performance)                  R-F (Failure isolation)  R-G (Tests)  
 | `app` types | clean | `cd app && npx tsc --noEmit` | 2026-08-20 | Cannot see runtime type mismatches |
 | `admin` types | clean | `cd admin && npx tsc --noEmit` | 2026-08-20 | Same |
 | Tests | **0** (no files, no runner) | `find app admin -name '*.test.*' -o -name '*.spec.*'` | 2026-08-20 | — |
+
+**Stage 3 measurements** — `build`, `test` (`npx tsc --noEmit`), and `lint` (`app` only) through `pr-quorum.sh build`, plus build output size.
 
 **When you update the baseline, update the measurement date with it.**

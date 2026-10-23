@@ -46,6 +46,11 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     status     <repo> <pr> <value>
     attempt    <repo> <pr> inc|reset
 
+  Build (no bot token needed)
+    build      [--author] <repo> <pr> <worktree> build|test|lint [target]
+                                             run repos.<repo>.commands.<kind> from config.json in the worktree, <target> filled in
+                                             (review: clean tree at a pinned SHA · --author: <repo>-worktrees/pr-author-<pr>)
+
   Post (bot token needed)
     post-review <repo> <pr> <sha> <summary.md> <comments.json> [stage1|stage2|stage3]
     reply       <repo> <pr> <comment_id> <body.md>
@@ -446,6 +451,88 @@ cmd_snapshot() {
   echo "copy — $real/pre-polish (${copied[*]:-none})"
 }
 
+# ---------- Build ----------
+
+# The only way sessions run a build, test, or lint. The command comes from repos.<repo>.commands.<kind> in config.json, which sessions cannot edit;
+# the session passes only the kind and a target. Allowing ./gradlew or npm run build directly let a session write a package.json under runs/
+# and run any shell from it (improvement plan 02 §1-A), so the tree a build runs in is checked here too.
+# Review sessions: a clean worktree whose HEAD is a SHA this PR pinned. --author: the author worktree pr-author-<pr>, edits allowed.
+BUILD_AUTHOR=0
+
+cmd_build() {
+  local repo="$1" pr="$2" wt="$3" kind="$4" target="${5:-}" path parent wtroot real runs top c head m
+  case "$kind" in build|test|lint) ;; *) die "$E_USAGE" "kind must be one of build|test|lint: $kind" ;; esac
+  # The target lands inside a bash -c string. No spaces or shell metacharacters, no leading - (an option such as --init-script) or /, no ..
+  if [ -n "$target" ]; then
+    [[ "$target" =~ ^[A-Za-z0-9:_.][A-Za-z0-9:_./-]*$ ]] && [[ "$target" != *..* ]] \
+      || die "$E_USAGE" "target may contain only letters, digits, and : _ . / - (no leading - or /, no ..): $target"
+  fi
+
+  [ -d "$wt" ] || die "$E_USAGE" "worktree is missing: $wt"
+  real="$(cd "$wt" && pwd -P)"
+  path="$(cfg --arg r "$repo" '.repos[$r].path' | sed 's|/*$||')"
+  parent="$(cd "$(dirname "$path")" 2>/dev/null && pwd -P)" || die "$E_ENV" "parent folder of repos.$repo.path is missing: $path"
+  wtroot="$parent/$repo-worktrees"
+  runs="$(cd "$RUNS_DIR" 2>/dev/null && pwd -P || echo "$RUNS_DIR")"
+  case "$real/" in "$runs"/*) die "$E_GATE" "builds do not run under runs/: $real" ;; esac
+  if [ "$BUILD_AUTHOR" = 1 ]; then
+    [ "$real" = "$wtroot/pr-author-$pr" ] || die "$E_GATE" "--author builds run only in $wtroot/pr-author-$pr: $real"
+  else
+    case "$real/" in "$wtroot"/?*/) ;; *) die "$E_GATE" "builds run only in a worktree under $wtroot/: $real" ;; esac
+  fi
+  top="$(cd "$real" && git rev-parse --show-toplevel 2>/dev/null)" || die "$E_GATE" "not a git worktree: $real"
+  [ "$(cd "$top" && pwd -P)" = "$real" ] || die "$E_GATE" "pass the worktree root, not a folder inside it: $real"
+  top="$real"
+
+  if [ "$BUILD_AUTHOR" = 0 ]; then
+    [ -z "$(cd "$real" && git status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
+    head="$(cd "$real" && git rev-parse HEAD)"
+    # The SHAs this PR pinned (§6 of rules/01-stages.md), else the current PR head on GitHub
+    m="$(meta_path "$repo" "$pr")"
+    if ! { [ -f "$m" ] && jq -e --arg h "$head" '[.eval_sha, .stage1[]?.eval_sha, .stage2[]?.stage_sha, .stage3.stage_sha?,
+                                                   .stage3_history[]?.stage_sha] | index($h) != null' "$m" >/dev/null; } \
+       && [ "$(cmd_sha "$repo" "$pr")" != "$head" ]; then
+      die "$E_GATE" "HEAD ${head:0:7} is neither a SHA pinned in meta.json nor the head of PR #$pr"
+    fi
+  fi
+
+  if [ "$(cfg --arg r "$repo" '.repos[$r] | has("commands")')" = true ]; then
+    c="$(cfg --arg r "$repo" --arg k "$kind" '.repos[$r].commands[$k] // empty')"
+    [ -n "$c" ] || die "$E_ENV" "repos.$repo.commands.$kind is not set in config.json — record it as not measured"
+    if [[ "$c" == *"<target>"* ]]; then
+      [ -n "$target" ] || die "$E_USAGE" "this $kind command needs a target: $c"
+      c="${c//"<target>"/$target}"
+    elif [ -n "$target" ]; then
+      die "$E_USAGE" "this $kind command takes no target: $c"
+    fi
+  # No commands in config.json — run what the rules ran before the setting existed
+  elif [ -f "$real/gradlew" ]; then
+    case "$kind" in
+      build|test) c="./gradlew ${target:+$target:}$kind" ;;
+      *) die "$E_ENV" "no $kind command for a Gradle worktree without repos.$repo.commands — record it as not measured" ;;
+    esac
+  else
+    # npm — the target is the app folder to run in (e.g. app/), as the frontend profile measures per app
+    if [ -n "$target" ]; then
+      real="$(cd "$real/$target" 2>/dev/null && pwd -P)" || die "$E_USAGE" "target folder is missing: $target"
+      case "$real/" in "$top"/*) ;; *) die "$E_GATE" "target folder is outside the worktree: $target" ;; esac
+    fi
+    [ -f "$real/package.json" ] \
+      || die "$E_ENV" "repos.$repo.commands is not set and $real has neither gradlew nor package.json — record it as not measured"
+    case "$kind" in
+      build) c="npm run build" ;;
+      lint)  c="npm run lint" ;;
+      test)  c="npx tsc --noEmit" ;;
+    esac
+  fi
+
+  echo "pr-quorum: running in $real: $c" >&2
+  # The command's own exit code and output pass through as-is
+  local rc=0
+  (cd "$real" && exec bash -c "$c") || rc=$?
+  return "$rc"
+}
+
 # ---------- Post ----------
 
 # Post bodies must be regular files under runs/. Sessions can call this script, so
@@ -604,6 +691,8 @@ need_sha() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]] || die "$E_USAGE" "SHA must be 7–4
 
 [ $# -ge 1 ] || usage
 sub="$1"; shift
+# build --author must come before the repo so the review settings can deny that one prefix
+[ "$sub" = build ] && [ "${1:-}" = --author ] && { BUILD_AUTHOR=1; shift; }
 # The repository name and PR number become gh api paths and paths under runs/. Only repository names in config.json repos are accepted.
 # A non-numeric PR number could make init create a folder and frozen.md outside runs/
 case "$sub" in
@@ -626,6 +715,7 @@ case "$sub" in
   unlock)      [ $# -eq 2 ] || usage; cmd_unlock "$@" ;;
   status)      [ $# -eq 3 ] || usage; cmd_status "$@" ;;
   attempt)     [ $# -eq 3 ] || usage; cmd_attempt "$@" ;;
+  build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
   post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;

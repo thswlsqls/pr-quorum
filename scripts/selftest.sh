@@ -32,6 +32,16 @@ check "risk doc nested .md"          risk_score "api/auth/docs/design.md" 0
 check "risk code under nested docs/" risk_score "src/main/java/com/acme/docs/auth/JwtAuthFilter.java" 40
 check "risk code under contents/"    risk_score "src/main/java/com/acme/contents/auth/JwtAuthFilter.java" 40
 check "risk harness rule .md"        risk_score "rules/03-risk.md" 15
+# Build and dependency files of other stacks (rules/03-risk.md) — build script 15 + dependencies 10 + scope 10, or dependencies 10 + scope 10
+check "risk Maven pom.xml"           risk_score "pom.xml" 35
+check "risk Python pyproject.toml"   risk_score "pyproject.toml" 35
+check "risk Python requirements"     risk_score "requirements-dev.txt" 20
+check "risk Go go.mod"               risk_score "go.mod" 20
+check "risk Rust Cargo.lock"         risk_score "Cargo.lock" 20
+# Test files of other stacks count as tests — no production signal and no scope points
+check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
+check "risk Python test file"        risk_score "tests/test_api.py" 0
+check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
 
 # Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
 for t in "$HARNESS_DIR"/README.*.md; do
