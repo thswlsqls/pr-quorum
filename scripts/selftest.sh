@@ -42,16 +42,31 @@ harness_hit() {  # harness_hit <filename>
 for s in "$HARNESS_DIR"/scripts/*; do
   check "risk harness list has $(basename "$s")" harness_hit "scripts/$(basename "$s")"
 done
-# Build and dependency files of other stacks (rules/03-risk.md) — build script 15 + dependencies 10 + scope 10, or dependencies 10 + scope 10
-check "risk Maven pom.xml"           risk_score "pom.xml" 35
-check "risk Python pyproject.toml"   risk_score "pyproject.toml" 35
-check "risk Python requirements"     risk_score "requirements-dev.txt" 20
-check "risk Go go.mod"               risk_score "go.mod" 20
-check "risk Rust Cargo.lock"         risk_score "Cargo.lock" 20
+# Build and dependency files of other stacks (rules/03-risk.md) — build script 15 + dependencies 15 + scope 10, or dependencies 15 + scope 10
+check "risk Maven pom.xml"           risk_score "pom.xml" 40
+check "risk Python pyproject.toml"   risk_score "pyproject.toml" 40
+check "risk Python requirements"     risk_score "requirements-dev.txt" 25
+check "risk Go go.mod"               risk_score "go.mod" 25
+check "risk Rust Cargo.lock"         risk_score "Cargo.lock" 25
 # Test files of other stacks count as tests — no production signal and no scope points
 check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
 check "risk Python test file"        risk_score "tests/test_api.py" 0
 check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
+# Dependency-only PRs, files run at build or test time, and renames out of a sensitive path (rules/03-risk.md)
+risk_json() {  # risk_json <files JSON> <expected score> — for multi-file and rename cases
+  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r .score)" || return 1
+  [ "$got" = "$2" ] || { echo "expected $2, got $got"; return 1; }
+}
+check "risk lock file only"          risk_score "package-lock.json" 15
+check "risk small manifest bump"     risk_json '[{"filename":"go.mod","additions":1,"deletions":1,"patch":"+x"}]' 15
+check "risk .npmrc"                  risk_score ".npmrc" 25
+check "risk Makefile"                risk_score "Makefile" 25
+check "risk build config with tests" risk_json '[{"filename":"vite.config.ts","additions":30,"deletions":0,"patch":"+x"},{"filename":"src/__tests__/a.test.ts","additions":1,"deletions":0}]' 15
+check "risk buildSrc with tests"     risk_json '[{"filename":"buildSrc/src/main/kotlin/Conv.kt","additions":30,"deletions":0,"patch":"+x"},{"filename":"src/test/x/ATest.java","additions":1,"deletions":0}]' 15
+check "risk .npmrc token"            risk_json '[{"filename":".npmrc","additions":1,"deletions":0,"patch":"+//registry.npmjs.org/:_authToken=npm_abcdefgh1234"}]' 30
+check "risk rename out of auth"      risk_json '[{"filename":"src/main/java/a/Moved.java","previous_filename":"src/main/java/a/JwtAuthFilter.java","status":"renamed","additions":0,"deletions":0}]' 15
+check "risk rename out of harness"   risk_json '[{"filename":"lib/risk.jq","previous_filename":"scripts/risk.jq","status":"renamed","additions":0,"deletions":0}]' 15
+check "risk doc rename stays 0"      risk_json '[{"filename":"docs/a.md","previous_filename":"docs/b.md","status":"renamed","additions":0,"deletions":0}]' 0
 
 # Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
 for t in "$HARNESS_DIR"/README.*.md; do
