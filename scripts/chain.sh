@@ -55,6 +55,8 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each
   for r in $(cfg '.repos | keys[]'); do
     p="$(cfg --arg r "$r" '.repos[$r].path')"
+    # Created up front: a session reads only folders opened at start, and its git worktree add lands here
+    mkdir -p "$(dirname "$p")/$r-worktrees" 2>/dev/null || true
     for d in "$p" "$(dirname "$p")/$r-worktrees"; do
       [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
     done

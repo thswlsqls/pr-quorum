@@ -670,7 +670,7 @@ cmd_post_review() {
   # Adoption — a bot review on this SHA carrying this stage's marker that meta.json does not know was posted by an earlier call
   # that died before recording it, or whose POST response was lost. Record that one instead of posting a second.
   # Reviews already recorded are left out, so rerunning a stage on purpose still posts. A failed check posts nothing
-  known="$(jq -c '[.stage1[]?.review_id, .stage2[]?.review_id, .stage3.review_id?, .stage3_history[]?.review_id] | map(select(. != null))' \
+  known="$(jq -c '[.posted_review_ids[]?, .stage1[]?.review_id, .stage2[]?.review_id, .stage3.review_id?, .stage3_history[]?.review_id] | map(select(. != null))' \
     "$(meta_path "$repo" "$pr")")"
   rid="$(api --paginate "repos/$SLUG/pulls/$pr/reviews" \
     | jq -s -r --arg b "$(cfg '.bot // empty')" --arg s "$sha" --arg mk "<!-- pr-quorum:$stage -->" --argjson k "$known" '
@@ -750,6 +750,9 @@ record_review() {
                                  | .stage3.replies = ((.stage3.replies // {}) + (.stage3_replies // {})) | del(.stage3_replies)' \
         --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
   esac
+  # Every recorded id stays known to the adoption check: a second post on the same SHA overwrites stage3.review_id
+  # (and a stage2 element), and the earlier review must not look unrecorded to the next post
+  meta_update "$repo" "$pr" '.posted_review_ids = ((.posted_review_ids // []) + [$rid] | unique)' --argjson rid "$review_id" || return 1
 
   jq -r '.[] | select(.id == null) | "warning — comment with no id found: \(.code) \(.path):\(.line)"' <<<"$merged" >&2
 }
