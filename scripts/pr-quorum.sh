@@ -63,7 +63,8 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     reply       <repo> <pr> <comment_id> <body.md>
     patch       <repo> <pr> <comment_id> <body.md>
     patch-review <repo> <pr> <review_id> <body.md>   edit the summary body of a posted review
-    comment     <repo> <pr> <body.md>        one general comment on the PR
+    comment     <repo> <pr> <body.md> [<key>]   one general comment on the PR
+                                             (with a key: not posted again if a bot comment with that key exists)
                                              every post refuses a body that holds a token (scripts/token-scan.sh), before any API call
 
   Check (bot token needed, no repo or pr)
@@ -834,13 +835,27 @@ cmd_patch_review() {
     || die "$E_API" "summary correction failed (review_id=$rid)"
 }
 
+# With a key, the body ends with <!-- pr-quorum:comment:<key> --> and a bot comment already carrying it is reused (its id printed,
+# exit 0) — a key always means the same notice, so a caller that wants to post again passes another key. Without one, it posts as before
 cmd_comment() {
-  local repo="$1" pr="$2" bfile="$3"
+  local repo="$1" pr="$2" bfile="$3" key="${4:-}" mk="" cid
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   load_bot_token
-  jq -n --rawfile b "$bfile" '{body:$b}' \
+  if [ -n "$key" ]; then
+    mk="<!-- pr-quorum:comment:$key -->"
+    cid="$(api --paginate "repos/$SLUG/issues/$pr/comments" \
+      | jq -s -r --arg b "$(cfg '.bot // empty')" --arg mk "$mk" '
+          [add // [] | .[] | select(.user.login == $b and ((.body // "") | contains($mk)))] | last | .id // empty')" \
+      || die "$E_API" "could not list the PR's comments to check for an earlier one with key $key — nothing was posted"
+    if [ -n "$cid" ]; then
+      echo "$cid"
+      echo "adopted — comment_id=$cid (key $key already posted)" >&2
+      return 0
+    fi
+  fi
+  jq -n --rawfile b "$bfile" --arg mk "$mk" '{body:(if $mk == "" then $b else $b + "\n\n" + $mk end)}' \
     | gh api "repos/$SLUG/issues/$pr/comments" --input - --jq '.id' \
-    || die "$E_API" "comment post failed"
+    || die "$E_API" "comment post failed${key:+. If it did go up, rerunning the same comment command finds it by key and does not post again}"
 }
 
 # ---------- Check ----------
@@ -895,7 +910,10 @@ case "$sub" in
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch "$@" ;;
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
-  comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; need_clean_body "$3"; cmd_comment "$@" ;;
+  comment)     [ $# -ge 3 ] && [ $# -le 4 ] || usage; need_run_file "$3"; need_clean_body "$3"
+               # The key goes inside an HTML comment marker, so it may not hold "-->" or anything else outside this set
+               [ $# -eq 3 ] || [[ "$4" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || die "$E_USAGE" "comment key must be 1–64 of a-z 0-9 . _ - (starting with a letter or digit): $4"
+               cmd_comment "$@" ;;
   whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
   config)      [ $# -eq 0 ] || usage; cmd_config ;;
   learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;
