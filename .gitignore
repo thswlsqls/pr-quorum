@@ -1,0 +1,3 @@
+# Design docs stay local; only the operations doc is published
+docs/*
+!docs/harness.md
