@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `87737b7`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `8b40b7f`
 
 <p align="center">
   <picture>
@@ -262,7 +262,7 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
-견본([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md))은 Spring Boot 백엔드와 Next.js 프런트엔드에 맞춰 썼다.
+견본([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md))은 Spring Boot 백엔드와 Next.js 프런트엔드에 맞춰 썼다. 다른 스택이라면 [`generic.md`](examples/profiles/generic.md)에서 시작해 `<fill in>` 줄을 채운다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
 
 그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json`, 저장소마다 경로와 프로파일, gh 로그인, 토큰 파일의 권한과 계정, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. 읽기만 하고 아무것도 올리지 않는다.
 
