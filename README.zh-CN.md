@@ -185,23 +185,21 @@ Watcher 每 60 秒查找发给机器人的评审请求。没有它，请求评�
 </plist>
 ```
 
-不经 launchd 试运行一次：`<plugin-dir>/scripts/watch.sh --once`。Watcher 一次处理一个 PR；机器关机期间到达的请求会在开机后处理。
+不经 launchd 试运行一次：`<plugin-dir>/scripts/watch.sh --once`。Watcher 一次处理一个 PR，机器关机期间到达的请求会在开机后补上。
 
-在 Linux(云 VM，或 Windows 上的 WSL2)上，改用 cron 或 systemd timer 每分钟运行一次 `watch.sh`。去掉 macOS 专有的 `caffeinate`。
+在 Linux(云 VM，或 Windows 上的 WSL2)上，改用 cron 或 systemd timer 每分钟运行一次 `watch.sh`，并去掉 macOS 专有的 `caffeinate`。
 
-在没有浏览器的机器上，`gh auth login` 会提供一次性的 device code，也可以把 personal access token 通过管道传给 `gh auth login --with-token`。Claude Code 只需运行一次 `claude`，在提示时粘贴登录码即可登录。Linux 把这次登录保存在 `~/.claude/.credentials.json`，cron 和 systemd 任务都能读取。把 `claude setup-token` 的令牌放进 `CLAUDE_CODE_OAUTH_TOKEN` 也可以，但链路启动的每个会话和构建都会继承这个变量。
+- **登录**：在没有浏览器的机器上，`gh` 用它给出的 device code 或 `gh auth login --with-token` 登录，Claude Code 运行一次 `claude` 即可登录。Claude Code 把登录信息保存在 `~/.claude/.credentials.json`，cron 和 systemd 任务可以直接使用。
+- **cron**：与 launchd 不同，cron 会在链路仍在运行时再次启动 watcher，所以要用 `flock -n` 包裹。否则同一个 PR 可能再起一条链路，实际只试过一次就停在 `held-failed`。cron 不会展开 `$HOME` 等变量，`PATH` 要写成完整路径。
 
-Watcher 还在运行链路时，launchd 不会再次启动它，cron 则会，所以用 `flock -n` 包裹。不包裹的话，下一轮 watcher 会在当前 PR 仍在运行时同时启动下一个 PR。如果这一轮落在正在运行的 PR 的 Stage 1 评审发布之前，且没有会话持有它的锁，它还会给该 PR 再启动一条链路并多记一次尝试，可能使实际只试过一次的 PR 停在 `held-failed`。与 plist 一样，设置 `PATH`，让 cron 能找到 `claude`、`gh`、`jq` 和 `git`。cron 不会展开 `NAME=value` 行中的 `$HOME` 等变量：
+  ```
+  # crontab -e
+  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```
 
-```
-# crontab -e
-PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
-```
-
-用 systemd 时，设置了 `OnBootSec=1min` 和 `OnUnitActiveSec=1min` 的 timer 启动 `Type=oneshot` 服务，不需要 `flock`：服务仍在运行时，timer 不会再次启动它。只设 `OnUnitActiveSec=` 的话，因为服务从未运行过，timer 永远不会触发。在服务中用 `Environment=` 设置 `PATH`。如果是用户级 timer，运行 `loginctl enable-linger`，让它在你注销后继续运行。
-
-在 WSL2 上，在 `/etc/wsl.conf` 的 `[boot]` 下设置 `systemd=true` 启用 systemd，然后运行 `wsl --shutdown`，这样 cron 或 timer 会随发行版一起启动。发行版空闲 15 秒后，WSL 会将其关闭(`instanceIdleTimeout`)，例如关掉最后一个 WSL 终端之后。保持一个终端开着，或在 `%UserProfile%\.wslconfig` 的 `[general]` 下设置 `instanceIdleTimeout=-1`。WSL 也不会在你登录 Windows 时启动发行版：打开一个 WSL 终端，或用任务计划程序在登录时运行 `wsl.exe -d <distro>`。Windows 睡眠也会让它暂停，所以 watcher 需要运行时，不要让 Windows 进入睡眠。
+- **systemd**：用同时设置了 `OnBootSec=1min` 和 `OnUnitActiveSec=1min` 的 timer 启动 `Type=oneshot` 服务；只设 `OnUnitActiveSec=` 的话 timer 永远不会触发。服务仍在运行时 timer 不会再次启动它，因此不需要 `flock`。在服务中用 `Environment=` 设置 `PATH`；如果是用户级 timer，运行 `loginctl enable-linger`，让它在注销后继续运行。
+- **WSL2**：在 `/etc/wsl.conf` 的 `[boot]` 下设置 `systemd=true`，然后运行 `wsl --shutdown`。发行版空闲 15 秒后 WSL 会将其关闭，登录 Windows 时也不会启动它，所以要在 `%UserProfile%\.wslconfig` 的 `[general]` 下设置 `instanceIdleTimeout=-1`，并用任务计划程序在登录时运行 `wsl.exe -d <distro>`。同时不要让 Windows 进入睡眠。
 
 ## 用法
 
@@ -274,26 +272,6 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 
 - 只运行仓库所有者开的 PR。Watcher 先过滤，`chain.sh` 再检查一次。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
-
-仍然存在的风险：
-
-- **令牌文件可以被间接读取。** 拒绝规则只匹配点名该文件的命令；`cd ~/.config/pr-quorum && grep -r TOKEN .` 不会被拦截。
-- **构建和测试会执行 PR 的代码**(`./gradlew`、`npm run build`)。之所以能接受这一点，是因为链路只运行所有者自己开的 PR。
-- **测试结果是会话自报的。** 合并关卡从作者会话写的文件中读取结果。这也是 `auto_merge` 默认关闭的原因。
-
-开启 Claude Code 的 [sandbox](https://code.claude.com/docs/en/sandboxing)，在操作系统层面阻止读取 `~/.config` 和网络访问，可以同时减轻这三项风险。
-
-## 限制
-
-- **效果未经验证。** 还没有人评判过评审是否正确(`human-labels.md` 为空)，"流程越严格评审越好"这一假设尚未检验。
-- **成本高。** 30–70 行的 PR 跑完整条链路约 $30。一个 9 个文件、约 400 行的 PR 用时约 47 分钟。这些数字来自 `total_cost_usd`，可能不含子代理的成本。
-- **只在一个后端仓库上跑过。** 前端 profile 从未运行过。
-- **风险规则贴合最初编写时所用仓库的路径**(`common/security/`、`filter/`、`/api/bff/auth/` …)。开启 `auto_merge` 前，先确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 适合你的仓库。
-- **仅限个人仓库。** 在组织仓库中，成员开的 PR 也会被跳过。
-- **仅支持 GitHub，单台机器。** Watcher 采用轮询，机器必须开着。
-- **真实评审只在 macOS 上运行过。** Linux 方面，在 Ubuntu 24.04 容器中用桩(stub)命令替代 `gh` 和 `claude`，检查了 `selftest.sh` 和 cron + `flock` watcher。Linux 上的真实评审、systemd timer 和 WSL2 都没有实际跑过。
-- **路径限制。** 插件路径不能含 `|` 或 `&`，`config.json` 中的仓库路径不能含 `*` 或 `[`。
-- 脚本生成的评分表和通知是英文；评审文字跟随 PR 的语言。
 
 ## 参与贡献
 

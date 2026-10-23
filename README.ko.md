@@ -185,23 +185,21 @@ watcher 는 60초마다 봇에게 온 리뷰 요청을 찾는다. watcher 가 �
 </plist>
 ```
 
-launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once` 를 돌린다. watcher 는 PR 을 한 번에 한 건씩 처리하고, 머신이 꺼져 있던 동안 들어온 요청은 다시 켜졌을 때 처리한다.
+launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once` 를 실행한다. watcher 는 PR 을 한 건씩 처리하고, 머신이 꺼져 있던 동안 들어온 요청은 다시 켜지면 처리한다.
 
-Linux(클라우드 VM, Windows 의 WSL2)에서는 launchd 대신 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 돌린다. `caffeinate` 는 macOS 전용이니 뺀다.
+Linux(클라우드 VM, Windows 의 WSL2)에서는 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 실행한다. macOS 전용인 `caffeinate` 는 뺀다.
 
-브라우저가 없는 머신에서는 `gh auth login` 이 일회용 device code 를 내주고, personal access token 을 `gh auth login --with-token` 에 파이프로 넘겨도 된다. Claude Code 는 `claude` 를 한 번 실행하고 요청이 오면 로그인 코드를 붙여 넣어 로그인한다. Linux 는 이 로그인을 `~/.claude/.credentials.json` 에 두므로, cron 과 systemd 작업도 이 파일을 읽을 수 있다. `claude setup-token` 토큰을 `CLAUDE_CODE_OAUTH_TOKEN` 에 넣어도 되지만, 그러면 체인이 띄우는 모든 세션과 빌드가 이 변수를 물려받는다.
+- **로그인**: 브라우저가 없는 머신에서 `gh` 는 화면에 뜨는 device code 나 `gh auth login --with-token` 으로, Claude Code 는 `claude` 를 한 번 실행해 로그인한다. Claude Code 는 로그인 정보를 `~/.claude/.credentials.json` 에 저장하므로 cron 과 systemd 작업도 이를 그대로 쓴다.
+- **cron**: launchd 와 달리 cron 은 체인이 도는 중에도 watcher 를 또 띄우므로 `flock -n` 으로 감싼다. 감싸지 않으면 같은 PR 에 체인이 하나 더 붙어, 한 번만 시도한 PR 이 `held-failed` 로 멈출 수 있다. cron 은 `$HOME` 같은 변수를 펼치지 않으니 `PATH` 는 경로를 모두 풀어 적는다.
 
-launchd 는 watcher 가 체인을 돌리는 동안 다시 띄우지 않지만 cron 은 띄우므로, `flock -n` 으로 감싼다. 감싸지 않으면 다음 주기의 watcher 가 돌고 있는 PR 과 동시에 다음 PR 을 시작한다. 그 주기가 돌고 있는 PR 의 Stage 1 리뷰가 게시되기 전, 어떤 세션도 그 PR 의 락을 잡고 있지 않은 때에 걸리면 그 PR 에도 체인을 하나 더 띄우고 시도 횟수를 하나 더 센다. 그러면 실제로는 한 번 시도한 PR 이 `held-failed` 로 멈출 수 있다. plist 와 마찬가지로 cron 이 `claude`, `gh`, `jq`, `git` 을 찾도록 `PATH` 를 지정한다. cron 은 `NAME=value` 줄에서 `$HOME` 같은 변수를 펼치지 않는다.
+  ```
+  # crontab -e
+  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```
 
-```
-# crontab -e
-PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
-```
-
-systemd 에서는 `OnBootSec=1min` 과 `OnUnitActiveSec=1min` 을 둔 timer 로 `Type=oneshot` 서비스를 띄우면 `flock` 이 필요 없다. 서비스가 아직 돌고 있으면 timer 가 다시 띄우지 않는다. `OnUnitActiveSec=` 만 두면 서비스가 한 번도 돈 적이 없어서 timer 가 한 번도 동작하지 않는다. 서비스에는 `Environment=` 로 `PATH` 를 지정한다. 사용자 timer 라면 로그아웃한 뒤에도 돌도록 `loginctl enable-linger` 를 실행한다.
-
-WSL2 에서는 `/etc/wsl.conf` 의 `[boot]` 아래 `systemd=true` 로 systemd 를 켜고 `wsl --shutdown` 을 실행해, distro 가 뜰 때 cron 이나 timer 도 함께 뜨게 한다. WSL 은 distro 가 15초 동안 유휴 상태면 내린다(`instanceIdleTimeout`). 마지막 WSL 터미널을 닫은 뒤가 그 예다. 터미널을 하나 열어 두거나 `%UserProfile%\.wslconfig` 의 `[general]` 아래 `instanceIdleTimeout=-1` 을 둔다. WSL 은 Windows 에 로그인할 때 distro 를 띄우지도 않으므로, WSL 터미널을 열거나 작업 스케줄러로 로그온 때 `wsl.exe -d <distro>` 를 실행한다. Windows 가 절전에 들어가도 멈추니, watcher 를 돌릴 동안은 Windows 가 잠들지 않게 한다.
+- **systemd**: `OnBootSec=1min` 과 `OnUnitActiveSec=1min` 을 함께 둔 timer 로 `Type=oneshot` 서비스를 띄운다. `OnUnitActiveSec=` 만 두면 timer 가 한 번도 동작하지 않는다. timer 는 서비스가 도는 동안 다시 띄우지 않으니 `flock` 은 필요 없다. `PATH` 는 서비스의 `Environment=` 로 지정하고, 사용자 timer 라면 로그아웃한 뒤에도 돌도록 `loginctl enable-linger` 를 실행한다.
+- **WSL2**: `/etc/wsl.conf` 의 `[boot]` 아래 `systemd=true` 를 두고 `wsl --shutdown` 을 실행한다. WSL 은 15초 동안 유휴 상태인 distro 를 내리고, Windows 에 로그인할 때 distro 를 띄우지도 않는다. 그러니 `%UserProfile%\.wslconfig` 의 `[general]` 아래 `instanceIdleTimeout=-1` 을 두고, 작업 스케줄러로 로그온 때 `wsl.exe -d <distro>` 를 실행한다. Windows 도 절전에 들어가지 않게 한다.
 
 ## 사용법
 
@@ -274,26 +272,6 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 
 - 저장소 소유자가 연 PR 만 돈다. watcher 가 거르고 `chain.sh` 가 다시 확인한다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
-
-남아 있는 위험:
-
-- **토큰 파일을 우회해서 읽을 수 있다.** deny 규칙은 파일 이름을 짚는 명령에만 걸리므로, `cd ~/.config/pr-quorum && grep -r TOKEN .` 은 막지 못한다.
-- **빌드와 테스트가 PR 의 코드를 실행한다**(`./gradlew`, `npm run build`). 체인이 소유자가 연 PR 에만 돌기 때문에 감수하는 위험이다.
-- **테스트 결과는 세션이 스스로 적은 값이다.** 머지 게이트는 저자 세션이 쓴 파일에서 결과를 읽는다. `auto_merge` 를 기본으로 꺼 둔 이유다.
-
-Claude Code 의 [sandbox](https://code.claude.com/docs/en/sandboxing) 를 켜서 `~/.config` 읽기와 네트워크 접근을 OS 수준에서 막으면 셋 다 줄어든다.
-
-## 제약
-
-- **효과가 검증되지 않았다.** 리뷰가 맞았는지 사람이 채점한 기록이 아직 없다(`human-labels.md` 가 비어 있다). "절차가 엄격하면 리뷰가 낫다"는 가정은 검증 전이다.
-- **비싸다.** 30~70줄 PR 하나에 체인 전체가 약 $30 든다. 9개 파일·약 400줄 PR 은 약 47분 걸렸다. 수치는 `total_cost_usd` 기준이라 하위 에이전트 비용이 빠졌을 수 있다.
-- **백엔드 저장소 하나에서만 돌려 봤다.** 프런트엔드 프로파일은 한 번도 돈 적이 없다.
-- **리스크 규칙이 처음 만든 저장소의 경로에 맞춰져 있다**(`common/security/`, `filter/`, `/api/bff/auth/` …). `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 `scripts/risk.jq` 가 자기 저장소에 맞는지 확인한다.
-- **개인 저장소 전용이다.** organization 저장소에서는 구성원이 연 PR 도 건너뛴다.
-- **GitHub 만, 한 머신에서 돈다.** watcher 가 폴링 방식이라 머신이 켜져 있어야 한다.
-- **실제 리뷰는 macOS 에서만 돌려 봤다.** Linux 에서는 Ubuntu 24.04 컨테이너에서 `gh`·`claude` 를 가짜(stub) 명령으로 바꿔 `selftest.sh` 와 cron + `flock` watcher 를 확인했다. Linux 에서의 실제 리뷰, systemd timer, WSL2 는 돌려 보지 않았다.
-- **경로 제약.** 플러그인 경로에 `|`·`&` 가, `config.json` 의 저장소 경로에 `*`·`[` 가 있으면 안 된다.
-- 스크립트가 만드는 점수표와 알림은 영어다. 리뷰 글은 PR 의 언어를 따른다.
 
 ## 기여
 
