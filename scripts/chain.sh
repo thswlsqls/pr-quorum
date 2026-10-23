@@ -1,36 +1,36 @@
 #!/usr/bin/env bash
-# chain.sh — PR 하나를 Stage 1 → 저자 반영 → Stage 2 → Stage 3 → (저자 반영 → Stage 2)* → 머지까지 사람 없이 돌린다.
-# 머지는 머지 게이트와 리스크 게이트(rules/03-risk.md, low 만 통과)를 둘 다 넘어야 한다. 아니면 needs-human 으로 멈춘다.
-# 어디까지 했는지는 meta.json 과 outputs/author/round-NN.json 으로 판단하므로, 중간에 죽어도 다시 부르면 이어서 간다.
-# 사람에게 물을 자리는 세션 쪽에서 권장안으로 정한다(--auto). 머지 여부만은 세션이 아니라 여기서 판정한다.
+# chain.sh — runs one PR through Stage 1 → author fixes → Stage 2 → Stage 3 → (author fixes → Stage 2)* → merge with no human involved.
+# Merging requires passing both the merge gate and the risk gate (rules/03-risk.md, only low passes). Otherwise it stops at needs-human.
+# Progress is read from meta.json and outputs/author/round-NN.json, so if it dies midway, calling it again resumes where it left off.
+# Where a person would normally be asked, the session picks the recommended option (--auto). Only the merge decision is made here, not by the session.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 OWNER="$(cfg .owner)"
-# 봇 로그인은 watch.sh 와 같은 방식으로 config.json 의 bot 에서 읽는다. 머지 게이트가 봇 리뷰를 찾을 때 쓴다
+# The bot login is read from config.json's bot, the same way watch.sh does. The merge gate uses it to find the bot's reviews
 BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
-MAX_AUTHOR_ROUNDS=2   # 저자 반영 회차 상한 — Stage 1 반영 한 번, Stage 3 반영 한 번
-MAX_STEP_TRIES=2      # 한 단계가 기록을 못 남기고 끝나면 한 번 더 돌린다
+MAX_AUTHOR_ROUNDS=2   # Cap on author passes — one for Stage 1, one for Stage 3
+MAX_STEP_TRIES=2      # If a step ends without leaving a record, run it once more
 
 log() { echo "[$(date -u +%H:%M:%S)] chain $REPO#$PR — $*"; }
 die() { log "$1"; exit "${2:-1}"; }
 
 [ $# -eq 2 ] || { echo "usage: chain.sh <repo> <pr>" >&2; exit 1; }
 REPO="$1"; PR="$2"
-[[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "PR 번호는 양의 정수여야 한다: $PR" >&2; exit 1; }
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
+[[ "$PR" =~ ^[1-9][0-9]*$ ]] || { echo "PR number must be a positive integer: $PR" >&2; exit 1; }
+[ -n "$BOT" ] || { echo "bot login not found: set bot in $PR_QUORUM_HOME/config.json" >&2; exit 2; }
 REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
-[ -n "$REPO_ROOT" ] || { echo "config.json 의 repos 에 없는 저장소다: $REPO" >&2; exit 1; }
-# 세션 권한은 실행할 때마다 템플릿에서 렌더링한다 — 스크립트 절대 경로가 이 플러그인 폴더를 가리킨다
+[ -n "$REPO_ROOT" ] || { echo "repository is not in config.json repos: $REPO" >&2; exit 1; }
+# Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json
 render_settings "$HARNESS_DIR" author-settings.json
 RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
 
-meta_set() {  # meta_set <jq 프로그램> [jq 인자...] — pr-quorum.sh 와 같은 임시파일 → mv 방식
+meta_set() {  # meta_set <jq program> [jq args...] — temp file → mv, same as pr-quorum.sh
   local prog="$1"; shift
   jq "$@" "$prog" "$M" > "$M.tmp.$$" && mv "$M.tmp.$$" "$M"
 }
@@ -41,40 +41,40 @@ head_sha() { "$PR_QUORUM" sha "$REPO" "$PR"; }
 stage1_done() { [ "$(jq '[.stage1[]?.review_id | select(. != null)] | length' "$M")" -gt 0 ]; }
 stage2_count() { jq '[.stage2[]? | select(.verdicts != null)] | length' "$M"; }
 stage3_done() { [ "$(jq '.stage3 != null' "$M")" = "true" ]; }
-# ls 는 파일이 없으면 실패해 pipefail·set -e 로 스크립트가 끝난다. find 는 빈 결과로 성공한다
+# ls fails when there are no files, which ends the script via pipefail/set -e. find succeeds with empty output
 author_count() { find "$AUTHOR_DIR" -name 'round-*.json' | wc -l | tr -d ' '; }
 last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 
-# 헤드리스 세션 하나를 띄운다. 도구 권한·MCP 를 이 머신 설정과 떼어 놓는 이유는 아래 claude -p 호출 앞 주석에 있다.
-run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <시도 번호>
+# Starts one headless session. Why tool permissions and MCP are isolated from this machine's settings is explained in the comments before the claude -p call below.
+run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() r p d out rc=0 started
-  # 작업 폴더(이 PR 의 저장소) 말고 config.json 의 다른 저장소와 각 저장소 옆 <이름>-worktrees 를 연다
+  # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each
   for r in $(cfg '.repos | keys[]'); do
     p="$(cfg --arg r "$r" '.repos[$r].path')"
     for d in "$p" "$(dirname "$p")/$r-worktrees"; do
       [ "$d" != "$REPO_ROOT" ] && [ -d "$d" ] && add_dirs+=("$d")
     done
   done
-  # 이 PR 의 run 폴더도 연다 — 상태 폴더가 작업 폴더 밖이라 Bash 의 ls·wc 가 거부됐다(PR #61)
+  # Also open this PR's run folder — the state folder is outside the working folder, so Bash ls/wc were denied (PR #61)
   [ -d "$RUN" ] && add_dirs+=("$RUN")
-  # --setting-sources "": 대상 저장소의 .claude/settings*.json 과 ~/.claude/settings.json 을 읽지 않는다. --settings 는 이 값과 상관없이 읽힌다.
-  # 스킬·에이전트는 --plugin-dir 로 실려 이 값과 상관없이 불린다(실측). 저장소 CLAUDE.md 도 안 실려 스킬이 직접 읽는다
-  # dontAsk: allow 에 없는 것은 묻지 않고 거부한다. acceptEdits 는 작업 폴더 안 편집과 mkdir·rm·mv 등을 allow 와 상관없이 승인했다(실측)
+  # --setting-sources "": do not read the target repository's .claude/settings*.json or ~/.claude/settings.json. --settings is read regardless of this value.
+  # Skills and agents are loaded via --plugin-dir and run regardless of this value (measured). The repository CLAUDE.md is not loaded either, so the skill reads it directly
+  # dontAsk: anything not in allow is denied without asking. acceptEdits approved edits inside the working folder and mkdir/rm/mv etc. regardless of allow (measured)
   started="$(date +%s)"
   out="$( cd "$REPO_ROOT" && claude -p --output-format json --permission-mode dontAsk \
       --settings "$settings" --setting-sources "" --plugin-dir "$HARNESS_DIR" \
       --mcp-config "$HARNESS_DIR/mcp.json" --strict-mcp-config \
       --disallowedTools AskUserQuestion \
-      --append-system-prompt "체인 모드다. 사람은 응답하지 않는다. 사람에게 묻거나 확인을 기다리지 말고, 규칙 문서가 권하는 쪽(권장안)으로 정해 진행한다. 정한 것은 $RUN/decisions.md 에 '시각 · 단계 · 상황 · 고른 쪽 · 이유' 한 줄로 Edit·Write 도구로 덧붙인다(mv·cp 는 권한에서 거부되므로 '> tmp && mv' 방식은 쓰지 않는다)." \
+      --append-system-prompt "This is chain mode. No human will respond. Do not ask a person or wait for confirmation; choose the option the rule documents recommend and continue. Append each decision to $RUN/decisions.md as one line, 'time · step · situation · choice · reason', using the Edit or Write tool (mv and cp are denied by permissions, so do not use the '> tmp && mv' pattern)." \
       ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
-      -- "$prompt" < /dev/null )" || { rc=$?; log "세션이 $rc 로 끝났다 — 기록으로 성공 여부를 판단한다"; }
-  # 결과 텍스트는 예전처럼 로그로 흘린다. JSON 이 아니면 받은 그대로 찍는다
+      -- "$prompt" < /dev/null )" || { rc=$?; log "session exited with $rc — success is judged from the records"; }
+  # Send the result text to the log as before. If it is not JSON, print it as received
   jq -r '.result // empty' <<<"$out" 2>/dev/null || printf '%s\n' "$out"
-  # 단계별 시간·비용과 도구 거부를 남긴다 — 작은 PR 에서 단계를 줄여도 되는지, 어떤 거부가 반복되는지 판단할 근거.
-  # 거부 필드가 없으면 null 로 둔다(0 건과 구분한다). 거부된 도구의 인자는 남기지 않는다
+  # Record per-step time, cost, and tool denials — evidence for whether small PRs can skip steps and which denials keep recurring.
+  # If the denial field is missing, leave null (distinct from 0). Do not record the denied tools' arguments
   local at wall_ms; at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  # duration_ms 는 마지막 하위 에이전트 완료 알림 뒤 구간만 잰다(PR #52 실측 — Stage 1 실제 23분이 133초로 남았다).
-  # 세션 전체 시간은 여기서 직접 잰다
+  # duration_ms only measures the span after the last subagent completion notice (measured on PR #52 — a real 23-minute Stage 1 was recorded as 133 seconds).
+  # Measure the whole session time here instead
   wall_ms=$(( ($(date +%s) - started) * 1000 ))
   if jq -e 'type == "object"' <<<"$out" >/dev/null 2>&1; then
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w,
@@ -82,26 +82,26 @@ run_session() {  # run_session <settings.json> <프롬프트> <단계 이름> <�
       permission_denials:($r.permission_denials | if type == "array" then length else null end),
       denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end)}])' \
       --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson r "$out" \
-      || log "meta.json 에 세션 기록을 남기지 못했다"
+      || log "could not write the session record to meta.json"
   else
-    # 실패한 시도도 기록에서 빠지지 않게 한 줄은 남긴다
+    # Leave at least one line so failed tries are not missing from the record
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w, json:false}])' \
       --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" \
-      || log "meta.json 에 세션 기록을 남기지 못했다"
-    log "세션 결과를 JSON 으로 못 읽어 시간·비용 없이 시도만 남겼다"
+      || log "could not write the session record to meta.json"
+    log "could not parse the session result as JSON; recorded the try without time or cost"
   fi
 }
 
-# 단계 하나를 돌리고, 기대한 기록이 남았는지로 성공을 판정한다. 두 번 다 실패하면 체인을 멈춘다.
-step() {  # step <이름> <완료 판정 함수> <settings> <프롬프트>
+# Runs one step and judges success by whether the expected record was left. If both tries fail, the chain stops.
+step() {  # step <name> <completion check function> <settings> <prompt>
   local name="$1" check="$2" settings="$3" prompt="$4" t
   for (( t=1; t<=MAX_STEP_TRIES; t++ )); do
-    chain_state "$name" "시도 $t"
+    chain_state "$name" "try $t"
     run_session "$settings" "$prompt" "$name" "$t"
     "$check" && return 0
-    log "$name 이 기록을 남기지 못했다 (시도 $t)"
+    log "$name left no record (try $t)"
   done
-  chain_state "blocked" "$name 이 $MAX_STEP_TRIES 회 연속 기록을 남기지 못했다"
+  chain_state "blocked" "$name left no record $MAX_STEP_TRIES times in a row"
   exit 4
 }
 
@@ -117,7 +117,7 @@ run_stage2() {
   step stage2 stage2_grew "$EVAL_SETTINGS" "/pr-quorum:review stage2 $REPO $PR --auto"
 }
 
-run_author() {  # 기록 파일이 하나 늘었으면 성공
+run_author() {  # Success if one more record file appeared
   local before; before="$(author_count)"
   author_grew() { [ "$(author_count)" -gt "$before" ]; }
   step author author_grew "$AUTHOR_SETTINGS" "/pr-quorum:author $REPO $PR"
@@ -125,7 +125,7 @@ run_author() {  # 기록 파일이 하나 늘었으면 성공
 
 author_pushed() { [ "$(jq -r '.pushed' "$(last_author)")" = "true" ]; }
 
-# mergeable 은 GitHub 가 계산을 마칠 때까지 UNKNOWN 이다. 오래된 PR 일수록 첫 조회에서 자주 나온다
+# mergeable is UNKNOWN until GitHub finishes computing it. Older PRs return it more often on the first query
 pr_state() {
   local i out
   for i in 1 2 3 4 5 6; do
@@ -136,132 +136,134 @@ pr_state() {
   printf '%s\n' "$out"
 }
 
-# ---------- 머지 게이트 — 세션의 자기보고가 아니라 기록과 GitHub 상태로 본다 ----------
+# ---------- Merge gate — judged from records and GitHub state, not from the session's self-report ----------
 merge_gate() {
   local a head pr_json reasons=()
   a="$(last_author)"
   head="$(head_sha)"
-  GATE_SHA="$head"   # 리스크 게이트와 머지가 이 커밋에 묶인다
+  GATE_SHA="$head"   # The risk gate and the merge are bound to this commit
   pr_json="$(pr_state)"
 
-  [ "$(jq -r '.state' <<<"$pr_json")" = "OPEN" ] || reasons+=("PR 이 열려 있지 않다")
-  [ "$(jq -r '.isDraft' <<<"$pr_json")" = "false" ] || reasons+=("draft 다")
+  [ "$(jq -r '.state' <<<"$pr_json")" = "OPEN" ] || reasons+=("PR is not open")
+  [ "$(jq -r '.isDraft' <<<"$pr_json")" = "false" ] || reasons+=("PR is a draft")
   [ "$(jq -r '.mergeable' <<<"$pr_json")" = "MERGEABLE" ] || reasons+=("mergeable=$(jq -r '.mergeable' <<<"$pr_json")")
-  [ "$(jq -r '.tests.result' "$a")" != "fail" ] || reasons+=("마지막 저자 회차 테스트가 실패했다")
-  [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("반영하지 않은 blocking 지적이 $(jq -r '.blocking_open' "$a") 건 남았다")
-  [ "$(jq '[.stage2[-1].verdicts // {} | .[] | select(. == "역행")] | length' "$M")" = "0" ] \
-    || reasons+=("마지막 Stage 2 판정에 역행이 있다")
-  # 지금 head 가 누군가 판정한 커밋이어야 한다 — 마지막 Stage 2 가 본 커밋이거나, 저자가 더 고칠 게 없다고 한 커밋
+  [ "$(jq -r '.tests.result' "$a")" != "fail" ] || reasons+=("tests failed in the last author pass")
+  [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
+  [ "$(jq '[.stage2[-1].verdicts // {} | .[] | select(. == "regressed" or . == "역행")] | length' "$M")" = "0" ] \
+    || reasons+=("the last Stage 2 verdicts include regressed")
+  # The current head must be a commit someone judged — the one the last Stage 2 saw, or one where the author said nothing more needed fixing
   if [ "$head" != "$(jq -r '.stage2[-1].stage_sha // empty' "$M")" ] \
      && ! { [ "$(jq -r '.pushed' "$a")" = "false" ] && [ "$head" = "$(jq -r '.to_sha' "$a")" ]; }; then
-    reasons+=("head $head 를 아무 단계도 판정하지 않았다")
+    reasons+=("no step has judged head $head")
   fi
-  # 위 기록은 세션이 쓴 파일이라 고쳐 쓸 수 있다. 봇이 이 head 에 리뷰나 reply 를 실제로 남겼는지 GitHub 에서 본다
+  # The records above are files the session wrote, so they can be rewritten. Check on GitHub that the bot actually left a review or reply on this head
   local bot_reviews
   bot_reviews="$(gh api --paginate "repos/$OWNER/$REPO/pulls/$PR/reviews" \
     | jq -s --arg b "$BOT" --arg s "$head" '[add // [] | .[] | select(.user.login == $b and .commit_id == $s)] | length')" || bot_reviews=""
-  [ "${bot_reviews:-0}" -gt 0 ] || reasons+=("봇($BOT)이 head $head 에 남긴 리뷰를 GitHub 에서 찾지 못했다")
+  [ "${bot_reviews:-0}" -gt 0 ] || reasons+=("no review by the bot ($BOT) on head $head found on GitHub")
 
   if [ ${#reasons[@]} -gt 0 ]; then
-    chain_state "blocked" "머지 게이트: $(IFS='; '; echo "${reasons[*]}")"
+    chain_state "blocked" "merge gate: $(IFS='; '; echo "${reasons[*]}")"
     exit 3
   fi
 
-  # Stage 3 이 리뷰가 놓친 치명·중대(P)를 찾았으면 Stage 1 재실행 여부는 사람이 정한다 (rules/01-stages.md §5).
-  # 세션이 적는 verdict 문구가 아니라 pr-quorum.sh 가 기록한 P 코멘트 등급으로 본다. 등급이 빠진 P 도 멈춘다
+  # If Stage 3 found a critical or major defect the review missed (P), a person decides whether to rerun Stage 1 (rules/01-stages.md §5).
+  # Judged from the P comment grades pr-quorum.sh recorded, not from the verdict text the session writes. A P with no grade also stops
   local missed
-  missed="$(jq -r '[.stage3.comments[]? | select(.grade != "경미" and .grade != "사소") | "\(.code)(\(.grade))"] | join(", ")' "$M")"
+  missed="$(jq -r '[.stage3.comments[]? | select(.grade | IN("minor","nit","경미","사소") | not) | "\(.code)(\(.grade))"] | join(", ")' "$M")"
   if [ -n "$missed" ]; then
-    chain_state "needs-human" "Stage 3 이 리뷰가 놓친 결함을 찾았다: $missed — Stage 1 재실행 여부를 사람이 정한다"
+    chain_state "needs-human" "Stage 3 found defects the review missed: $missed — a person decides whether to rerun Stage 1"
     exit 3
   fi
 }
 
-# 리스크 게이트 (rules/03-risk.md) — 다른 게이트를 다 통과한 PR 만 점수를 매긴다. 점수표는 레벨과 상관없이 PR 에 남긴다.
+# Risk gate (rules/03-risk.md) — only PRs that passed every other gate are scored. The scorecard is posted on the PR regardless of level.
 risk_gate() {
   local rc=0
   "$PR_QUORUM" risk "$REPO" "$PR" >/dev/null || rc=$?
-  [ "$rc" = 0 ] || [ "$rc" = 3 ] || { chain_state "blocked" "리스크 판정 실패(종료 $rc)"; exit 4; }
-  # 머지 게이트를 본 뒤 push 가 들어왔으면 점수는 게이트가 보지 않은 커밋의 것이다
+  [ "$rc" = 0 ] || [ "$rc" = 3 ] || { chain_state "blocked" "risk scoring failed (exit $rc)"; exit 4; }
+  # If a push landed after the merge gate ran, the score belongs to a commit the gate did not see
   [ "$(jq -r '.risk.sha' "$M")" = "$GATE_SHA" ] \
-    || { chain_state "blocked" "머지 게이트(${GATE_SHA:0:7}) 뒤에 head 가 바뀌었다 — 체인을 다시 부른다"; exit 3; }
+    || { chain_state "blocked" "head changed after the merge gate (${GATE_SHA:0:7}) — run the chain again"; exit 3; }
   if [ "$(jq -r '.risk.commented_sha // empty' "$M")" != "$(jq -r '.risk.sha' "$M")" ]; then
     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" >/dev/null \
       && meta_set '.risk.commented_sha = .risk.sha' \
-      || log "리스크 코멘트 게시 실패 — 판정은 meta.json 에 남았다"
+      || log "failed to post the risk comment — the result is recorded in meta.json"
   fi
   if [ "$rc" = 3 ]; then
-    chain_state "needs-human" "리스크 $(jq -r '.risk.level' "$M") $(jq -r '.risk.score' "$M")점 — 사람이 승인해야 머지한다"
+    chain_state "needs-human" "risk $(jq -r '.risk.level' "$M") $(jq -r '.risk.score' "$M") points — merges only with human approval"
     exit 3
   fi
 }
 
 do_merge() {
-  # --match-head-commit: 게이트가 본 커밋을 넘긴다. head 를 새로 읽으면 그 사이 push 된 커밋이 그대로 머지된다
+  # --match-head-commit: pass the commit the gate saw. Re-reading head would merge whatever was pushed in between
   gh pr merge "$PR" --repo "$OWNER/$REPO" --merge --match-head-commit "$GATE_SHA" \
-    || { chain_state "blocked" "gh pr merge 실패"; exit 4; }
+    || { chain_state "blocked" "gh pr merge failed"; exit 4; }
   meta_set '.chain.merged_sha = $s' --arg s "$GATE_SHA"
   chain_state "merged" "head=$GATE_SHA"
 }
 
-# ---------- 본체 ----------
-# watch.sh 와 같은 확인을 여기서도 한다 — 사람이 chain.sh 를 직접 불러도 남이 연 PR 은 세션에 들어가지 않는다
-assoc="$(gh api "repos/$OWNER/$REPO/pulls/$PR" --jq '.author_association')" || die "PR 작성자를 확인하지 못했다" 4
-[ "$assoc" = "OWNER" ] || die "작성자가 저장소 소유자가 아니다($assoc) — 체인을 돌리지 않는다" 3
+# ---------- Main ----------
+# Same check as watch.sh — even if a person calls chain.sh directly, a PR opened by someone else never reaches a session
+assoc="$(gh api "repos/$OWNER/$REPO/pulls/$PR" --jq '.author_association')" || die "could not check the PR author" 4
+[ "$assoc" = "OWNER" ] || die "author is not the repository owner ($assoc) — not running the chain" 3
 
 [ -f "$M" ] || "$PR_QUORUM" init "$REPO" "$PR" >/dev/null
 mkdir -p "$AUTHOR_DIR"
 
 case "$(jq -r '.chain.state // empty' "$M")" in
-  merged) log "이미 머지됐다"; exit 0 ;;
+  merged) log "already merged"; exit 0 ;;
 esac
 case "$(jq -r '.status' "$M")" in
-  보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — 스테이지가 보류로 끝났다"; exit 3 ;;
+  held-*|보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
 esac
 
-# 이중 실행 막기 — watcher 의 이어 돌리기와 수동 호출이 겹치지 않게
+# Prevent double runs — so a watcher resume and a manual call do not overlap
 other="$(jq -r '.chain.pid // empty' "$M")"
 if [ -n "$other" ] && [ "$other" != "$$" ] && kill -0 "$other" 2>/dev/null; then
-  die "다른 chain(pid=$other)이 돌고 있다" 5
+  die "another chain (pid=$other) is running" 5
 fi
 meta_set '.chain = ((.chain // {}) + {pid:$p})' --argjson p "$$"
 trap 'meta_set ".chain.pid = null" 2>/dev/null || true' EXIT
 
-# 대형 PR 컷은 세션에 맡기지 않고 여기서 본다. 알림 코멘트는 한 번만 단다 — 다시 불러도 위의 보류 확인에서 먼저 멈춘다
+# The large-PR cutoff is checked here, not left to the session. The notice comment is posted once — a later call stops at the hold check above first
 pre_rc=0
 pre_out="$("$PR_QUORUM" precheck "$REPO" "$PR")" || pre_rc=$?
 case "$pre_rc" in
   0) ;;
-  3) "$PR_QUORUM" status "$REPO" "$PR" "보류(대형PR)" >/dev/null
+  3) "$PR_QUORUM" status "$REPO" "$PR" "held-large" >/dev/null
      mkdir -p "$RUN/outputs"
-     printf '변경이 커서 자동 리뷰를 하지 않습니다(%s, 기준: 파일 50개 또는 3,000줄 초과). PR 을 나누거나 사람이 리뷰해 주세요.\n' \
+     printf 'This change is too large for automated review (%s; cutoff: more than 50 files or 3,000 lines). Please split the PR or have a person review it.\n' \
        "$(head -1 <<<"$pre_out" | sed 's/ (cut.*//')" > "$RUN/outputs/large-pr.md"
-     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "대형 PR 알림 코멘트 게시 실패"
-     chain_state "blocked" "대형 PR 컷에 걸렸다"; exit 3 ;;
-  *) chain_state "blocked" "대형 PR 판정 실패(종료 $pre_rc)"; exit 4 ;;
+     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "failed to post the large-PR notice comment"
+     chain_state "blocked" "hit the large-PR cutoff"; exit 3 ;;
+  *) chain_state "blocked" "large-PR check failed (exit $pre_rc)"; exit 4 ;;
 esac
 
 stage1_done || run_stage1
-[ "$(jq -r '.status' "$M")" = "보류(대형PR)" ] && { chain_state "blocked" "대형 PR 로 Stage 1 이 보류됐다"; exit 3; }
+case "$(jq -r '.status' "$M")" in
+  held-large|"보류(대형PR)") chain_state "blocked" "Stage 1 was held as a large PR"; exit 3 ;;
+esac
 
-# 저자 반영 전에 main 과 충돌하는지 본다. 충돌을 풀면 head 가 바뀌어 그 뒤 단계를 다시 돌아야 한다.
-# Stage 1 앞에서 멈추면 watch.sh 가 리뷰가 없는 PR 로 보고 매분 다시 띄워 보류(실패) 로 만든다
+# Check for conflicts with main before the author pass. Resolving a conflict changes head, so the later steps would have to run again.
+# Stopping before Stage 1 would make watch.sh see a PR with no review, restart it every minute, and end up at held-failed
 [ "$(pr_state | jq -r '.mergeable')" != "CONFLICTING" ] \
-  || { chain_state "blocked" "main 과 충돌한다 — 사람이 충돌을 푼 뒤 체인을 다시 부른다"; exit 3; }
+  || { chain_state "blocked" "conflicts with main — a person resolves the conflict, then runs the chain again"; exit 3; }
 
 [ "$(author_count)" -ge 1 ] || run_author
 [ "$(stage2_count)" -ge 1 ] || run_stage2
 stage3_done || run_stage3
 
-# Stage 3 뒤: 저자가 더 고칠 게 없다고 할 때까지 (저자 → Stage 2) 를 돈다
+# After Stage 3: loop (author → Stage 2) until the author says nothing more needs fixing
 while :; do
-  # 마지막 저자 회차 뒤에 Stage 2 가 아직 안 돌았으면 먼저 돌린다(중간에 죽은 경우)
+  # If Stage 2 has not run since the last author pass, run it first (the case where it died midway)
   if author_pushed && [ "$(head_sha)" != "$(jq -r '.stage2[-1].stage_sha // empty' "$M")" ]; then
     run_stage2
   fi
-  # 첫 회차는 Stage 1 반영이다. Stage 3 이후 회차가 아직 없으면 한 번은 돈다
+  # The first pass addresses Stage 1. If there is no pass after Stage 3 yet, run one
   if [ "$(author_count)" -ge "$MAX_AUTHOR_ROUNDS" ]; then
-    log "저자 회차 상한($MAX_AUTHOR_ROUNDS)에 닿았다"; break
+    log "reached the author pass cap ($MAX_AUTHOR_ROUNDS)"; break
   fi
   if [ "$(author_count)" -ge 2 ] && ! author_pushed; then break; fi
   run_author
@@ -272,9 +274,9 @@ done
 chain_state "merge-gate"
 merge_gate
 risk_gate
-# auto_merge 가 true 일 때만 머지한다. 키가 없거나 false 면 리스크 점수표만 남기고 사람이 머지하게 둔다
+# Merge only when auto_merge is true. If the key is missing or false, leave just the risk scorecard and let a person merge
 if [ "$(cfg '.auto_merge == true')" = "true" ]; then
   do_merge
 else
-  chain_state "ready" "auto_merge 가 꺼져 있다 — 사람이 머지한다"
+  chain_state "ready" "auto_merge is off — a person merges"
 fi

@@ -1,122 +1,122 @@
-# 03. 자동 머지 리스크 점수
+# 03. Auto-merge risk score
 
-체인(`scripts/chain.sh`)은 리뷰·반영·재리뷰가 끝난 PR 을, `~/.pr-quorum/config.json` 의 `auto_merge` 가 true 면 머지까지 가져간다.
-그런데 리뷰에서 blocking 이 다 풀렸다고 해서 사람이 안 봐도 되는 PR 은 아니다.
-인증 코드나 인프라를 건드린 PR 은 리뷰가 놓친 것 하나가 장애로 이어진다.
-그래서 머지 직전에 **이 PR 이 잘못됐을 때 얼마나 아픈가**를 0~100 점으로 매기고, `auto_merge` 가 켜져 있을 때 낮은 PR 만 자동으로 머지한다.
+The chain (`scripts/chain.sh`) takes a PR whose review, fixes, and re-review are done all the way to merge when `auto_merge` in `~/.pr-quorum/config.json` is true.
+But a PR whose blocking findings are all resolved is not automatically a PR nobody needs to look at.
+In a PR that touches authentication code or infrastructure, one thing the review missed can turn into an outage.
+So right before merging, the chain scores **how much it would hurt if this PR were wrong** from 0 to 100, and when `auto_merge` is on, it auto-merges only low-scoring PRs.
 
-계산은 `scripts/risk.jq`, 호출은 `pr-quorum.sh risk <저장소> <PR번호>`, 사후 추적은 `scripts/risk-audit.sh <저장소>` 다.
+The calculation is `scripts/risk.jq`, the call is `pr-quorum.sh risk <repo> <PR-number>`, and the follow-up tracking is `scripts/risk-audit.sh <repo>`.
 
-## 리뷰 등급과 무엇이 다른가
+## How this differs from review grades
 
-리뷰 쪽은 점수를 쓰지 않는다(`00-criteria.md` §0). 총점을 매기면 저자가 코드를 고치는 대신 점수에 항변하기 때문이다.
-리스크 점수는 코드가 좋은지 나쁜지를 재지 않는다. **어디를 얼마나 바꿨는지**만 본다.
-그래서 코드를 다듬어서는 점수가 내려가지 않고, PR 을 쪼개거나 테스트를 같이 넣어야 내려간다 — 항변할 거리가 없다.
+The review side does not use scores (`00-criteria.md` §0). A total score makes the author argue with the score instead of fixing the code.
+The risk score does not measure whether the code is good or bad. It looks only at **where and how much was changed**.
+So polishing the code does not lower the score; only splitting the PR or adding tests with it does — there is nothing to argue with.
 
-리뷰 결과(남은 blocking·`역행`·테스트 실패)는 이 점수에 넣지 않는다. 그건 체인의 머지 게이트가 먼저 막는다. 같은 신호를 두 번 세지 않는다.
+Review results (remaining blocking findings, `regressed`, test failures) do not go into this score. The chain's merge gate stops those first. The same signal is not counted twice.
 
-## 점수표
+## Scorecard
 
-| 항목 | 상한 | 신호 (점수) | 왜 |
+| Category | Cap | Signals (points) | Why |
 |---|---|---|---|
-| **보안** | 30 | 인증·인가 코드 (15) — `common/security/` 아래, 또는 이름에 `Security`·`Auth`·`Jwt`·`OAuth`·`Cors`·`Password`·`Permission`·`Role`·`Bcrypt`·`Principal`·`Credential`·`Refresh/Access/SecureToken`·`ApiKey` 가 든 운영 코드, Gateway 의 `filter/`, 프론트의 `middleware`·`proxy`·`lib/auth*`·`cookie-config`·`/api/bff/auth/`<br>자격증명·비밀값 (30) — `.env`·`.pem`·`.key` 파일, 설정 파일(`.yml`·`.json`·`.properties` 등)에 새로 들어간 `password: 값`·`secret-key: 값` 류<br>자동 머지 게이트·하니스 (15) — 저장소 맨 위의 `skills/`·`agents/`·`rules/`·`templates/`·`.claude-plugin/` 아래 전부(규칙 문서 포함)와, `scripts/` 아래 플러그인 스크립트(`pr-quorum.sh`·`chain.sh`·`watch.sh`·`dream.sh`·`selftest.sh`·`risk-audit.sh`·`gh-get.sh`·`author-push.sh`·`author-reply.sh`·`config.sh`·`risk.jq`) 이름 목록. 깊은 폴더의 같은 이름(`src/main/resources/templates/` 등)은 세지 않는다<br>에이전트 지시·CI·빌드 스크립트 (15) — `CLAUDE.md`·`AGENTS.md`(어느 폴더든), `.claude/` 아래 전부, `.github/workflows/`·`Jenkinsfile*`, `*.gradle`·`gradle.properties`·`gradle/wrapper/`·`gradlew`<br>의존성 (10) — `*.gradle`·`package.json`·lock 파일<br>인프라 권한 (15) — IAM 을 바꾼 `.tf` | 사고가 나면 데이터가 새거나 계정이 뚫린다. 가장 무겁게 잡는다 |
-| **호환성 깨짐** | 25 | API 계약 (15) — 컨트롤러·요청/응답 DTO<br>DB 스키마 (15) — `*Entity`·`entity/`·`document/`<br>설정·환경 변수 (10) — `application*.yml`·`docker-compose`·`Jenkinsfile*`·워크플로<br>이벤트 계약 (10) — `common/kafka/`·`*Event` | 다른 서비스나 배포 환경이 이 PR 의 가정을 모른 채 깨진다 |
-| **되돌리기 어려운 변경** | 15 | DB 마이그레이션 (15) — `.sql`·`migration/`<br>인프라 (15) — `.tf`·`.tfvars` | 머지를 되돌려도 이미 적용된 스키마·인프라는 안 돌아온다 |
-| **테스트** | 15 | 테스트를 붙일 수 있는 운영 코드(`.java`·`.ts` 등. `.tf`·`.sql`·`.sh` 는 뺀다)가 바뀌었는데 테스트 파일 변경이 없다 (15) | 같은 것이 다시 깨져도 잡을 장치가 없다 |
-| **범위** | 15 | 테스트·문서·lock 파일을 뺀 변경 줄 수 — 100 이하 0 · 300 이하 5 · 800 이하 10 · 그 이상 15 | 큰 PR 은 리뷰가 끝까지 같은 밀도로 못 본다. 작은 PR 을 쓰게 만든다 |
+| **Security** | 30 | Authentication/authorization code (15) — production code under `common/security/` or whose name contains `Security`, `Auth`, `Jwt`, `OAuth`, `Cors`, `Password`, `Permission`, `Role`, `Bcrypt`, `Principal`, `Credential`, `Refresh/Access/SecureToken`, or `ApiKey`; the Gateway's `filter/`; on the frontend, `middleware`, `proxy`, `lib/auth*`, `cookie-config`, `/api/bff/auth/`<br>credentials-secrets (30) — `.env`, `.pem`, `.key` files, and newly added `password: value` or `secret-key: value` style entries in config files (`.yml`, `.json`, `.properties`, etc.)<br>Auto-merge gate/harness (15) — everything under the top-level `skills/`, `agents/`, `rules/`, `templates/`, `.claude-plugin/` (rule documents included), plus a name list of the plugin scripts under `scripts/` (`pr-quorum.sh`, `chain.sh`, `watch.sh`, `dream.sh`, `selftest.sh`, `risk-audit.sh`, `gh-get.sh`, `author-push.sh`, `author-reply.sh`, `config.sh`, `risk.jq`). Same-named folders deeper in the tree (`src/main/resources/templates/` etc.) do not count<br>Agent instructions/CI/build scripts (15) — `CLAUDE.md` and `AGENTS.md` (in any folder), everything under `.claude/`, `.github/workflows/`, `Jenkinsfile*`, `*.gradle`, `gradle.properties`, `gradle/wrapper/`, `gradlew`<br>Dependencies (10) — `*.gradle`, `package.json`, lock files<br>Infrastructure permissions (IAM) (15) — `.tf` files that change IAM | An incident here leaks data or compromises accounts. Weighted heaviest |
+| **Breaking changes** | 25 | API contract (15) — controllers, request/response DTOs<br>DB schema (entities/documents) (15) — `*Entity`, `entity/`, `document/`<br>Configuration/environment variables (10) — `application*.yml`, `docker-compose`, `Jenkinsfile*`, workflows<br>Event contract (10) — `common/kafka/`, `*Event` | Other services or deployment environments break without knowing this PR's assumptions |
+| **Hard-to-reverse changes** | 15 | DB migration (15) — `.sql`, `migration/`<br>Infrastructure (Terraform) (15) — `.tf`, `.tfvars` | Reverting the merge does not bring back a schema or infrastructure that was already applied |
+| **Tests** | 15 | Production code changed with no test changes (15) — production code that can have tests (`.java`, `.ts`, etc.; `.tf`, `.sql`, `.sh` excluded) changed with no test file changes | Nothing catches it if the same thing breaks again |
+| **Scope** | 15 | Changed lines excluding tests, docs, and lock files — 0 up to 100 · 5 up to 300 · 10 up to 800 · 15 above that | Review cannot keep the same density through a large PR. Pushes toward small PRs |
 
-항목마다 신호 점수를 더하되 상한을 넘지 않는다. 다섯 항목 상한의 합이 100 이다.
-문서(`*.md`·이미지·`.drawio`·`docs/`·`contents/`)는 어느 항목에도 세지 않는다. 예외가 셋 있다. 비밀값은 문서 경로에 있어도 센다. 하니스 경로(`rules/`·`skills/` 등) 아래 규칙 문서는 세션이 그대로 따르는 실행 규칙이라 하니스 신호로 센다. `scripts/` 만은 폴더 전체가 아니라 플러그인 스크립트 이름 목록으로 센다 — 리뷰 대상 저장소에도 `scripts/` 가 있어(backend `scripts/jenkins/`·`scripts/tmux/`, frontend `scripts/tmux-*`) 폴더로 잡으면 관계없는 PR 이 15점을 받는다. `CLAUDE.md`·`AGENTS.md`·`.claude/` 아래 문서도 같은 이유로 에이전트 지시 신호로 센다.
+Within a category, signal points add up but do not exceed the cap. The five caps sum to 100.
+Documents (`*.md`, images, `.drawio`, `docs/`, `contents/`) count toward no category, with three exceptions. Secrets count even in document paths. Rule documents under harness paths (`rules/`, `skills/`, etc.) are run-time rules the session follows as written, so they count toward the harness signal. Only `scripts/` is counted by the plugin script name list instead of the whole folder — the reviewed repositories have their own `scripts/` (backend `scripts/jenkins/` and `scripts/tmux/`, frontend `scripts/tmux-*`), so matching the folder would give unrelated PRs 15 points. Documents under `CLAUDE.md`, `AGENTS.md`, and `.claude/` count toward the agent instructions signal for the same reason.
 
-하니스 신호는 게이트가 자기 자신을 느슨하게 만드는 PR 을 막으려고 둔다. 저자 세션은 PR 브랜치에 push 할 수 있어서, 이 신호가 없으면 `risk.jq` 를 고친 작은 PR 이 0점 `low` 로 자동 머지된다. 15점이라 이 신호 하나만으로도 `low` 를 벗어난다.
+The harness signal exists to stop PRs that loosen the gate itself. The author session can push to the PR branch, so without this signal a small PR that edits `risk.jq` would auto-merge at 0 points `low`. At 15 points, this signal alone moves a PR out of `low`.
 
-에이전트 지시·CI·빌드 스크립트 신호도 같은 이유로 15점이다. `CLAUDE.md`·`.claude/` 가 바뀌면 그 뒤에 뜨는 모든 세션의 지시와 권한이 바뀌고, CI 설정과 Gradle 빌드 파일은 빌드할 때 그대로 실행된다. 예전에는 CI 설정·Gradle 이 10점이라 이것만 바꾼 PR 이 `low` 로 자동 머지될 수 있었고, `CLAUDE.md` 는 문서로 쳐 0점이었다. `*.gradle`·워크플로·`Jenkinsfile*` 은 의존성·설정 신호에도 함께 걸려 25점이 된다.
+The agent instructions/CI/build scripts signal is 15 points for the same reason. A change to `CLAUDE.md` or `.claude/` changes the instructions and permissions of every session started afterwards, and CI config and Gradle build files run as-is at build time. CI config and Gradle used to be 10 points, so a PR changing only those could auto-merge as `low`, and `CLAUDE.md` counted as a document at 0 points. `*.gradle`, workflows, and `Jenkinsfile*` also hit the dependency or configuration signal, for 25 points.
 
-## 등급과 처리
+## Levels and handling
 
-| 등급 | 점수 | 체인이 하는 일 |
+| Level | Score | What the chain does |
 |---|---|---|
-| `low` | 0–14 | `auto_merge` 가 true 이고 다른 머지 게이트를 다 통과하면 **자동 머지** |
-| `medium` | 15–39 | 머지하지 않고 `needs-human` 으로 멈춘다. 사람 1명이 확인한 뒤 직접 머지한다 |
-| `high` | 40–69 | 같다. 점수표에 걸린 항목을 아는 사람이 본다 (예: 보안이면 인증 코드를 아는 사람) |
-| `critical` | 70+, **또는 평문 비밀값이 걸리면 점수와 상관없이** | 같다. 비밀값이면 빼고 교체한 뒤 다시 본다. 아니면 PR 을 쪼갤지부터 판단한다 |
+| `low` | 0–14 | **Auto-merge** if `auto_merge` is true and every other merge gate passes |
+| `medium` | 15–39 | Does not merge; stops at `needs-human`. One person checks it and merges manually |
+| `high` | 40–69 | Same. Someone who knows the flagged categories reviews it (e.g. for security, someone who knows the authentication code) |
+| `critical` | 70+, **or a plaintext secret regardless of score** | Same. For a secret, remove and rotate it, then review again. Otherwise, first decide whether to split the PR |
 
-체인이 하는 일은 `low` 와 나머지 둘로만 갈린다. `auto_merge` 가 꺼져 있으면(기본) `low` 도 머지하지 않고 `ready` 로 멈춰 사람이 머지한다. `medium` 이상의 구분은 사람이 누구를 부를지 정하라고 남긴다.
-등급과 상관없이 점수표는 봇이 PR 에 코멘트로 남긴다. 같은 head·같은 점수로는 두 번 달지 않고, 규칙이 바뀌어 점수가 달라지면 다시 단다.
-판정은 `meta.json` 의 `risk` 에 남는다.
+The chain only distinguishes `low` from the rest. If `auto_merge` is off (the default), even `low` is not merged; the chain stops at `ready` and a person merges. The distinctions above `medium` are left for people to decide whom to call.
+Regardless of level, the bot posts the scorecard as a comment on the PR. It does not post twice for the same head and score, and posts again if a rule change alters the score.
+The result is recorded in `meta.json` under `risk`.
 
-## 영상에서 가져온 것과 다르게 정한 것
+## What was taken from the video and what was decided differently
 
-점수표의 뼈대는 아래 출처의 영상을 따랐지만, 영상도 그 점수표가 절대 기준이 아니라 저장소에 맞춰 고쳐 쓰라고 말한다.
-그대로 옮겼다가 이 저장소의 지난 PR 로 틀린 것이 드러난 자리는 고쳤다.
+The scorecard's skeleton follows the video in the sources below, but the video itself says the scorecard is not an absolute standard and should be adapted to the repository.
+Where copying it as-is turned out wrong against this repository's past PRs, it was changed.
 
-| 영상 | 여기 | 이유 |
+| Video | Here | Reason |
 |---|---|---|
-| LLM 이 루브릭을 보고 점수를 매긴다 | jq 스크립트가 경로·줄 수로 매긴다 | 같은 diff 에 늘 같은 점수가 나와야 게이트로 쓸 수 있다. 체인이 머지 여부를 세션의 자기보고가 아니라 기록으로 판정하는 원칙과도 맞춘다 |
-| 리스크 점수에 리뷰 결과가 섞인다 | 리뷰 결과는 머지 게이트, 이 점수는 변경 위치·크기만 | 같은 신호를 두 번 세지 않는다 |
-| 마이그레이션 항목 | "되돌리기 어려운 변경"으로 넓혀 Terraform 포함 | 이 저장소엔 마이그레이션 파일이 없고, 되돌리기 어려운 변경은 실제로 인프라였다(#43) |
-| 화자의 개인 문턱 30 | 15 | 같은 영상의 "보수적으로 시작하라"를 따른다 |
-| 인증 **디렉터리**가 바뀌면 보안 | 이름이 보안 역할을 드러내는 파일과 `common/security/` 만 | 디렉터리로 보면 `api/auth` 의 빈 등록 2줄(#38 `ServerConfig`)도 인증 코드가 된다. `Token` 만으로 잡으면 챗봇의 LLM 토큰 계측(#30 `TokenService`)이 걸려 접두어를 붙였다 |
-| 범위는 PR 크기 | 테스트 줄은 세지 않는다 | 세면 테스트를 쓸수록 점수가 오른다. #34 는 722줄 중 452줄이 테스트였다 |
-| 테스트가 없으면 감점 | 테스트를 붙일 수 없는 `.tf`·`.sql` 은 빼고 본다 | 이 저장소의 인프라엔 테스트 수단이 없다. 위험은 "되돌리기 어려운 변경"이 이미 센다 |
-| 비밀값도 보안 점수의 하나 | 걸리면 점수와 상관없이 critical | 커밋된 비밀번호는 위험이 큰 변경이 아니라 머지하면 안 되는 변경이다 |
-| 첫 1~2주는 라벨만 단다 | 넣지 않았다. 대신 `risk-audit.sh` 로 사후에 센다 | 처음에는 기본 동작을 머지로 두기로 했다. 그 대가로 자동 머지가 틀렸는지를 기록으로 확인할 수단을 둔다. 지금은 기본이 꺼짐이고 `config.json` 의 `auto_merge` 를 true 로 해야 켜진다 |
+| An LLM scores against a rubric | A jq script scores from paths and line counts | It can only serve as a gate if the same diff always gets the same score. It also matches the principle that the chain decides merges from records, not from the session's self-report |
+| Review results mix into the risk score | Review results go to the merge gate; this score covers only where and how much changed | The same signal is not counted twice |
+| Migration category | Widened to "Hard-to-reverse changes", including Terraform | This repository has no migration files, and the hard-to-reverse changes were actually infrastructure (#43) |
+| The speaker's personal threshold of 30 | 15 | Follows the same video's "start conservative" |
+| Security when an auth **directory** changes | Only files whose names reveal a security role, plus `common/security/` | Matching by directory would make a 2-line bean registration in `api/auth` (#38 `ServerConfig`) count as authentication code. Matching `Token` alone caught the chatbot's LLM token metering (#30 `TokenService`), so prefixes were added |
+| Scope is PR size | Test lines are not counted | Otherwise writing more tests raises the score. In #34, 452 of 722 lines were tests |
+| Penalty for no tests | `.tf` and `.sql`, which cannot have tests, are excluded | This repository's infrastructure has no test tooling. Its risk is already counted by "Hard-to-reverse changes" |
+| Secrets are one part of the security score | A hit means critical regardless of score | A committed password is not a high-risk change but a change that must not be merged |
+| Only label for the first 1–2 weeks | Not adopted. Instead, `risk-audit.sh` counts after the fact | Initially the default behavior was set to merge. In exchange, there is a way to check from records whether auto-merge was wrong. Now the default is off, and it turns on only when `auto_merge` in `config.json` is true |
 
-## 지난 PR 로 맞춰 본 결과 (2026-10-02)
+## Results against past PRs (2026-10-02)
 
-| PR | 무엇 | 점수 | 등급 | 걸린 신호 |
+| PR | What | Score | Level | Signals hit |
 |---|---|---|---|---|
-| #8 | 다이어그램·이미지 | 0 | low | - |
-| #22 | 의도 분류기 수정 + 테스트 | 0 | low | - |
-| #30 | 토큰 계측 + 테스트 | 0 | low | - |
-| #34 | 신기술 일괄 저장 리팩토링 + 테스트 | 5 | low | 범위 270줄 |
-| #33 | 북마크 리포트 API · 엔티티 2개 | 35 | medium | API 계약 · DB 스키마 · 범위 654줄 |
-| #38 | api-auth Mongo 설정 | 50 | high | 에이전트 지시·CI·빌드(`build.gradle`) · 의존성 · 설정 · 테스트 없음 |
-| #43 | ECS blue/green (Terraform) | 50 | high | 의존성 · IAM · 인프라 · 범위 494줄(lock 파일 224줄 제외) |
-| #36 | 평문 자격증명 제거 · CORS | 30 | medium | 인증 코드(`SecurityConfig`) · 인프라(`services.tf`) |
+| #8 | Diagrams and images | 0 | low | - |
+| #22 | Intent classifier fix + tests | 0 | low | - |
+| #30 | Token metering + tests | 0 | low | - |
+| #34 | New-tech bulk save refactor + tests | 5 | low | Scope 270 lines |
+| #33 | Bookmark report API · 2 entities | 35 | medium | API contract · DB schema · Scope 654 lines |
+| #38 | api-auth Mongo config | 50 | high | Agent instructions/CI/build (`build.gradle`) · Dependencies · Configuration · No tests |
+| #43 | ECS blue/green (Terraform) | 50 | high | Dependencies · IAM · Infrastructure · Scope 494 lines (224 lock file lines excluded) |
+| #36 | Remove plaintext credentials · CORS | 30 | medium | Authentication code (`SecurityConfig`) · Infrastructure (`services.tf`) |
 
-표의 점수는 지금 규칙으로 다시 매긴 값이다. #34 는 테스트 줄을 범위에서 빼기 전 규칙으로 머지됐고, 그때 봇이 남긴 점수는 10점 `low`(범위 722줄, 테스트 줄 포함)였다.
-#38 은 이 점수가 생기기 전에 체인이 자동으로 머지한 PR 이고, #43 도 자동 머지 대상이었다(사람이 체인 밖에서 커밋을 더해 머지 게이트에 걸렸다). 지금 규칙이면 둘 다 사람이 본다.
+The scores in the table are re-scored under the current rules. #34 was merged under the rules from before test lines were removed from scope, and the score the bot posted then was 10 points `low` (scope 722 lines, test lines included).
+#38 was auto-merged by the chain before this score existed, and #43 was also an auto-merge candidate (a person added commits outside the chain, so it hit the merge gate). Under the current rules, a person reviews both.
 
-## 문턱 조정 — 자동 머지가 틀렸는지 기록으로 센다
+## Threshold tuning — counting from records whether auto-merge was wrong
 
-이 점수가 실제 위험을 맞히는지는 아직 증명되지 않았다. 지난 PR 에 매겨 보고 그럴듯한지 본 것은 예측이 맞는지 확인한 것이 아니다.
-그래서 머지된 PR 마다 **머지 뒤 14일 안에 같은 파일을 고친 `fix`·`revert` PR** 이 붙었는지를 센다.
+Whether this score predicts real risk is not yet proven. Scoring past PRs and checking that the results look plausible is not the same as confirming the predictions.
+So for each merged PR, it counts whether **a `fix` or `revert` PR touching the same files within 14 days after the merge** followed.
 
 ```bash
-risk-audit.sh <저장소> 30   # 최근 머지 PR 30건
+risk-audit.sh <repo> 30   # the 30 most recent merged PRs
 ```
 
-PR 별 등급·점수·체인 자동 머지 여부·후속 PR 과, 등급별 "머지 수 / 후속 수정이 붙은 수 / 관찰 중" 을 낸다. 14일이 안 지났고 후속도 아직 없는 PR 은 `관찰 중` 이고, 앞의 두 칸에서 뺀다 — 아직 결과가 안 난 PR 을 "후속 0" 으로 세면 문턱을 올리자는 쪽으로 기운다.
-등급·점수는 머지 당시 판정이 아니라 **지금 규칙으로 다시 매긴 값**이다. 규칙을 고치면 과거 PR 의 등급도 바뀐다. 자동 머지 열은 `~/.pr-quorum/runs/` 기록만 보므로, 기록이 없으면 `-` 로 나온다.
-후속 PR 이 붙었다고 원 PR 이 틀렸다는 뜻은 아니다 — 열어 보고 판단한다. 조정은 이렇게 한다.
+It reports each PR's level, score, whether the chain auto-merged it, and follow-up PRs, plus per level "Merged / With follow-up fixes / Watching". A PR less than 14 days old with no follow-up yet is `watching` and is excluded from the first two columns — counting PRs with no outcome yet as "0 follow-ups" would tilt toward raising the threshold.
+Levels and scores are **re-scored under the current rules**, not the result at merge time. Changing the rules changes past PRs' levels too. The auto-merge column only looks at `~/.pr-quorum/runs/` records, so it shows `-` when there is no record.
+A follow-up PR does not mean the original PR was wrong — open it and judge. Tuning works like this.
 
-- `low` 에서 후속 수정이 붙은 PR 이 나오면 **먼저 경로 패턴이 그 파일을 잡았는지** 본다. 못 잡았으면 패턴 결함이라 바로 고친다.
-- 패턴이 잡았는데도 `low` 였다면 그 신호의 가중치를 올릴 후보로 적는다. **같은 유형이 두 번 나오면** 올린다 — 한 건에 맞춰 올리면 그 PR 에 맞춘 규칙이 된다.
-- `medium` 이상에서 후속 수정이 계속 0 이면 문턱을 올릴 근거가 된다. 표본이 쌓이기 전에는 올리지 않는다.
-- `needs-human` 으로 멈춘 PR 을 사람이 볼 때 봇 리뷰가 놓친 결함을 찾았으면 아래 표에 한 줄 적는다. 없었으면 "놓친 것 0건" 으로 적는다. 봇 리뷰가 실제로 무엇을 놓치는지 사람 기준으로 재는 기록은 이것뿐이다.
-- **체인이 자동 머지한 PR 도 같다.** 머지 뒤 사람이 diff 와 봇 리뷰를 한 번 읽고 같은 표에 적는다. 자동 머지 PR 이야말로 사람이 아무도 안 본 PR 이다.
-- **자동 머지를 끄는 기준** — 자동 머지된 PR 에서 사람이 봇이 놓친 치명·중대 결함을 하나라도 찾으면, 원인을 볼 때까지 `low` 자동 머지를 끈다(`~/.pr-quorum/config.json` 의 `auto_merge` 를 false 로 둔다). 이 기준은 가중치 조정과 달리 한 건으로 움직인다 — 놓친 결함이 그대로 main 에 들어갔다는 뜻이기 때문이다.
+- When a `low` PR gets a follow-up fix, **first check whether the path patterns caught that file**. If not, it is a pattern defect; fix it right away.
+- If the patterns caught it and it was still `low`, note that signal's weight as a candidate for raising. Raise it **when the same type shows up twice** — raising it for one case makes a rule fitted to that PR.
+- If `medium` and above keep getting 0 follow-up fixes, that is grounds for raising the threshold. Do not raise it before samples accumulate.
+- When a person reviewing a PR stopped at `needs-human` finds a defect the bot review missed, add a line to the table below. If there was none, write "0 missed". This is the only record that measures, by a human standard, what the bot review actually misses.
+- **The same goes for PRs the chain auto-merged.** After the merge, a person reads the diff and the bot review once and records it in the same table. Auto-merged PRs are exactly the PRs no person looked at.
+- **When to turn off auto-merge** — if a person finds even one critical or major defect the bot missed in an auto-merged PR, turn off `low` auto-merge until the cause is understood (set `auto_merge` in `~/.pr-quorum/config.json` to false). Unlike weight tuning, this criterion moves on a single case — it means a missed defect went straight into main.
 
-### 관찰 기록
+### Observation log
 
-| 날짜 | 무엇을 봤나 | 무엇을 했나 |
+| Date | What was seen | What was done |
 |---|---|---|
-| 2026-10-02 | 최근 머지 20건. `low` 12건 중 1건(#17 → #20)에 후속 fix 가 붙었다. #20 은 #17 이 넣은 `disableConcurrentBuilds()` 를 되돌렸다. `medium`·`high` 8건은 후속 0 | #17 의 `Jenkinsfile-cicd` 를 패턴(`Jenkinsfile$`)이 못 잡았다 → `Jenkinsfile[^/]*$` 로 고쳤다. 고친 뒤에도 설정 신호 10점이라 `low` 다. 표본 1건이라 가중치는 그대로 두고 후보로만 적는다 — **CI·배포 설정 변경** |
-| 2026-10-02 | 규칙 점검(기준별 반박 평가). 기록이 아니라 저장소 파일과 맞춰 본 결함 | 비밀값에 `secret-key` 추가(JWT 서명 키 이름), `.http` 는 비밀값 검사에서 뺌(테스트 요청 본문 30여 줄이 걸려 #36 이 실재하지 않는 비밀값으로 critical 이 됐다), 하니스 신호 추가, Gateway `filter/`·`ApiKey`·프론트 인증 파일 추가, `*Document` 접미어는 뺌(`WebSearchDocument` 오탐), `.sh` 는 테스트 신호에서 뺌, lock 파일은 범위에서 뺌. #36 은 45 high, #43 은 범위 494줄로 바뀌고 나머지 행은 그대로다 |
-| 2026-10-04 | 보안 점검. `CLAUDE.md` 는 0점, CI 설정·Gradle 은 10점이라 이것만 바꾼 PR 이 `low` 로 자동 머지될 수 있었다 | 에이전트 지시·CI·빌드 스크립트 신호(15)를 더했다. #38 은 35 medium 에서 50 high 로, #17 은 10 low 에서 25 medium 으로 바뀌고 나머지 행은 그대로다. 첫 행의 "CI·배포 설정 변경" 후보도 이것으로 처리했다 |
+| 2026-10-02 | 20 most recent merges. 1 of 12 `low` PRs (#17 → #20) got a follow-up fix. #20 reverted the `disableConcurrentBuilds()` that #17 added. 0 follow-ups for the 8 `medium`/`high` PRs | The pattern (`Jenkinsfile$`) missed #17's `Jenkinsfile-cicd` → changed to `Jenkinsfile[^/]*$`. Even after the fix it is `low` at 10 configuration points. With a sample of 1, the weight stays and it is only noted as a candidate — **CI/deployment config changes** |
+| 2026-10-02 | Rule review (rebuttal-based evaluation per criterion). Defects found against repository files, not records | Added `secret-key` to secrets (the JWT signing key name); excluded `.http` from the secret check (about 30 lines of test request bodies matched, making #36 critical over a secret that did not exist); added the harness signal; added Gateway `filter/`, `ApiKey`, and frontend auth files; dropped the `*Document` suffix (`WebSearchDocument` false positive); excluded `.sh` from the test signal; excluded lock files from scope. #36 became 45 high, #43 became scope 494 lines, and the other rows stayed the same |
+| 2026-10-04 | Security review. `CLAUDE.md` was 0 points and CI config/Gradle 10 points, so a PR changing only those could auto-merge as `low` | Added the agent instructions/CI/build scripts signal (15). #38 went from 35 medium to 50 high and #17 from 10 low to 25 medium; the other rows stayed the same. This also resolved the "CI/deployment config changes" candidate from the first row |
 
-## 이 점수가 못 보는 것
+## What this score cannot see
 
-- **경로와 줄 수만 본다.** 평범한 이름의 서비스 코드에서 인가 검사를 지운 PR 은 보안 점수가 0 이다. 그건 리뷰의 `R-I` 축이 잡을 몫이고, 리뷰의 blocking 이 남아 있으면 머지 게이트가 먼저 막는다. 반대로 이름 패턴을 넓히면 무관한 코드가 걸린다 — 둘 사이에서 미탐 쪽을 골랐다.
-- **예외 핸들러·서비스 검증 규칙만 바꾼 변경은 점수에 안 잡힌다.** 저자 세션이 반영하면서 상태 코드나 입력 검증 규칙을 바꿔도, 컨트롤러·DTO·엔티티를 건드리지 않고 테스트를 같이 고쳤으면 `low` 로 머지될 수 있다. 이런 후속 수정이 두 번 나오면 그때 패턴을 더한다.
-- **새 API 와 바뀐 API 를 가르지 않는다.** 컨트롤러를 새로 만들어도 API 계약 점수가 붙는다. 보수적인 쪽으로 틀리게 뒀다.
-- **프론트엔드는 코드가 바뀌면 거의 늘 `medium` 이다.** `app/`·`admin/` 에 테스트 수단이 아직 없어 "테스트 없음" 15점이 붙는다. 의도한 결과로 둔다 — 테스트가 없는 코드는 사람이 본다. 테스트 러너가 들어오면 그때 다시 본다.
-- **사람이 코드를 안 읽고 머지하는 것 자체에 반대하는 의견이 있다.** HumanLayer 의 Dex Horthy 는 사람 리뷰를 없앴다가 장애가 늘었고, 모델이 유지보수하기 좋은 코드를 아직 몰라 리뷰 봇으로는 메울 수 없다고 말한다(AI Engineer 발표 "harness engineering is not enough", 한국어 자막본 https://www.youtube.com/watch?v=-c43cv80FiA). `low` 자동 머지는 이 의견과 알고 다르게 가는 선택이다. 그래서 위 "자동 머지를 끄는 기준"을 둔다.
-- 가중치 30/25/15/15/15 는 근거 있는 값이 아니라 영상의 틀에 맞춘 출발점이다. 위 "문턱 조정" 기록으로 고쳐 나간다.
+- **It looks only at paths and line counts.** A PR that removes an authorization check from an ordinarily named service gets 0 security points. Catching that is the review's `R-I` axis's job, and if blocking review findings remain, the merge gate stops it first. Widening the name patterns, on the other hand, catches unrelated code — between the two, false negatives were chosen.
+- **Changes only to exception handlers or service validation rules are not scored.** If the author session, while fixing, changes status codes or input validation rules without touching controllers, DTOs, or entities and updates the tests along with it, the PR can merge as `low`. If such follow-up fixes show up twice, add patterns then.
+- **It does not distinguish new APIs from changed ones.** Creating a new controller also gets API contract points. Left wrong on the conservative side.
+- **Frontend code changes are almost always `medium`.** `app/` and `admin/` have no test tooling yet, so the 15-point "no tests" applies. This is intended — code without tests gets a human look. Revisit once a test runner is added.
+- **Some argue against merging without a human reading the code at all.** Dex Horthy of HumanLayer says that removing human review increased incidents, and that because models do not yet know what maintainable code looks like, review bots cannot fill the gap (AI Engineer talk "harness engineering is not enough", Korean-subtitled version https://www.youtube.com/watch?v=-c43cv80FiA). `low` auto-merge knowingly goes against this view. That is why the "When to turn off auto-merge" criterion above exists.
+- The weights 30/25/15/15/15 are not grounded values but a starting point fitted to the video's frame. They are adjusted through the "Threshold tuning" records above.
 
-## 출처
+## Sources
 
-실밸개발자, [코드 리뷰가 병목이 되는 이유 | 메타 시니어 엔지니어가 AI 코드 리뷰 하는법](https://youtu.be/Be5b6D1IoLI) (2026-09-26) —
-8:32 리스크 점수 루브릭, 11:25 리스크별 액션 매트릭스, 14:30 도입 전 안전 가드 구간.
-영상 자막은 자동 생성이라 인용한 수치(보안 30점, 문턱 30점)는 해당 시점에서 직접 확인하길 권한다.
+실밸개발자, [코드 리뷰가 병목이 되는 이유 | 메타 시니어 엔지니어가 AI 코드 리뷰 하는법](https://youtu.be/Be5b6D1IoLI) ("Why code review becomes the bottleneck | How a Meta senior engineer does AI code review", in Korean) (2026-09-26) —
+8:32 risk score rubric, 11:25 action matrix by risk, 14:30 the section on safety guards before adoption.
+The video's subtitles are auto-generated, so verifying the quoted numbers (30 points for security, threshold of 30) at those timestamps is recommended.

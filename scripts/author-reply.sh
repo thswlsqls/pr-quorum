@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# author-reply.sh — 저자 세션이 리뷰 스레드에 답글 1건을 다는 경로. 사용자 gh 계정으로 올라간다.
-# 셋째 인자가 comment 면 PR 코멘트 1건, body 면 PR 본문 교체다. gh pr comment/edit --body-file 도 아무 파일이나 올리므로 여기로 모은다.
-# 세션 권한에서 `gh api` 를 막았으므로 쓰기는 이 경로 하나로만 연다. 본문 파일은 runs/ 아래 것만 받는다 —
-# `-F body=@<파일>` 은 아무 파일이나 읽어 공개 코멘트로 올리므로, 토큰 파일을 답글로 내보내지 못하게 한다.
+# author-reply.sh — the path the author session uses to post one reply to a review thread. It is posted under the user's gh account.
+# If the third argument is comment, it posts one PR comment; if body, it replaces the PR description. gh pr comment/edit --body-file also uploads any file, so they go through here too.
+# Session permissions block `gh api`, so this is the only write path. Only body files under runs/ are accepted —
+# `-F body=@<file>` reads any file and posts it as a public comment, so this keeps a token file from going out as a reply.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"  # 세션이 부르는 스크립트라 환경 변수가 아니라 config.json 에서만 읽는다
+OWNER="$(cfg .owner)"  # The session calls this script, so read only from config.json, not from environment variables
 RUNS="$(cd "$PR_QUORUM_HOME/runs" && pwd -P)"
 
 die() { echo "author-reply.sh: $1" >&2; exit 1; }
 
 [ $# -eq 4 ] || die "usage: author-reply.sh <repo> <pr> <comment_id|comment|body> <body_file>"
 REPO="$1"; PR="$2"; ID="$3"; BODY="$4"
-[ "$(cfg --arg r "$REPO" '.repos | has($r)')" = true ] || die "모르는 저장소: $REPO"
-[[ "$PR" =~ ^[0-9]+$ ]] || die "PR 번호가 숫자가 아니다: $PR"
-[[ "$ID" =~ ^([0-9]+|comment|body)$ ]] || die "셋째 인자는 코멘트 id·comment·body 중 하나다: $ID"
-[ -f "$BODY" ] && [ ! -L "$BODY" ] || die "본문 파일이 없거나 링크다: $BODY"
+[ "$(cfg --arg r "$REPO" '.repos | has($r)')" = true ] || die "unknown repository: $REPO"
+[[ "$PR" =~ ^[0-9]+$ ]] || die "PR number is not numeric: $PR"
+[[ "$ID" =~ ^([0-9]+|comment|body)$ ]] || die "third argument must be a comment id, comment, or body: $ID"
+[ -f "$BODY" ] && [ ! -L "$BODY" ] || die "body file is missing or is a link: $BODY"
 body_dir="$(cd "$(dirname "$BODY")" && pwd -P)"
-case "$body_dir/" in "$RUNS"/*) ;; *) die "본문 파일은 $RUNS 아래에 둔다: $BODY" ;; esac
+case "$body_dir/" in "$RUNS"/*) ;; *) die "body file must be under $RUNS: $BODY" ;; esac
 
 FILE="$body_dir/$(basename "$BODY")"
 case "$ID" in
