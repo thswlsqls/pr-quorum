@@ -135,7 +135,8 @@ out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
     take fail-pr
-    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
+    h=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; [ ! -s "$S/head" ] || h="$(cat "$S/head")"
+    echo '{"head":{"sha":"'"$h"'"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -150,7 +151,20 @@ case "$path" in
   */pulls/1/comments)
     [ ! -e "$S/fail-comments" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     cat "$S/comments.json" ;;
-  */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
+  */pulls/1/comments/*/replies)
+    # Like a review, the reply exists on the server before fail-reply loses the response
+    b="$(cat)"; n=$(( $(cat "$S/replies") + 1 )); echo "$n" > "$S/replies"
+    c="${path%/replies}"; c="${c##*/}"
+    jq --argjson id $((900 + n)) --argjson c "$c" --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, in_reply_to_id:$c, body:$p.body}]' \
+      "$S/comments.json" > "$S/t" && mv "$S/t" "$S/comments.json"
+    [ ! -e "$S/fail-reply" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "{\"id\":$((900 + n))}" | out ;;
+  */issues/1/comments)
+    [ -n "$input" ] || { cat "$S/issues.json"; exit 0; }
+    b="$(cat)"; n=$(( $(cat "$S/icomments") + 1 )); echo "$n" > "$S/icomments"
+    jq --argjson id $((500 + n)) --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, body:$p.body}]' "$S/issues.json" > "$S/t" && mv "$S/t" "$S/issues.json"
+    [ ! -e "$S/fail-icomment" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "{\"id\":$((500 + n))}" | out ;;
   repos/acme/demo)
     [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     [ -e "$S/repo-ok" ] && exit 0
@@ -172,12 +186,14 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
   jq -n --arg p "$STUB/repo/demo" '{owner:"acme", bot:"quorum-bot", repos:{demo:{path:$p, profile:"backend"}}}' > "$STUB/home/.pr-quorum/config.json"
   echo PR_QUORUM_BOT_TOKEN=test-token > "$STUB/home/.config/pr-quorum/bot.env"
   jq -n --arg h "$STUB_SHA" '{owner:"acme", repo:"demo", pr:1, base_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", eval_sha:$h, profile:"backend",
-                             lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"pending"}' > "$STUB_RUN/meta.json"
+                             lock:{stage:2}, attempts:0, stage1:[], stage2:[{stage_sha:$h}], stage3:null, status:"pending"}' > "$STUB_RUN/meta.json"
   printf '## Summary\n\npraise — the names read well.\n\nAxes: `R-A` Correctness\n' > "$STUB_RUN/outputs/stage1/summary.md"
   echo '[{"code":"S1-1","path":"src/a.txt","line":2,"side":"RIGHT","axis":"R-A","grade":"minor","body":"R-A (Correctness) — b looks off."}]' \
     > "$STUB_RUN/outputs/stage1/comments.json"
   cp "$STUB_RUN/outputs/stage1/"* "$STUB_RUN/outputs/stage3/"
   echo 0 > "$STUB/state/posts"; echo '[]' > "$STUB/state/reviews.json"; echo '[]' > "$STUB/state/comments.json"; : > "$STUB/state/calls.log"
+  echo 0 > "$STUB/state/replies"; echo 0 > "$STUB/state/icomments"; echo '[]' > "$STUB/state/issues.json"
+  printf 'Fixed in the latest push.\n' > "$STUB_RUN/outputs/stage3/reply.md"
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
@@ -189,6 +205,7 @@ stub_post() {  # stub_post [stage] — post-review of that stage's draft
   stub_run "$PR_QUORUM" post-review demo 1 "$STUB_SHA" "$STUB_RUN/outputs/$s/summary.md" "$STUB_RUN/outputs/$s/comments.json" "$s"
 }
 stub_posts() { cat "$STUB/state/posts"; }
+stub_notices() { cat "$STUB/state/icomments"; }   # PR comments posted (GETs not counted)
 stub_meta() { jq -r "$@" "$STUB_RUN/meta.json"; }
 
 # T1 — posted, then the comment-id GET fails: exit 4 with nothing recorded; the rerun adopts the review instead of posting again
@@ -273,6 +290,53 @@ check "api T5 GET retries 5xx, not 404"         t5_get_retry
 check "post T6 link at the posting copy refused" t6_posting_link_refused
 check "post T7 stage3 reposts keep earlier ids known" t7_repost_keeps_known
 
+# R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
+stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
+stub_comment() { stub_run "$PR_QUORUM" comment demo 1 "$STUB_RUN/outputs/stage3/reply.md" "$1"; }
+stub_replies() { cat "$STUB/state/replies"; }
+# R1 — the reply went up but its response was lost: exit 4, then the rerun records it without a second POST
+r1_reply_lost() {
+  local rc=0 out
+  stub_home; touch "$STUB/state/fail-reply"
+  stub_reply >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_replies)" = 1 ] || { echo "lost response: exit $rc, POST $(stub_replies) (want 4, 1)"; return 1; }
+  rm "$STUB/state/fail-reply"
+  out="$(stub_reply 2>&1)" || { echo "rerun failed: $out"; return 1; }
+  grep -q adopted <<<"$out" && [ "$(stub_replies)" = 1 ] && [ "$(stub_meta -c '[.stage2[-1].replies[]]')" = '[901]' ] \
+    || { echo "rerun: POST $(stub_replies), stage2[-1].replies $(stub_meta -c '.stage2[-1].replies') (want 1, [901]): $out"; return 1; }
+}
+# R2 — a keyed comment whose response was lost: the rerun prints the first comment's id and posts nothing
+r2_comment_same_key() {
+  local rc=0 out
+  stub_home; touch "$STUB/state/fail-icomment"
+  stub_comment risk-aaaaaaa >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || { echo "lost response: expected exit 4, got $rc"; return 1; }
+  rm "$STUB/state/fail-icomment"
+  out="$(stub_comment risk-aaaaaaa 2>/dev/null)" || { echo "rerun failed"; return 1; }
+  [ "$out" = 501 ] && [ "$(stub_notices)" = 1 ] || { echo "rerun printed '$out', POST $(stub_notices) (want 501, 1)"; return 1; }
+}
+# R3 — posts that are meant to go up: another key, a new head, a reply already recorded; each body carries its marker
+r3_deliberate_reposts() {
+  local out
+  r2_comment_same_key >/dev/null || return 1
+  out="$(stub_comment risk-bbbbbbb 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_notices)" = 2 ] || { echo "other key: POST $(stub_notices) (want 2)"; return 1; }
+  jq -e 'all(.[]; .body | contains("<!-- pr-quorum:comment:risk-"))' "$STUB/state/issues.json" >/dev/null \
+    || { echo "comment marker missing: $(jq -c '[.[].body]' "$STUB/state/issues.json")"; return 1; }
+  r1_reply_lost >/dev/null || return 1
+  echo cccccccccccccccccccccccccccccccccccccccc > "$STUB/state/head"
+  out="$(stub_reply 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_replies)" = 2 ] || { echo "new head: POST $(stub_replies) (want 2)"; return 1; }
+  jq -e '[.[] | select(.id > 900) | .body | contains("<!-- pr-quorum:reply:111000:2:")] | length == 2 and all' "$STUB/state/comments.json" >/dev/null \
+    || { echo "reply marker missing: $(jq -c '[.[].body]' "$STUB/state/comments.json")"; return 1; }
+  stub_home
+  out="$(stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_replies)" = 2 ] && ! grep -q adopted <<<"$out" || { echo "recorded reply: POST $(stub_replies) (want 2): $out"; return 1; }
+}
+check "reply R1 lost response, rerun adopts"         r1_reply_lost
+check "comment R2 same key, rerun posts nothing"     r2_comment_same_key
+check "reply/comment R3 deliberate reposts still post" r3_deliberate_reposts
+
 # C1–C3 — chain.sh on a PR whose records already reach the merge gate (Stage 1 posted, Stage 2 and 3 done, two author passes,
 # the last one pushing nothing), so no session runs. A GitHub read failing at the gate must stop at blocked (exit 4) with one stop notice
 stub_chain_home() {
@@ -282,7 +346,6 @@ stub_chain_home() {
   jq -n --arg h "$STUB_SHA" '{pushed:true, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-01.json"
   jq -n --arg h "$STUB_SHA" '{pushed:false, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-02.json"
 }
-stub_notices() { grep -c 'issues/1/comments' "$STUB/state/calls.log"; }
 chain_stop() {  # chain_stop <reason fragment> — runs the chain, expects exit 4, blocked with that reason, one notice in total, no session
   local rc=0 out
   out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
