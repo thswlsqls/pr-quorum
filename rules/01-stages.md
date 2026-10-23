@@ -27,7 +27,7 @@ and merges only PRs that pass both. With `auto_merge` off, it does not merge and
 | **Challenger** | If `critical`+`major` ≤10, every one. If >10, every `critical`; if that is still under 3, fill from `major` | Every `regressed` (N) verdict | Every `critical` + every `P` |
 | **Dedup priority** | J1 > J2 > J3 > J4 — a wrong design or data is the premise for the rest | Fix accuracy > fidelity of the fix > do docs and code match > regression lock — "done right" beats "done" | Same as Stage 1 |
 | **Invalidation conditions** | The 8 common ones in `00-criteria.md` §1 | Common + **I-S2** *"Only quoted the Stage 1 comment; did not show it is still present in the current code"* | Common + **I-S3** *"No origin class (P/Q/N)"* |
-| **Exit** | S1–S3 in §4. **Round cap 5** | Ends after one verdict pass | Ends after the `P` verdict in §5 |
+| **Exit** | S1–S3 in §4. **Round cap** — `--max-rounds N` (the chain passes `limits.stage1.max_rounds`, 3 in the template), 5 without it | Ends after one verdict pass | Ends after the `P` verdict in §5 |
 
 Dedupe **by fix, not by location.** Even at the same location, if one axis's fix does not resolve the other, keep both.
 Fold the fixes of rolled-back findings into the surviving comment body as a union.
@@ -106,7 +106,7 @@ What does not get read is URL links. Rules, invalidation conditions, and quotes 
 ```
 End of round NN
  ├ S1–S3 met              → pass PGs → §3-4 pre-post edit → post and end the session
- ├ not met & NN < cap (5) → write prompts/round-(NN+1).md and continue to round NN+1 in the same session
+ ├ not met & NN < cap     → write prompts/round-(NN+1).md and continue to round NN+1 in the same session
  └ not met & NN = cap     → list the unmet items in the summary → §3-4 pre-post edit → post
 ```
 
@@ -123,7 +123,7 @@ When the cap is reached, list the unmet items in the summary and post.
 
 - S1–S3 met (= converged)
 - The same location rewritten **4 times**
-- **Round cap 5 reached** — list the unmet items and post
+- **Round cap reached** (`--max-rounds N`, 5 without it) — list the unmet items and post
 
 ### 3-4. Phase 3.7 — pre-post edit (all stages)
 

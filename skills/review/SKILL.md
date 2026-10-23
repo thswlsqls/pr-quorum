@@ -1,7 +1,7 @@
 ---
 name: review
-description: Runs a pr-quorum review (stage1–3). Arguments — <stage> <repo-name> <PR-number> [--round N] [--approve]
-argument-hint: <stage> <repo-name> <PR-number> [--round N] [--approve]
+description: Runs a pr-quorum review (stage1–3). Arguments — <stage> <repo-name> <PR-number> [--round N] [--max-rounds N] [--approve]
+argument-hint: <stage> <repo-name> <PR-number> [--round N] [--max-rounds N] [--approve]
 disable-model-invocation: true
 ---
 
@@ -158,9 +158,11 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh unlock $1 $2
 ```
 End of round NN
  ├ S1–S3 met            → 4-5 pre-post edit → post and end the session
- ├ not met & NN < 5     → write prompts/round-(NN+1).md and continue in the same session
- └ not met & NN = 5     → list the unmet items in the summary → 4-5 pre-post edit → post
+ ├ not met & NN < cap   → write prompts/round-(NN+1).md and continue in the same session
+ └ not met & NN = cap   → list the unmet items in the summary → 4-5 pre-post edit → post
 ```
+
+The cap is N from `--max-rounds N` (the chain passes it from `limits.stage1.max_rounds`), or 5 when it is not given.
 
 **Whichever way it ends, go through 4-5 right before posting.**
 
