@@ -2,7 +2,16 @@
   "owner": "your-github-login",
   "bot": "your-bot-login",
   "auto_merge": false,
+  "trust": { "authors": [], "associations": ["OWNER"] },
   "repos": {
-    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "backend" }
-  }
+    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "backend", "owner": "your-github-login",
+                   "commands": { "build": "./gradlew <target>:build", "test": "./gradlew <target>:test", "lint": "./gradlew <target>:check" } }
+  },
+  "limits": {
+    "stage1": { "max_rounds": 3, "budget_usd": 25, "timeout_min": 120 },
+    "stage2": { "budget_usd": 12, "timeout_min": 45 },
+    "stage3": { "budget_usd": 12, "timeout_min": 45 },
+    "author": { "budget_usd": 3, "timeout_min": 20 }
+  },
+  "models": { "session": null, "subagent": null }
 }

@@ -27,12 +27,16 @@ A global Jackson `Long`→`String` serializer protects precision on the frontend
 
 **Tests run under the `local` profile** (the `jvmArgs` in the root `build.gradle` enforce it). KST and UTF-8 are enforced in the same place.
 
-**Build commands**
+**Build commands** — sessions run them only through `pr-quorum.sh build <repo> <PR-number> <worktree> build|test [target]`,
+with `repos.<repo>.commands` in `~/.pr-quorum/config.json` set to `"build": "./gradlew <target>:build"` and `"test": "./gradlew <target>:test"`.
+The target is the module, e.g. `:api-auth`, which runs:
 ```bash
 ./gradlew :api-auth:build
 ./gradlew :api-auth:test
-./gradlew :api-chatbot:test --tests '*ChatServiceTest'
 ```
+
+**Worktree folder** — `tools/pipeline/impl-config.yml` uses the same `<repo>-worktrees/` parent folder as the review worktrees (`rules/01-stages.md` §5-1).
+The leaf name `pr-quorum-` is the only distinction, so check that the impl pipeline's cleanup does not delete those folders.
 
 > This section started from "Project Context You Must Internalize" in `.claude/agents/code-review-kr.md`.
 > **That agent's severity scale (`심각/높음/중간/낮음`) is not used** — our scale is the four grades `critical`/`major`/`minor`/`nit`.
@@ -359,5 +363,8 @@ And tests are code that has to be maintained too.
 | Number of `@SpringBootTest` | 1, `@Disabled` | `grep -rl '@SpringBootTest' --include='*.java' .` | 2026-08-20 | — |
 | Local infrastructure | **No** Redis or MongoDB (only kafka · 4 mysql · observability stack) | `grep -iE 'redis\|mongo' docker-compose.yml` | 2026-08-20 | This command cannot see remote dependencies such as Atlas or ElastiCache |
 | Tracked design documents | 5 of 12 local | `git ls-files docs/reference/design/` | 2026-08-20 | Untracked documents cannot be used as grade-A evidence |
+
+**Stage 3 measurements** — `test` and `build` of the affected module through `pr-quorum.sh build`, and `EXPLAIN` on the problem query.
+`docker-compose.yml` has neither Redis nor MongoDB, so checking that a service runs is `not measured` unless both are available.
 
 **When you update the baseline, update the measurement date with it.** If only the value changes, no one can tell when it was measured.

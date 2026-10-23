@@ -179,7 +179,8 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 - macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the launchd watcher example is macOS-specific. Native Windows (PowerShell, cmd) is not supported
 - [Claude Code](https://code.claude.com/docs), `gh` logged in with your own account, `jq`, `git`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
-- Personal repositories you own. PRs opened by anyone else are skipped
+- Repositories on github.com. GitHub Enterprise Server and ghe.com are not supported
+- By default only PRs opened by the repository owner run; others are skipped. To run teammates' PRs, list them in `trust.authors` or `trust.associations`, and for an organization's repository set `repos.<name>.owner` ([Setup §3](#3-pr-quorumconfigjson)). A trusted author's PR description and diff reach sessions that push and merge under your gh account, so trust only people you would let do that
 
 ## Installation
 
@@ -221,9 +222,9 @@ Where pr-quorum keeps its files:
 
 Create your own GitHub bot account; there is no shared bot.
 
-- Invite it to each repository as a **collaborator with read**. That is enough to receive review requests.
-- Create a PAT for it with scope `public_repo`.
-- Keep it at read. `public_repo` can write to public repositories, so raising the bot to write lets this token push.
+- Invite it to each repository as a **collaborator with read**, then accept the invitation (sign in as the bot). That is enough to receive review requests.
+- Create a PAT for it: a classic token with scope `public_repo` for public repositories. For a private repository the bot is a collaborator on, use scope `repo`; outside collaborators can only use classic tokens.
+- Keep it at read. Both scopes can write to repositories the bot has write access to, so raising the bot to write lets this token push.
 
 The bot only posts reviews and comments. It never approves or requests changes.
 
@@ -249,10 +250,17 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 | Key | Meaning |
 |---|---|
-| `owner` | Your GitHub login. The watcher looks for review requests in this owner's repositories |
+| `owner` | Your GitHub login. The owner of every repository under `repos` that does not set its own; the watcher looks for review requests in each owner's repositories |
 | `bot` | The bot login from step 1. Must match the token's account |
 | `auto_merge` | Whether the chain merges a PR that passed both gates. Default `false`: the chain stops at `ready` |
+| `trust` | Whose PRs run the chain: `authors` (logins) or `associations` (GitHub `author_association` values). Missing: `associations` is `["OWNER"]`. A value GitHub does not use stops the watcher and chain with exit 2; values beyond `OWNER`, `MEMBER`, `COLLABORATOR` log a warning. For an organization, prefer logins: `MEMBER` is everyone in it |
 | `repos` | Per repository name: the absolute path of its local clone (`path`) and the profile to use (`profile`) |
+| `repos.<name>.owner` | The repository's GitHub owner, a user or an organization. Missing: the top-level `owner` |
+| `repos.<name>.commands` | The `build`, `test`, and `lint` commands sessions run in a PR worktree; `<target>` in a command is filled in per run. Missing: `./gradlew [<target>:]build` and `test` in a Gradle worktree, otherwise `npm run build`, `npm run lint`, and `npx --no -- tsc --noEmit` as the test. A kind with no command is recorded as `not measured` |
+| `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
+| `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: Claude Code's default |
+
+All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 are optional; without them the chain behaves as before. The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
 `learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
@@ -265,6 +273,8 @@ cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
 The samples ([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md)) were written for a Spring Boot backend and a Next.js frontend.
+
+Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json`, each repository's path and profile, the gh login, the token file's mode and account, the bot's invitation) and exits 2 if any line is `FAIL`. It reads only and posts nothing.
 
 ### 5. Watcher (optional)
 
@@ -332,7 +342,7 @@ The chain ends in one of these states (`chain.state`):
 | `merged` | Passed both gates with `auto_merge: true` | Nothing |
 | `ready` | Passed both gates; `auto_merge` is off | Merge it yourself |
 | `needs-human` | Risk is `medium` or higher, or Stage 3 found missed `critical`/`major` defects | Review and decide yourself. The risk scorecard is on the PR |
-| `blocked` | Merge gate failed, a merge conflict, a session left no record, or the head moved | Read `chain.reason`, fix the cause, then run the chain again |
+| `blocked` | Merge gate failed, a merge conflict, a session left no record, a session hit its `limits` budget or time cap, or the head moved | Read `chain.reason`, fix the cause, then run the chain again. The bot also posts the reason and the command to resume once as a comment on the PR |
 
 ### Run the chain by hand
 
@@ -370,8 +380,21 @@ PRs over 50 changed files or 3,000 changed lines are held as `held-large`. To re
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | Summarizes learning candidates from past runs into `~/.pr-quorum/runs/_dream/<time>/proposal.md`. You decide what goes into `learnings.md` |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | Lists the risk score of the last N merged PRs (default 30) next to any fix or revert within 14 days, to tune the auto-merge threshold |
 | `<plugin-dir>/scripts/selftest.sh` | After changing a gate script. Re-runs the gates on past outputs without an LLM |
+| `<plugin-dir>/scripts/doctor.sh` | After setup or a `config.json` change, or when the watcher stops picking up requests. Read-only; exits 2 on any `FAIL` |
 
 For the marketplace install, `claude plugin update pr-quorum@pr-quorum` picks up a release when `version` goes up. Changes are in [`CHANGELOG.md`](CHANGELOG.md).
+
+## Troubleshooting
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| Watcher log: `error — search failed (<owner>): …` | The search with the bot token failed: an expired or revoked token, a rate limit, or the network. The watcher exits 2 rather than read it as no requests | Run `doctor.sh`. Replace the token in `bot.env`, or wait out the rate limit |
+| Watcher log: `warning — search for <owner> hit --limit 100` | More than 100 open review requests to the bot under one owner | Requests past 100 may be missed. Remove the bot from stale PRs |
+| `doctor.sh` prints `FAIL — …` | A prerequisite is missing. Each line names what to fix | Fix it and run `doctor.sh` again until it prints `doctor — all checks passed` |
+| `blocked` with `budget cap $… reached` or `wall-clock cap of … min reached` | A session hit `limits.<step>.budget_usd` or `timeout_min`. It is not retried | Raise the limit and run `chain.sh <repo> <pr>` again. A Stage 1 lock left by the stopped session clears once its process is gone or after 3 hours; to release it now, run `<plugin-dir>/scripts/pr-quorum.sh unlock <repo> <pr>` |
+| Stage 3 reports the build or tests as `not measured` | No command for that kind: `repos.<name>.commands` lacks it, or there is no `commands` and the worktree has neither `gradlew` nor `package.json` (Gradle has no default lint) | Set `repos.<name>.commands.build`, `test`, `lint` |
+| Watcher log: `skip <repo>#<pr> — author is not trusted (<login>, <association>)`, or `chain.sh` exits 3 with the same reason | The PR's author is in neither `trust.authors` nor `trust.associations` | Add the login to `trust.authors` if you trust that person |
+| A script exits 2 with `GH_HOST=… — pr-quorum supports only github.com` | `GH_HOST` is set to a host other than github.com | Unset `GH_HOST` in the environment the watcher and chain run in |
 
 ## Security
 
@@ -394,7 +417,10 @@ Not shown: the token deny matches only commands that name the file, Stage 3 buil
 
 Other safeguards:
 
-- Only PRs opened by the repository owner run. The watcher filters them and `chain.sh` checks again.
+- Only PRs from trusted authors run: the repository owner by default, plus anyone in `trust.authors` or `trust.associations`. Trust comes only from `config.json` and the GitHub API. The watcher filters PRs and `chain.sh` checks again. A trusted author's PR text reaches sessions that push and merge under your account, so the trust list is the boundary.
+- Sessions cannot call build tools directly. Builds and tests run only through `pr-quorum.sh build` (review: a clean worktree at a SHA the PR pinned) and `pr-quorum.sh author-build` (the author's worktree), which run the command from `repos.<name>.commands` or the Gradle/npm default.
+- Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token pattern or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff.
+- Sessions cannot edit `meta.json`, which the merge gate reads. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
 
 ## Contributing

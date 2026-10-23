@@ -38,7 +38,7 @@ Axis definitions and each judge's "look at / do not look at" are in `profiles/<p
 | **I-3** | **Claim exceeds its source grade.** A claim beyond what the A–D grades in §4 allow is invalid. In particular, use **grade B (official docs) only where the quoted text alone supports the conclusion**. Do not quote from memory | invalid |
 | **I-4** | **On the frozen list.** To overturn a fact settled in `runs/<…>/frozen.md`, you must give *new evidence that the settlement was wrong* | invalid |
 | **I-5** | **Belongs to another axis.** Follow each axis's "do not look at" in the profile | invalid |
-| **I-6** | **Taste without grounds.** If `CLAUDE.md` or the eslint config supports it, it can be `suggestion` or higher. Pure preference with no grounds goes up to `nitpick` at most | grade cap |
+| **I-6** | **Taste without grounds.** If `CLAUDE.md` or the linter config (e.g. eslint, ruff, golangci-lint, clippy) supports it, it can be `suggestion` or higher. Pure preference with no grounds goes up to `nitpick` at most | grade cap |
 | **I-7** | **Something the file never set out to contain.** Follow the adjustment table by file type in §5 | invalid |
 | **I-8** | **The author can show it is an equivalent alternative.** If data or engineering grounds show the two are equivalent, accept the author's preference | invalid |
 
@@ -105,8 +105,8 @@ Only lower the grade — since we use no deduction numbers, the original's "bott
 
 | Grade | What | How far you can claim |
 |---|---|---|
-| **A** | Repository norm documents — `CLAUDE.md` · `README.md` · `settings.gradle`·`build.gradle` · tracked `docs/reference/design/` | Use as evidence as-is |
-| **B** | Official docs — Spring Boot / Next.js / Redis / Kafka docs looked up through the context7 MCP | **Only where the quoted text alone supports the conclusion.** No quoting from memory |
+| **A** | Repository norm documents — `CLAUDE.md` · `README.md` · build definitions (e.g. `settings.gradle`·`build.gradle`·`pom.xml`·`pyproject.toml`·`go.mod`·`Cargo.toml`) · tracked `docs/reference/design/` | Use as evidence as-is |
+| **B** | Official docs — docs of the frameworks and libraries the PR uses (e.g. Spring Boot, Next.js, Redis, Kafka) looked up through the context7 MCP | **Only where the quoted text alone supports the conclusion.** No quoting from memory |
 | **C** | Code fact — `file:line` | Up to a statement of fact. The size of the impact is a separate claim |
 | **D** | Measurement — a command written together with its output | Strongest evidence |
 
@@ -126,7 +126,7 @@ Write `not measured` for anything you did not measure. Do not dress up a guess a
 | Production code | All axes | — |
 | Tests | Mainly R-G; R-H · R-I possible | R-C·R-E·R-D inside test files |
 | Design docs (`docs/`·`README.md`) | Mainly R-A; R-B if it disagrees with the code | R-G·R-E·R-C |
-| Config (`build.gradle`·`docker-compose.yml`·`package.json`) | R-F · R-H · R-I | R-A·R-B·R-C |
+| Config (e.g. `build.gradle`·`pom.xml`·`pyproject.toml`·`go.mod`·`Cargo.toml`·`package.json`·`docker-compose.yml`) | R-F · R-H · R-I | R-A·R-B·R-C |
 
 This table is also used as-is for the "applicable axis" call in Stage 1 exit condition S1 —
 if the PR only touched config files, R-A·R-B·R-C were never applicable axes.

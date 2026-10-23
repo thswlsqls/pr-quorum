@@ -4,20 +4,20 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
-OWNER="$(cfg .owner)"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WINDOW_DAYS=14
 
 [ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: risk-audit.sh <repo> [number of recent merged PRs, default 30]" >&2; exit 1; }
 REPO="$1"; LIMIT="${2:-30}"
+SLUG="$(repo_slug "$REPO")" || exit 2
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
-gh pr list --repo "$OWNER/$REPO" --state merged --limit "$LIMIT" --json number,title,mergedAt > "$TMP/prs.json"
+gh pr list --repo "$SLUG" --state merged --limit "$LIMIT" --json number,title,mergedAt > "$TMP/prs.json"
 
 # Score each PR and attach its list of non-document files for the overlap comparison
 for n in $(jq -r '.[].number' "$TMP/prs.json"); do
-  gh api --paginate "repos/$OWNER/$REPO/pulls/$n/files" | jq -s 'add // []' > "$TMP/files.json"
+  gh api --paginate "repos/$SLUG/pulls/$n/files" | jq -s 'add // []' > "$TMP/files.json"
   auto="false"
   m="$PR_QUORUM_HOME/runs/$REPO-pr$n/meta.json"
   [ -f "$m" ] && [ "$(jq -r '.chain.state // empty' "$m")" = "merged" ] && auto="true"
