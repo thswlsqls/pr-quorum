@@ -189,7 +189,7 @@ launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once`
 
 Linux(클라우드 VM, Windows 의 WSL2)에서는 launchd 대신 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 돌린다. `caffeinate` 는 macOS 전용이니 뺀다.
 
-브라우저가 없는 머신에서는 `gh auth login` 이 일회용 device code 를 내주고, personal access token 을 `gh auth login --with-token` 에 파이프로 넘겨도 된다. Claude Code 는 `claude` 를 한 번 실행하고 요청이 오면 로그인 코드를 붙여 넣어 로그인한다. Linux 는 이 로그인을 `~/.claude/.credentials.json` 에 두고, cron 과 systemd 작업도 이 파일을 읽는다. `claude setup-token` 토큰을 `CLAUDE_CODE_OAUTH_TOKEN` 에 넣어도 되지만, 그러면 체인이 띄우는 모든 세션과 빌드가 이 변수를 물려받는다.
+브라우저가 없는 머신에서는 `gh auth login` 이 일회용 device code 를 내주고, personal access token 을 `gh auth login --with-token` 에 파이프로 넘겨도 된다. Claude Code 는 `claude` 를 한 번 실행하고 요청이 오면 로그인 코드를 붙여 넣어 로그인한다. Linux 는 이 로그인을 `~/.claude/.credentials.json` 에 두므로, cron 과 systemd 작업도 이 파일을 읽을 수 있다. `claude setup-token` 토큰을 `CLAUDE_CODE_OAUTH_TOKEN` 에 넣어도 되지만, 그러면 체인이 띄우는 모든 세션과 빌드가 이 변수를 물려받는다.
 
 launchd 는 watcher 가 체인을 돌리는 동안 다시 띄우지 않지만 cron 은 띄우므로, `flock -n` 으로 감싼다. 감싸지 않으면 다음 주기의 watcher 가 돌고 있는 PR 과 동시에 다음 PR 을 시작한다. 그 주기가 돌고 있는 PR 의 Stage 1 리뷰가 게시되기 전, 어떤 세션도 그 PR 의 락을 잡고 있지 않은 때에 걸리면 그 PR 에도 체인을 하나 더 띄우고 시도 횟수를 하나 더 센다. 그러면 실제로는 한 번 시도한 PR 이 `held-failed` 로 멈출 수 있다. plist 와 마찬가지로 cron 이 `claude`, `gh`, `jq`, `git` 을 찾도록 `PATH` 를 지정한다. cron 은 `NAME=value` 줄에서 `$HOME` 같은 변수를 펼치지 않는다.
 
