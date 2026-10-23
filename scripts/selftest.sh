@@ -97,10 +97,22 @@ mkdir -p "$STUB/bin"
 cat > "$STUB/bin/gh" <<'GH'
 #!/usr/bin/env bash
 S="$STUB_STATE"; echo "$*" >> "$S/calls.log"
+# take <file>: one injected result per line, each call consumes one — "ok" lets that call through, anything else is its error
+take() {
+  [ -s "$S/$1" ] || return 0
+  local l; l="$(head -1 "$S/$1")"; tail -n +2 "$S/$1" > "$S/t"; mv "$S/t" "$S/$1"
+  [ "$l" = ok ] || { echo "$l" >&2; exit 1; }
+}
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
   search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
-  pr) case "$3" in 1) echo MERGED ;; 2) echo CLOSED ;; 3) echo OPEN ;; *) echo "HTTP 404: Not Found" >&2; exit 1 ;; esac; exit 0 ;;
+  pr)
+    # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup
+    if [ -e "$S/chain" ]; then
+      case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) echo OPEN ;; esac
+      exit 0
+    fi
+    case "$3" in 1) echo MERGED ;; 2) echo CLOSED ;; 3) echo OPEN ;; *) echo "HTTP 404: Not Found" >&2; exit 1 ;; esac; exit 0 ;;
   api) shift ;;
   *) exit 1 ;;
 esac
@@ -111,9 +123,8 @@ done
 out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
-    # fail-pr: one error message per line, each call consumes one
-    if [ -s "$S/fail-pr" ]; then head -1 "$S/fail-pr" >&2; tail -n +2 "$S/fail-pr" > "$S/t"; mv "$S/t" "$S/fail-pr"; exit 1; fi
-    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0}' | out ;;
+    take fail-pr
+    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -128,10 +139,14 @@ case "$path" in
   */pulls/1/comments)
     [ ! -e "$S/fail-comments" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     cat "$S/comments.json" ;;
+  */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
   *) echo "HTTP 404: Not Found" >&2; exit 1 ;;
 esac
 GH
 chmod +x "$STUB/bin/gh"
+# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH
+printf '#!/usr/bin/env bash\necho "claude $*" >> "$STUB_STATE/calls.log"; exit 1\n' > "$STUB/bin/claude"
+chmod +x "$STUB/bin/claude"
 
 stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/demo-pr1 with a stage1 draft that passes PG1 and PG5
   rm -rf "$STUB/home" "$STUB/state"
@@ -239,6 +254,36 @@ check "post T4 other stage's marker not adopted" t4_other_stage_marker
 check "api T5 GET retries 5xx, not 404"         t5_get_retry
 check "post T6 link at the posting copy refused" t6_posting_link_refused
 check "post T7 stage3 reposts keep earlier ids known" t7_repost_keeps_known
+
+# C1–C3 — chain.sh on a PR whose records already reach the merge gate (Stage 1 posted, Stage 2 and 3 done, two author passes,
+# the last one pushing nothing), so no session runs. A GitHub read failing at the gate must stop at blocked (exit 4) with one stop notice
+stub_chain_home() {
+  stub_home; mkdir -p "$STUB/repo/demo" "$STUB_RUN/outputs/author"; touch "$STUB/state/chain"
+  jq --arg h "$STUB_SHA" '.stage1 = [{review_id:111}] | .stage2 = [{verdicts:{}, stage_sha:$h}] | .stage3 = {comments:[]}' \
+    "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  jq -n --arg h "$STUB_SHA" '{pushed:true, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-01.json"
+  jq -n --arg h "$STUB_SHA" '{pushed:false, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-02.json"
+}
+stub_notices() { grep -c 'issues/1/comments' "$STUB/state/calls.log"; }
+chain_stop() {  # chain_stop <reason fragment> — runs the chain, expects exit 4, blocked with that reason, one notice in total, no session
+  local rc=0 out
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_meta '.chain.state')" = blocked ] && grep -q "$1" <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "exit $rc, state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want 4, blocked, '$1', 1)"; echo "$out"; return 1; }
+  ! grep -q '^claude' "$STUB/state/calls.log" || { echo "a session was started"; return 1; }
+}
+# C1 — the conflict check reads the PR state, the gate's own read gets a 502
+c1_gate_state_fails() { stub_chain_home; printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'; }
+# C2 — the trust check and precheck read the PR, the gate's head read gets a 404
+c2_gate_head_fails() { stub_chain_home; printf 'ok\nok\nHTTP 404: Not Found\n' > "$STUB/state/fail-pr"; chain_stop 'PR head'; }
+# C3 — C1 again on the same records: the same reason does not post a second notice
+c3_same_stop_once() {
+  c1_gate_state_fails || return 1
+  printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'
+}
+check "chain C1 gate PR-state read fails → blocked, one notice" c1_gate_state_fails
+check "chain C2 gate head read fails → blocked, one notice"     c2_gate_head_fails
+check "chain C3 same stop again posts no second notice"        c3_same_stop_once
 
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
