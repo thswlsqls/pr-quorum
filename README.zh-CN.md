@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `0b2a4ca`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `12d880f`
 
 <p align="center">
   <picture>
@@ -25,18 +25,54 @@
 | Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
 
 ```mermaid
-flowchart LR
-  C["Stage 1 → 作者修复 → Stage 2 → Stage 3<br/>→ (作者修复 → Stage 2)*"] --> MG{"合并关卡<br/>blocking 0 · regressed 0 · 无测试失败<br/>机器人评审过当前 head 吗？"}
+flowchart TD
+  RQ(["机器人被设为<br/>评审人"]) --> S1["Stage 1 ·<br/>review<br/>最多 5 轮"]
+  RQ -. "held-large:<br/>超过 50 个文件或<br/>超过 3,000 行" .-> BL[blocked]
+  S1 -. "held-large 或<br/>与 main 冲突" .-> BL
+  S1 --> A1["作者第 1 轮<br/>修复 Stage 1<br/>的评论"]
+  A1 --> S2["Stage 2 ·<br/>followup<br/>逐个讨论串<br/>给出判定"]
+  S2 --> S3["Stage 3 ·<br/>measured<br/>构建、测试、<br/>遗漏的缺陷"]
+  S3 --> A2["作者第 2 轮<br/>修复剩余问题"]
+  A2 -- "已推送" --> S2b["Stage 2 ·<br/>followup"]
+  A2 -- "无需推送" --> G(["关卡(见下)"])
+  S2b --> G
+```
+
+```mermaid
+flowchart TD
+  G(["作者循环<br/>结束后"]) --> MG{"合并关卡<br/>blocking 0<br/>regressed 0<br/>无测试失败<br/>已评审 head"}
   MG -- "否" --> B[blocked]
-  MG -- "Stage 3 P 中有 critical/major" --> H
+  MG -- "Stage 3 发现<br/>遗漏的<br/>critical/major" --> H
   MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
-  A -- true --> M[gh pr merge]
+  A -- true --> M["merged<br/>(gh pr merge)"]
   A -- "false (默认)" --> R["ready<br/>由人合并"]
-  RG -- "medium 及以上" --> H["needs-human<br/>由人评审并合并"]
+  RG -- "medium 及以上" --> H["needs-human<br/>由人评审<br/>并合并"]
 ```
 
 风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
+
+<details>
+<summary>一轮 Stage 1 的内部(评审员 → 质询者 → 核验者)</summary>
+
+```mermaid
+flowchart TD
+  subgraph J["四名评审员 · 各管一个维度 · 互不共享结果"]
+    direction LR
+    J1[评审员 1] ~~~ J2[评审员 2] ~~~ J3[评审员 3] ~~~ J4[评审员 4]
+  end
+  J --> D["按修复方式<br/>去重"]
+  D --> C["质询者<br/>复查每条<br/>critical 或<br/>major 意见"]
+  C --> DR["总结草稿<br/>+ 评论"]
+  DR --> V["三名核验者<br/>检查草稿"]
+  V --> X{"退出条件<br/>已收敛、<br/>第 5 轮，或<br/>同一处<br/>改写 4 次？"}
+  X -- "否" --> J
+  X -- "是" --> P(["发布总结<br/>+ 行内评论<br/>未收敛时<br/>列出未满足<br/>的条件"])
+```
+
+已收敛：指 [`rules/01-stages.md`](rules/01-stages.md) §4 中的退出条件。
+
+</details>
 
 ### 示例
 
@@ -107,6 +143,23 @@ git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 让这个克隆停留在 main，在另一个克隆或 worktree 中修改 harness，避免改到一半的 harness 跑真实评审。
 
 ## 配置
+
+pr-quorum 存放文件的位置：
+
+```text
+~/.config/pr-quorum/bot.env          机器人 PAT (chmod 600)
+~/.pr-quorum/
+├── config.json                      owner · bot · auto_merge · repos
+├── profiles/<profile>.md            各仓库的评审维度
+├── learnings.md                     评审会话读取的经验教训
+├── human-labels.md                  你对机器人评论的评分
+├── settings.json                    评审会话的权限(由 chain.sh 生成)
+├── author-settings.json             作者会话的权限(由 chain.sh 生成)
+└── runs/<repo>-pr<N>/               每个 PR 的状态和日志
+<parent of repo clone>/<repo>-worktrees/
+├── pr-author-<N>/                   作者的 worktree
+└── pr-quorum-<N>-<sha7>/            Stage 3 为每个 measured 提交建的 worktree
+```
 
 ### 1. 机器人账号
 
@@ -267,6 +320,21 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 ## 安全
 
 每个链路会话都以 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 运行，不在允许列表([`templates/`](templates/))中的工具一律直接拒绝。评审会话只能写入 `~/.pr-quorum/runs/` 之下，只能通过 `scripts/pr-quorum.sh` 向 GitHub 发布，且无法读取令牌文件。作者会话只通过 `scripts/author-push.sh` 推送，该脚本拒绝强制推送和其他分支。
+
+```mermaid
+flowchart LR
+  R1["评审会话<br/>Stage 1 · 2 · 3"]
+  A1["作者会话"]
+  R1 -- "通过它发布" --> PQ["scripts/<br/>pr-quorum.sh<br/>(机器人令牌)"]
+  R1 -. "仅按文件名<br/>拒绝" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "仅按文件名<br/>拒绝" .-> TOK
+  R1 -- "写入" --> RUNS["~/.pr-quorum/<br/>runs/"]
+  A1 -- "写入" --> RUNS
+  A1 -- "写入" --> WT["worktree<br/>pr-author-N/"]
+  A1 -- "推送、回复" --> AS["author-push.sh<br/>author-reply.sh<br/>你的 gh 账号<br/>禁止强制推送"]
+```
+
+图中未画出：令牌的拒绝规则只匹配点名该文件的命令；Stage 3 在自己的 worktree 中构建并测试 PR；合并关卡信任作者会话自己的报告(测试、未解决的 blocker)。
 
 其他防护：
 
