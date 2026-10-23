@@ -72,6 +72,50 @@ Converged: the exit conditions in [`rules/01-stages.md`](rules/01-stages.md) §4
 
 </details>
 
+<details>
+<summary>Inside Stage 2 (one verdict per comment)</summary>
+
+```mermaid
+flowchart TD
+  IN(["Bot comments<br/>+ fix commits"]) --> L
+  subgraph L["Four judges · one lens each"]
+    direction LR
+    L1["L1 fidelity<br/>of the fix"] ~~~ L2["L2 accuracy,<br/>regression"] ~~~ L3["L3 docs match<br/>the code"] ~~~ L4["L4 regression<br/>lock"]
+  end
+  L --> V{"Verdict per<br/>comment"}
+  V -- regressed --> C["Challenger<br/>re-checks it"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["Draft replies<br/>+ up to 3 new<br/>comments"]
+  C --> D
+  D --> P(["Reply in each<br/>thread, once"])
+```
+
+Any `regressed` verdict left blocks the merge gate. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+
+</details>
+
+<details>
+<summary>Inside Stage 3 (measure, then sort defects by origin)</summary>
+
+```mermaid
+flowchart TD
+  IN(["Fixed commit"]) --> S
+  subgraph S["In parallel"]
+    direction LR
+    J["Four judges<br/>Stage 1 axes"] ~~~ M["Build and tests<br/>in a worktree"]
+  end
+  S --> C["Challenger<br/>checks each P<br/>and critical"]
+  C --> O{"Origin of<br/>each defect"}
+  O -- "P: missed by the review" --> NP["New review<br/>comments"]
+  O -- "Q: partly fixed<br/>N: the fix caused it" --> T["Reply in the<br/>Stage 2 thread"]
+  NP --> G{"Any critical<br/>or major P?"}
+  G -- yes --> H["needs-human<br/>at the gate"]
+  G -- no --> OK(["Gates as usual"])
+```
+
+What cannot be measured is reported as `not measured`. Origin classes: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
+
+</details>
+
 ### Example
 
 A review the bot left on a real PR. The review follows the PR's language.
