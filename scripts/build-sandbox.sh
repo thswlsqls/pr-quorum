@@ -67,7 +67,7 @@ SANDBOX_SEATBELT='(version 1)
 (deny file-write* secrets (subpath (string-append (param "WT") "/.git")) (subpath (param "GITDIR"))
   (home "/.gradle") (home "/.m2") (home "/.npm") (home "/.cache") (home "/Library/Caches"))
 (allow file-write* (subpath (param "CACHE")))
-(deny file-write* (cache "/gradle/init.d") (cache "/gradle/gradle.properties"))
+(deny file-write* (cache "/gradle/init.d") (cache "/gradle/gradle.properties") (cache "/gradle/init.gradle") (cache "/gradle/init.gradle.kts"))
 (deny file-read* secrets)
 (deny mach-lookup (global-name "com.apple.SecurityServer"))
 (deny appleevent-send)
@@ -92,8 +92,17 @@ sandbox_run() {
   tmp="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
   # Resolved before ghdir exists, so a failure leaves nothing behind. Unresolvable means the rules would not match: fail closed
   cache="$home/.cache/pr-quorum-build"
-  mkdir -p "$cache/gradle" "$cache/npm" "$cache/m2" "$cache/xdg" && cache="$(sandbox_canon "$cache")" \
-    || { echo "build-sandbox: cannot resolve the cache root $cache" >&2; return 2; }
+  [ ! -L "$cache" ] && mkdir -p "$cache/gradle" "$cache/npm" "$cache/m2" "$cache/xdg" && cache="$(sandbox_canon "$cache")" \
+    || { echo "build-sandbox: cannot resolve the cache root $cache, or it is a link" >&2; return 2; }
+  # The cache root is shared by every PR's build, and Gradle runs init scripts and gradle.properties from it on every build — a file one
+  # build planted there would run in the next PR's build and could falsify its test results. Reset them on the host before every run,
+  # and refuse when one is a link (a read-only bind or deny rule of a swapped link protects the target, not the path Gradle reads)
+  for p in "$cache/gradle" "$cache/gradle/init.d" "$cache/gradle/gradle.properties" "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts"; do
+    [ ! -L "$p" ] || { echo "build-sandbox: $p is a link — a build may have planted it; remove it by hand" >&2; return 2; }
+  done
+  rm -rf "$cache/gradle/init.d" && mkdir "$cache/gradle/init.d" && : > "$cache/gradle/gradle.properties" \
+    && rm -f "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts" \
+    || { echo "build-sandbox: cannot reset the Gradle init files under $cache/gradle" >&2; return 2; }
   bot="$(sandbox_canon "${BOT_ENV:-$home/.config/pr-quorum/bot.env}")" \
     || { echo "build-sandbox: cannot resolve the folder of the bot token file ${BOT_ENV:-$home/.config/pr-quorum/bot.env}" >&2; return 2; }
   gitdir="$(cd "$wt" && cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" 2>/dev/null && pwd -P)" || gitdir="$wt/.git"
@@ -126,9 +135,9 @@ sandbox_run() {
       [ -e "$wt/.git" ] && args+=(--ro-bind "$wt/.git" "$wt/.git")
       [ -d "$gitdir" ] && args+=(--ro-bind "$gitdir" "$gitdir")
       args+=(--bind "$cache" "$cache")
-      # Gradle runs these on every build — kept empty and read-only so one build cannot plant code for the next
-      mkdir -p "$cache/gradle/init.d" && : >> "$cache/gradle/gradle.properties" || { rm -rf "$ghdir"; return 2; }
-      args+=(--ro-bind "$cache/gradle/init.d" "$cache/gradle/init.d" --ro-bind "$cache/gradle/gradle.properties" "$cache/gradle/gradle.properties")
+      # Gradle's init files in the shared cache: empty and not writable, so one build cannot plant code for the next
+      args+=(--tmpfs "$cache/gradle/init.d")
+      for p in gradle.properties init.gradle init.gradle.kts; do args+=(--ro-bind /dev/null "$cache/gradle/$p"); done
       while IFS= read -r p; do
         if [ -d "$home/$p" ]; then args+=(--tmpfs "$home/$p"); elif [ -e "$home/$p" ]; then args+=(--ro-bind /dev/null "$home/$p"); fi
       done <<<"$SANDBOX_SECRETS"
