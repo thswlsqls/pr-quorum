@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `9d15413`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `61a2022`
 
 <p align="center">
   <picture>
@@ -40,7 +40,7 @@ flowchart LR
 
 ### 示例
 
-机器人在 tech-n-ai-backend(本 harness 的起源仓库) PR #69 上留下的评审。评审文字跟随 PR 的语言。
+机器人在一个真实 PR 上留下的评审。评审文字跟随 PR 的语言。
 
 ![机器人在 PR #69 上留下的评审总结](assets/review-summary-zh-CN.png)
 
@@ -272,7 +272,7 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 - **效果未经验证。** 还没有人评判过评审是否正确(`human-labels.md` 为空)，"流程越严格评审越好"这一假设尚未检验。
 - **成本高。** 30–70 行的 PR 跑完整条链路约 $30。一个 9 个文件、约 400 行的 PR 用时约 47 分钟。这些数字来自 `total_cost_usd`，可能不含子代理的成本。
 - **只在一个后端仓库上跑过。** 前端 profile 从未运行过。
-- **风险规则贴合 tech-n-ai 的路径**(`common/security/`、`filter/`、`/api/bff/auth/` …)。开启 `auto_merge` 前，先确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 适合你的仓库。
+- **风险规则贴合最初编写时所用仓库的路径**(`common/security/`、`filter/`、`/api/bff/auth/` …)。开启 `auto_merge` 前，先确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 适合你的仓库。
 - **仅限个人仓库。** 在组织仓库中，成员开的 PR 也会被跳过。
 - **仅支持 GitHub，单台机器。** Watcher 采用轮询，机器必须开着。
 - **路径限制。** 插件路径不能含 `|` 或 `&`，`config.json` 中的仓库路径不能含 `*` 或 `[`。
