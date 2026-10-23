@@ -568,18 +568,28 @@ cmd_build() {
     esac
   fi
 
-  # The build runs PR-controlled files, so it gets an emptied environment (scripts/build-sandbox.sh). build.env_passthrough adds names
-  local pass n
-  pass="$(cfg '.build.env_passthrough // [] | .[]')"
-  for n in $pass; do
-    sandbox_env_ok "$n" || die "$E_ENV" "build.env_passthrough refuses $n (not a variable name, or looks like a credential)"
-  done
+  # The build runs PR-controlled files, so it gets an emptied environment inside an OS sandbox (scripts/build-sandbox.sh).
+  # build.sandbox: "require" (default) refuses to build without one · "off" runs as before, with the session's environment
+  local sb pass n
+  sb="$(cfg '.build.sandbox // "require"')"
+  case "$sb" in
+    off) ;;
+    require)
+      sb="$(sandbox_kind)"
+      [ -n "$sb" ] && sandbox_check "$sb" \
+        || die "$E_ENV" "sandbox unavailable (sandbox-exec on macOS, bwrap on Linux; scripts/doctor.sh checks it) — record it as not measured"
+      pass="$(cfg '.build.env_passthrough // [] | .[]')"
+      for n in $pass; do
+        sandbox_env_ok "$n" || die "$E_ENV" "build.env_passthrough refuses $n (not a variable name, or looks like a credential) — use build.sandbox \"off\" if the build needs it"
+      done ;;
+    *) die "$E_ENV" "build.sandbox must be \"require\" or \"off\": $sb" ;;
+  esac
 
   echo "pr-quorum: running in $real: $c" >&2
   # The command's own exit code and output pass through as-is
   local rc=0
   # shellcheck disable=SC2086  # pass holds checked variable names, one per word
-  sandbox_run env "$top" "$real" "$c" ${pass:-} || rc=$?
+  sandbox_run "$sb" "$top" "$real" "$c" ${pass:-} || rc=$?
   return "$rc"
 }
 
