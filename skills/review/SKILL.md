@@ -50,6 +50,7 @@ Use `init $1 $2 --reset-eval` only when re-running Stage 1 on a new head.
 - With `--auto` (chain), the chain has already checked the large-PR cutoff. Do not run it again.
   Run `precheck` only when a human called Stage 1 on its own. If the PR hits the large-PR cutoff and there is no `--approve`,
   set `status` to `held-large`, leave a one-line comment on the PR **once only**, and finish.
+  Post it with `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh comment $1 $2 <file under runs/> large-<head SHA first 7>` — the key keeps a rerun from posting it twice.
 
 ### 2. Pin the SHA
 
