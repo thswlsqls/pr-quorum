@@ -135,7 +135,9 @@ out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
     take fail-pr
-    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
+    # fork (F1–F3): its content (alice/demo, or null for a deleted fork) replaces head.repo
+    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' \
+      | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -306,6 +308,24 @@ c4_conflict_check_fails() { stub_chain_home; printf 'HTTP 502: Bad Gateway\n' > 
 check "chain C3 same stop again posts no second notice"        c3_same_stop_once
 check "chain C4 conflict-check read fails → blocked, one notice" c4_conflict_check_fails
 
+# F1–F3 — chain.sh on a fork PR with no Stage 1 record: it stops at held-fork (exit 3) with one fork notice and no session
+fork_stop() {  # fork_stop <head.repo> — runs the chain on a fresh fake HOME with that head repository
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo "$1" > "$STUB/state/fork"
+  fork_again
+}
+fork_again() {  # runs the chain again on the same records, with the same expectations
+  local rc=0 out
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  ! grep -q '^claude' "$STUB/state/calls.log" || { echo "a session was started"; echo "$out"; return 1; }
+  [ "$rc" = 3 ] && [ "$(stub_meta '.status')" = held-fork ] && [ "$(stub_meta '.chain.state')" = blocked ] \
+    && grep -q fork <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "exit $rc, status $(stub_meta '.status'), state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want 3, held-fork, blocked, 'fork', 1)"; echo "$out"; return 1; }
+}
+f3_fork_again_once() { fork_stop alice/demo || return 1; fork_again; }
+check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alice/demo
+check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
+check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
+
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
   local wt
@@ -367,7 +387,7 @@ d2_repo_404() {
   out="$(stub_doctor)"
   grep -q 'FAIL — demo repository acme/demo not found' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" || { echo "404: $out"; return 1; }
   touch "$STUB/state/fail-repo"; out="$(stub_doctor)"
-  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not found\|not a collaborator' <<<"$out" \
+  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'repository acme/demo not found\|not a collaborator' <<<"$out" \
     || { echo "502: $out"; return 1; }
 }
 d2b_collaborator_error() {
