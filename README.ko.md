@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `5aefd06`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `294c1a6`
 
 <p align="center">
   <picture>
@@ -26,17 +26,31 @@ PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다
 
 ```mermaid
 flowchart TD
-  RQ(["봇을 리뷰어로<br/>지정"]) --> S1["Stage 1 ·<br/>review<br/>최대 5라운드"]
+  RQ(["봇을 리뷰어로<br/>지정"]) --> S1
   RQ -. "held-large:<br/>파일 50개 초과 또는<br/>3,000줄 초과" .-> BL[blocked]
+  subgraph S1["Stage 1 · review · 최대 5라운드"]
+    direction LR
+    S1a["위원 4인이<br/>동시에"] --> S1b["반박자"] --> S1c["검증자 셋"]
+  end
   S1 -. "held-large 또는<br/>main 과 충돌" .-> BL
   S1 --> A1["저자 1차 반영<br/>Stage 1<br/>코멘트를 고침"]
-  A1 --> S2["Stage 2 ·<br/>followup<br/>스레드마다<br/>판정"]
-  S2 --> S3["Stage 3 ·<br/>measured<br/>빌드·테스트,<br/>놓친 결함"]
+  A1 --> S2
+  subgraph S2["Stage 2 · followup"]
+    direction LR
+    S2a["관점 4개"] --> S2b["코멘트마다<br/>판정"] --> S2c["스레드마다<br/>답함"]
+  end
+  S2 --> S3
+  subgraph S3["Stage 3 · measured"]
+    direction LR
+    S3a["위원·빌드·<br/>테스트"] --> S3b["결함을<br/>출처별로 나눔"] --> S3c["P: 새<br/>코멘트"]
+  end
   S3 --> A2["저자 2차 반영<br/>남은 것을<br/>고침"]
-  A2 -- "push 함" --> S2b["Stage 2 ·<br/>followup"]
+  A2 -- "push 함" --> S2x["Stage 2<br/>다시"]
   A2 -- "push 할 것 없음" --> G(["게이트 (아래)"])
-  S2b --> G
+  S2x --> G
 ```
+
+스테이지마다 자세한 흐름은 아래 접힌 절에 그려 두었다.
 
 ```mermaid
 flowchart TD

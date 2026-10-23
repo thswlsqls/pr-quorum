@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `5aefd06`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `294c1a6`
 
 <p align="center">
   <picture>
@@ -26,17 +26,31 @@
 
 ```mermaid
 flowchart TD
-  RQ(["机器人被设为<br/>评审人"]) --> S1["Stage 1 ·<br/>review<br/>最多 5 轮"]
+  RQ(["机器人被设为<br/>评审人"]) --> S1
   RQ -. "held-large:<br/>超过 50 个文件或<br/>超过 3,000 行" .-> BL[blocked]
+  subgraph S1["Stage 1 · review · 最多 5 轮"]
+    direction LR
+    S1a["四名评审员<br/>并行评审"] --> S1b["质询者"] --> S1c["三名<br/>核验者"]
+  end
   S1 -. "held-large 或<br/>与 main 冲突" .-> BL
   S1 --> A1["作者第 1 次修复<br/>Stage 1<br/>的评论"]
-  A1 --> S2["Stage 2 ·<br/>followup<br/>逐个讨论串<br/>给出判定"]
-  S2 --> S3["Stage 3 ·<br/>measured<br/>构建、测试、<br/>遗漏的缺陷"]
+  A1 --> S2
+  subgraph S2["Stage 2 · followup"]
+    direction LR
+    S2a["四个视角"] --> S2b["逐条评论<br/>给出判定"] --> S2c["在每个<br/>讨论串回复"]
+  end
+  S2 --> S3
+  subgraph S3["Stage 3 · measured"]
+    direction LR
+    S3a["评审员、构建、<br/>测试"] --> S3b["按来源<br/>归类缺陷"] --> S3c["P：新的<br/>评审评论"]
+  end
   S3 --> A2["作者第 2 次修复<br/>剩余问题"]
-  A2 -- "已推送" --> S2b["Stage 2 ·<br/>followup"]
+  A2 -- "已推送" --> S2x["再次进入<br/>Stage 2"]
   A2 -- "无需推送" --> G(["关卡(见下)"])
-  S2b --> G
+  S2x --> G
 ```
+
+各阶段的细节画在下方的折叠区块中。
 
 ```mermaid
 flowchart TD
