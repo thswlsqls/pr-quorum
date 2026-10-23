@@ -82,7 +82,7 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 
 ## Requirements
 
-- macOS (the watcher example uses launchd; the scripts are bash)
+- macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the launchd watcher example is macOS-specific. Native Windows (PowerShell, cmd) is not supported
 - [Claude Code](https://code.claude.com/docs), `gh` logged in with your own account, `jq`, `git`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
 - Personal repositories you own. PRs opened by anyone else are skipped
@@ -185,6 +185,16 @@ The watcher polls every 60 seconds for review requests to the bot. Without it, r
 
 To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher handles one PR at a time; requests made while the machine was off are picked up when it comes back.
 
+On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only. launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n` to keep one PR at a time. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`:
+
+```
+# crontab -e
+PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+```
+
+A systemd timer (`OnUnitActiveSec=60`) starting a `Type=oneshot` service needs no `flock`: the timer does not start the service while it is still active. On a VM without a browser, log in `gh` and Claude Code with tokens (`gh auth login --with-token`, `claude setup-token`). On WSL2, cron and systemd run only while the WSL VM is up, and systemd must be enabled in `/etc/wsl.conf`.
+
 ## Usage
 
 `<repo>` below is a repository name under `repos` in `config.json`, and `<pr>` is the PR number.
@@ -273,6 +283,7 @@ Enabling Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to 
 - **Risk rules are fitted to the repository they were written for** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
 - **Personal repositories only.** In an organization, PRs from members are skipped too.
 - **GitHub only, one machine.** The watcher polls, so the machine must be on.
+- **Run on macOS only.** The Linux and WSL2 watcher setups follow from the scripts but have not been run.
 - **Path restrictions.** The plugin path must not contain `|` or `&`, and repository paths in `config.json` must not contain `*` or `[`.
 - Script-generated scorecards and notices are in English; review text follows the PR's language.
 
