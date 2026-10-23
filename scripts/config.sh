@@ -12,12 +12,20 @@ cfg() {
 
 # render_settings <plugin root> <template name> — fills the placeholders in templates/<name> and writes $PR_QUORUM_HOME/<name>.
 # Permission rules have no variable substitution, so this is rebuilt on every run. Rules like /runs/** resolve relative to ~/.pr-quorum/, where this file lives.
-# __AUTHOR_WORKTREES__ is replaced, for each repository in config.json, with an Edit allow rule for <parent of path>/<name>-worktrees/pr-author-*
+# __AUTHOR_WORKTREES__ is replaced, for each repository in config.json, with an Edit allow rule for <parent of path>/<name>-worktrees/pr-author-*.
+# __REVIEW_WORKTREE_ADD__ · __AUTHOR_WORKTREE_ADD__ become git worktree add allow rules pinned to that same <name>-worktrees/ folder
+# (the templates also deny any worktree path with ..), so a session cannot check PR content out anywhere else
 render_settings() {
   local wt
-  wt="$(cfg -c '[.repos | to_entries[] | "Edit(/\(.value.path | sub("/+$"; "") | sub("/[^/]*$"; ""))/\(.key)-worktrees/pr-author-*/**)"]')"
+  wt="$(cfg -c '[.repos | to_entries[] | (.value.path | sub("/+$"; "") | sub("/[^/]*$"; "")) as $p
+    | {edit: "Edit(/\($p)/\(.key)-worktrees/pr-author-*/**)",
+       review: "Bash(git worktree add --detach \($p)/\(.key)-worktrees/*)",
+       author: "Bash(git worktree add \($p)/\(.key)-worktrees/pr-author-*)"}]')"
   sed "s|__PLUGIN_ROOT__|$1|g" "$1/templates/$2" \
-    | jq --argjson wt "$wt" '.permissions.allow |= [.[] | if . == "__AUTHOR_WORKTREES__" then $wt[] else . end]' \
+    | jq --argjson wt "$wt" '.permissions.allow |= [.[]
+        | if . == "__AUTHOR_WORKTREES__" then $wt[].edit
+          elif . == "__REVIEW_WORKTREE_ADD__" then $wt[].review
+          elif . == "__AUTHOR_WORKTREE_ADD__" then $wt[].author else . end]' \
     > "$PR_QUORUM_HOME/$2"
 }
 

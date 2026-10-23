@@ -57,12 +57,12 @@ A reply that contains only `praise` and ``Verdict: `addressed` `` with no new re
 
 ```bash
 git fetch origin <headRefName>
-git worktree add ../$0-worktrees/pr-author-$1 origin/<headRefName>   # only if it does not exist
+git worktree add <absolute path of the working folder's parent>/$0-worktrees/pr-author-$1 origin/<headRefName>   # only if it does not exist
 cd <absolute path of the working folder's parent>/$0-worktrees/pr-author-$1
 git checkout --ignore-other-worktrees -B <headRefName> origin/<headRefName>
 ```
 
-Do not chain `cd` and `git checkout` on one line; call them separately, in order. `cd … && git …` chains are denied by permissions,
+Permissions allow `git worktree add` only to that absolute path (no `..`). Do not chain `cd` and `git checkout` on one line; call them separately, in order. `cd … && git …` chains are denied by permissions,
 and if you call them in parallel, `git` runs in the main tree. `--ignore-other-worktrees` keeps it from failing when an impl pipeline worktree
 already has the same branch checked out — changing that worktree is outside your permissions.
 

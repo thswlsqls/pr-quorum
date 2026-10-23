@@ -22,7 +22,7 @@
       "Bash(gh search:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git worktree add:*)",
+      "__AUTHOR_WORKTREE_ADD__",
       "Bash(git worktree list:*)",
       "Bash(git checkout:*)",
       "Bash(cd:*)",
@@ -50,6 +50,7 @@
       "Bash(git rev-parse:*)"
     ],
     "deny": [
+      "Bash(git worktree add *..*)",
       "Bash(git diff *--output*)",
       "Bash(git log *--output*)",
       "Bash(git show *--output*)",

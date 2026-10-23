@@ -37,7 +37,7 @@
       "Bash(gh search:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
-      "Bash(git worktree add:*)",
+      "__REVIEW_WORKTREE_ADD__",
       "Bash(git worktree list:*)",
       "Bash(grep:*)",
       "Bash(wc:*)",
@@ -59,6 +59,7 @@
       "Bash(gh pr checks:*)"
     ],
     "deny": [
+      "Bash(git worktree add *..*)",
       "Bash(git diff *--output*)",
       "Bash(git log *--output*)",
       "Bash(git show *--output*)",
