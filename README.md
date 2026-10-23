@@ -2,7 +2,12 @@
   <strong>English</strong> | <a href="./README.ko.md">한국어</a> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-# pr-quorum
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="pr-quorum" width="240">
+  </picture>
+</p>
 
 A Claude Code plugin that splits a GitHub PR review across several Claude sessions, re-checks and re-measures after the author addresses the review, and uses a risk score to decide whether to merge.
 Assigning the bot account as a reviewer on a PR starts the review, and the review is posted like a human reviewer's: one summary plus inline comments attached to lines of code.
