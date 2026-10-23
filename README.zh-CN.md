@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `87737b7`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `8b40b7f`
 
 <p align="center">
   <picture>
@@ -262,7 +262,7 @@ Profile 定义评审维度，以及每名评审员看什么、不看什么。复
 cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
-样例([`backend.md`](examples/profiles/backend.md)、[`frontend.md`](examples/profiles/frontend.md))是为 Spring Boot 后端和 Next.js 前端写的。
+样例([`backend.md`](examples/profiles/backend.md)、[`frontend.md`](examples/profiles/frontend.md))是为 Spring Boot 后端和 Next.js 前端写的。其他技术栈请从 [`generic.md`](examples/profiles/generic.md) 开始，填好其中的 `<fill in>` 行；只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
 然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json`、每个仓库的路径和 profile、gh 登录、令牌文件的权限和账号、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。它只读取，不发布任何内容。
 

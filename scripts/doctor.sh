@@ -33,8 +33,18 @@ command -v jq >/dev/null || finish   # everything below reads config.json with j
 # 2) config.json and its required keys
 if err="$(cfg empty 2>&1)"; then ok "config.json parses"; else bad "$err"; finish; fi
 for k in owner bot; do
-  if [ -n "$(cfg ".$k // empty | strings")" ]; then ok "config $k = $(cfg ".$k")"; else bad "config.json has no $k — set it (README Setup §3)"; fi
+  v="$(cfg ".$k // empty | strings")"
+  case "$v" in
+    "") bad "config.json has no $k — set it (README Setup §3)" ;;
+    your-github-login|your-bot-login) ;;   # reported with the other template values below
+    *) ok "config $k = $v" ;;
+  esac
 done
+# Values copied from templates/config.json and never replaced — listed once, keys first, in the order they appear
+tv="$(cfg '[(.owner, .bot | strings), (.repos | objects | keys[]), (.. | strings)]
+  | map(select(test("^your-(github|bot)-login$|^your-repo$|^/absolute/path/to/")))
+  | reduce .[] as $v ([]; if index([$v]) then . else . + [$v] end) | join(", ")')"
+[ -z "$tv" ] || bad "config.json still has template values: $tv — replace them (README Setup §3)"
 if [ "$(cfg '.repos | type == "object" and length > 0')" = true ]; then ok "config repos ($(cfg '.repos | length'))"
 else bad "config.json repos must be a non-empty object — README Setup §3"; finish; fi
 OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
@@ -46,15 +56,33 @@ else
   bad "$err"
 fi
 
-# 3) Per repository: owner resolves (repos.<name>.owner, else owner), path is a git repository, profile file exists
+# 3) Per repository: owner resolves (repos.<name>.owner, else owner), path is a git repository, profile file exists and is not a bare sample,
+# and each of repos.<name>.commands can start in path (commands turn off auto-detection, so a wrong one fails every Stage 3 measurement)
 for r in $(cfg '.repos | keys[]'); do
   if slug="$(repo_slug "$r" 2>&1)"; then ok "$r owner ${slug%/*}"; else bad "$slug"; fi
   p="$(cfg --arg r "$r" '.repos[$r].path // empty')"
-  if [ -n "$p" ] && git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then ok "$r path $p"
-  else bad "$r path is not a git repository: ${p:-<unset>} — fix repos.$r.path"; fi
+  if [ -n "$p" ] && git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then ok "$r path $p"; pok=1
+  else bad "$r path is not a git repository: ${p:-<unset>} — fix repos.$r.path"; pok=""; fi
   prof="$(cfg --arg r "$r" '.repos[$r].profile // empty')"
-  if [ -n "$prof" ] && [ -f "$PR_QUORUM_HOME/profiles/$prof.md" ]; then ok "$r profile $prof"
+  if [ -n "$prof" ] && [ -f "$PR_QUORUM_HOME/profiles/$prof.md" ]; then
+    ok "$r profile $prof"
+    for s in "$HARNESS_DIR"/examples/profiles/*.md; do   # a sample still runs, with another project's context — a warning
+      cmp -s "$s" "$PR_QUORUM_HOME/profiles/$prof.md" \
+        && warn "$r profile $prof is an unmodified copy of examples/profiles/${s##*/} — rewrite §0 and §6 for this repository"
+    done
+    n="$(grep -c '<fill in' "$PR_QUORUM_HOME/profiles/$prof.md")"
+    [ "$n" = 0 ] || warn "$r profile $prof has $n placeholder(s) left — replace the <fill in: …> lines"
   else bad "$r profile file is missing: $PR_QUORUM_HOME/profiles/${prof:-<unset>}.md — README Setup §4"; fi
+  # ./X must exist in path (commands run at the worktree root). npm and friends often run in a subfolder (--prefix, cd app), so only a warning
+  [ -n "$pok" ] || continue
+  while IFS=$'\t' read -r k c; do
+    w="${c%% *}"
+    case "$w" in
+      ./*) [ -e "$p/${w#./}" ] || bad "$r commands.$k runs $w, but $p has no ${w#./} — fix it, or delete commands to use auto-detection (README Setup §3)" ;;
+      npm|npx|pnpm|yarn) [ -f "$p/package.json" ] \
+        || warn "$r commands.$k runs $w, but $p has no package.json — check it, or delete commands to use auto-detection (README Setup §3)" ;;
+    esac
+  done < <(cfg --arg r "$r" '.repos[$r].commands // {} | to_entries[] | "\(.key)\t\(.value)"')
 done
 
 # 4) gh login (the owner's account) — a mismatch with owner is only a warning
@@ -85,7 +113,16 @@ fi
 if [ -n "$BOT" ]; then
   for r in $(cfg '.repos | keys[]'); do
     slug="$(repo_slug "$r" 2>/dev/null)" || continue   # already reported in 3)
-    if gh api "repos/$slug/collaborators/$BOT" >/dev/null 2>&1; then ok "$r bot is a collaborator"
+    # The repository first — a typo, a login that cannot see it, and a network error are not "not a collaborator"
+    if ! e="$(gh api "repos/$slug" --silent 2>&1)"; then
+      case "$e" in
+        *"HTTP 404"*) bad "$r repository $slug not found, or the gh login cannot see it — check the repos key and owner" ;;
+        *) bad "$r cannot reach GitHub for $slug: $(tail -1 <<<"$e")" ;;
+      esac
+      continue
+    fi
+    if e="$(gh api "repos/$slug/collaborators/$BOT" 2>&1 >/dev/null)"; then ok "$r bot is a collaborator"
+    elif [[ "$e" != *"HTTP 404"* ]]; then bad "$r cannot check collaborator $BOT on $slug: $(tail -1 <<<"$e")"
     elif gh api "repos/$slug/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
       bad "$r bot invitation is pending — sign in as $BOT and accept it"
     else

@@ -67,6 +67,17 @@ check "risk .npmrc token"            risk_json '[{"filename":".npmrc","additions
 check "risk rename out of auth"      risk_json '[{"filename":"src/main/java/a/Moved.java","previous_filename":"src/main/java/a/JwtAuthFilter.java","status":"renamed","additions":0,"deletions":0}]' 15
 check "risk rename out of harness"   risk_json '[{"filename":"lib/risk.jq","previous_filename":"scripts/risk.jq","status":"renamed","additions":0,"deletions":0}]' 15
 check "risk doc rename stays 0"      risk_json '[{"filename":"docs/a.md","previous_filename":"docs/b.md","status":"renamed","additions":0,"deletions":0}]' 0
+for f in .github/actions/setup/action.yml action.yml .husky/pre-commit .pre-commit-config.yaml tox.ini build.rs .mcp.json .github/CODEOWNERS mcp.json; do
+  check "risk build/agent file $f" risk_score "$f" 25   # signal 15 + scope 10 (risk_score is 400 lines)
+done
+check "risk CLAUDE.local.md"      risk_score "CLAUDE.local.md" 15   # .md: no scope lines
+check "risk CODEOWNERS removed"   risk_json '[{"filename":".github/CODEOWNERS","status":"removed","additions":0,"deletions":3}]' 15
+check "risk noxfile with tests"   risk_json '[{"filename":"noxfile.py","additions":30,"deletions":0,"patch":"+x"},{"filename":"tests/test_a.py","additions":1,"deletions":0}]' 15
+check "risk toml secret"          risk_json '[{"filename":"config/settings.toml","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
+check "risk ini secret"           risk_json '[{"filename":"config/app.ini","additions":1,"deletions":0,"patch":"+password = hunter2hunter2"}]' 30
+check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
+check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
+check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
 
 # Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
 cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
@@ -97,10 +108,22 @@ mkdir -p "$STUB/bin"
 cat > "$STUB/bin/gh" <<'GH'
 #!/usr/bin/env bash
 S="$STUB_STATE"; echo "$*" >> "$S/calls.log"
+# take <file>: one injected result per line, each call consumes one — "ok" lets that call through, anything else is its error
+take() {
+  [ -s "$S/$1" ] || return 0
+  local l; l="$(head -1 "$S/$1")"; tail -n +2 "$S/$1" > "$S/t"; mv "$S/t" "$S/$1"
+  [ "$l" = ok ] || { echo "$l" >&2; exit 1; }
+}
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
   search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
-  pr) case "$3" in 1) echo MERGED ;; 2) echo CLOSED ;; 3) echo OPEN ;; *) echo "HTTP 404: Not Found" >&2; exit 1 ;; esac; exit 0 ;;
+  pr)
+    # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup
+    if [ -e "$S/chain" ]; then
+      case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) echo OPEN ;; esac
+      exit 0
+    fi
+    case "$3" in 1) echo MERGED ;; 2) echo CLOSED ;; 3) echo OPEN ;; *) echo "HTTP 404: Not Found" >&2; exit 1 ;; esac; exit 0 ;;
   api) shift ;;
   *) exit 1 ;;
 esac
@@ -111,9 +134,8 @@ done
 out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
-    # fail-pr: one error message per line, each call consumes one
-    if [ -s "$S/fail-pr" ]; then head -1 "$S/fail-pr" >&2; tail -n +2 "$S/fail-pr" > "$S/t"; mv "$S/t" "$S/fail-pr"; exit 1; fi
-    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0}' | out ;;
+    take fail-pr
+    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -128,10 +150,21 @@ case "$path" in
   */pulls/1/comments)
     [ ! -e "$S/fail-comments" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     cat "$S/comments.json" ;;
+  */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
+  repos/acme/demo)
+    [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    [ -e "$S/repo-ok" ] && exit 0
+    echo "HTTP 404: Not Found" >&2; exit 1 ;;
+  repos/acme/demo/collaborators/*)
+    [ ! -e "$S/fail-collab" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "HTTP 404: Not Found" >&2; exit 1 ;;
   *) echo "HTTP 404: Not Found" >&2; exit 1 ;;
 esac
 GH
 chmod +x "$STUB/bin/gh"
+# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH
+printf '#!/usr/bin/env bash\necho "claude $*" >> "$STUB_STATE/calls.log"; exit 1\n' > "$STUB/bin/claude"
+chmod +x "$STUB/bin/claude"
 
 stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/demo-pr1 with a stage1 draft that passes PG1 and PG5
   rm -rf "$STUB/home" "$STUB/state"
@@ -240,6 +273,39 @@ check "api T5 GET retries 5xx, not 404"         t5_get_retry
 check "post T6 link at the posting copy refused" t6_posting_link_refused
 check "post T7 stage3 reposts keep earlier ids known" t7_repost_keeps_known
 
+# C1–C3 — chain.sh on a PR whose records already reach the merge gate (Stage 1 posted, Stage 2 and 3 done, two author passes,
+# the last one pushing nothing), so no session runs. A GitHub read failing at the gate must stop at blocked (exit 4) with one stop notice
+stub_chain_home() {
+  stub_home; mkdir -p "$STUB/repo/demo" "$STUB_RUN/outputs/author"; touch "$STUB/state/chain"
+  jq --arg h "$STUB_SHA" '.stage1 = [{review_id:111}] | .stage2 = [{verdicts:{}, stage_sha:$h}] | .stage3 = {comments:[]}' \
+    "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  jq -n --arg h "$STUB_SHA" '{pushed:true, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-01.json"
+  jq -n --arg h "$STUB_SHA" '{pushed:false, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-02.json"
+}
+stub_notices() { grep -c 'issues/1/comments' "$STUB/state/calls.log"; }
+chain_stop() {  # chain_stop <reason fragment> — runs the chain, expects exit 4, blocked with that reason, one notice in total, no session
+  local rc=0 out
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_meta '.chain.state')" = blocked ] && grep -q "$1" <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "exit $rc, state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want 4, blocked, '$1', 1)"; echo "$out"; return 1; }
+  ! grep -q '^claude' "$STUB/state/calls.log" || { echo "a session was started"; return 1; }
+}
+# C1 — the conflict check reads the PR state, the gate's own read gets a 502
+c1_gate_state_fails() { stub_chain_home; printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'; }
+# C2 — the trust check and precheck read the PR, the gate's head read gets a 404
+c2_gate_head_fails() { stub_chain_home; printf 'ok\nok\nHTTP 404: Not Found\n' > "$STUB/state/fail-pr"; chain_stop 'PR head'; }
+# C3 — C1 again on the same records: the same reason does not post a second notice
+c3_same_stop_once() {
+  c1_gate_state_fails || return 1
+  printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'
+}
+check "chain C1 gate PR-state read fails → blocked, one notice" c1_gate_state_fails
+check "chain C2 gate head read fails → blocked, one notice"     c2_gate_head_fails
+# C4 — the conflict check before the author pass gets a 502
+c4_conflict_check_fails() { stub_chain_home; printf 'HTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'before the author pass'; }
+check "chain C3 same stop again posts no second notice"        c3_same_stop_once
+check "chain C4 conflict-check read fails → blocked, one notice" c4_conflict_check_fails
+
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
   local wt
@@ -281,6 +347,62 @@ check "gc G1 merged and closed removed, open and unknown kept" g1_closed_removed
 check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
+
+# D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
+# The stub gh is not logged in, so doctor always exits 2 here; only the lines matter
+doctor_home() {  # doctor_home [jq filter on config.json] — stub_home, path a git repository, profiles/backend.md edited from the sample
+  stub_home; rm -rf "$STUB/repo"; git init -q "$STUB/repo/demo" || return 1
+  mkdir -p "$STUB/home/.pr-quorum/profiles"; { cat "$HARNESS_DIR/examples/profiles/backend.md"; echo; } > "$STUB/home/.pr-quorum/profiles/backend.md"
+  [ -z "${1:-}" ] || { jq "$1" "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"; }
+}
+stub_doctor() { stub_run bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true; }
+d1_template_values() {
+  local out; doctor_home || return 1
+  cp "$HARNESS_DIR/templates/config.json" "$STUB/home/.pr-quorum/config.json"; out="$(stub_doctor)"
+  grep -qF 'FAIL — config.json still has template values: your-github-login, your-bot-login, your-repo, /absolute/path/to/your-repo' <<<"$out" \
+    && ! grep -q 'config owner = your-github-login' <<<"$out" || { echo "$out"; return 1; }
+}
+d2_repo_404() {
+  local out; doctor_home || return 1
+  out="$(stub_doctor)"
+  grep -q 'FAIL — demo repository acme/demo not found' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" || { echo "404: $out"; return 1; }
+  touch "$STUB/state/fail-repo"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not found\|not a collaborator' <<<"$out" \
+    || { echo "502: $out"; return 1; }
+}
+d2b_collaborator_error() {
+  local out; doctor_home || return 1
+  touch "$STUB/state/repo-ok" "$STUB/state/fail-collab"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo cannot check collaborator .* on acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" \
+    || { echo "502: $out"; return 1; }
+  rm "$STUB/state/fail-collab"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo bot is not a collaborator' <<<"$out" && ! grep -q 'cannot check collaborator' <<<"$out" || { echo "404: $out"; return 1; }
+}
+d3_sample_profile() {
+  local out a b; doctor_home || return 1
+  out="$(stub_doctor)"; a="$(grep -c '^warn — demo profile' <<<"$out")"
+  cp "$HARNESS_DIR/examples/profiles/backend.md" "$STUB/home/.pr-quorum/profiles/backend.md"; out="$(stub_doctor)"
+  grep -q 'warn — demo profile backend is an unmodified copy of examples/profiles/backend.md' <<<"$out" || { echo "copy: $out"; return 1; }
+  b="$(grep -c '^FAIL' <<<"$out")"
+  { echo; cat "$HARNESS_DIR/examples/profiles/generic.md"; } > "$STUB/home/.pr-quorum/profiles/backend.md"; out="$(stub_doctor)"
+  grep -qE 'warn — demo profile backend has [1-9][0-9]* placeholder\(s\) left' <<<"$out" || { echo "fill in: $out"; return 1; }
+  [ "$a" = 0 ] && [ "$b" = "$(grep -c '^FAIL' <<<"$out")" ] || { echo "edited profile warned ($a) or FAIL count changed"; return 1; }
+}
+d4_commands() {
+  local out
+  doctor_home '.repos.demo.commands = {build: "./gradlew build", test: "npm test"}' || return 1; out="$(stub_doctor)"
+  grep -q 'FAIL — demo commands.build runs ./gradlew, but .* has no gradlew' <<<"$out" \
+    && grep -q 'warn — demo commands.test runs npm, but .* has no package.json' <<<"$out" || { echo "missing: $out"; return 1; }
+  touch "$STUB/repo/demo/gradlew" "$STUB/repo/demo/package.json"; out="$(stub_doctor)"
+  ! grep -q 'commands\.' <<<"$out" || { echo "set right: $out"; return 1; }
+  doctor_home || return 1; out="$(stub_doctor)"
+  ! grep -q 'commands\.' <<<"$out" || { echo "no commands: $out"; return 1; }
+}
+check "doctor D1 template values, one line"            d1_template_values
+check "doctor D2 repository 404 is not 'not a collaborator'" d2_repo_404
+check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborator_error
+check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
+check "doctor D4 commands that cannot start"           d4_commands
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
