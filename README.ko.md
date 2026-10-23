@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `8b40b7f`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `ae00d24`
 
 <p align="center">
   <picture>
@@ -164,7 +164,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 ## 요구사항
 
 - macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 launchd watcher 예시뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
-- [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git` 2.31 이상
 - Linux 에서는 빌드 샌드박스용 `bwrap`(bubblewrap). macOS 에는 `sandbox-exec` 가 기본으로 들어 있다
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
 - github.com 의 저장소. GitHub Enterprise Server 와 ghe.com 은 지원하지 않는다
@@ -422,9 +422,10 @@ flowchart LR
 - 사람이 채점한 리뷰가 없다. 작성자의 `human-labels.md` 에 채워진 판정이 하나도 없어서, "절차가 엄격하면 리뷰가 낫다"는 아직 검증되지 않았다.
 - 체인 한 번에 $11~30, 19~47분이 든다(세션별 `total_cost_usd` 와 `wall_ms` 의 합. 12줄 PR #66 부터 #61 까지).
 - 백엔드 저장소 하나에서만 돌려 봤다(실행 14건 모두). [`frontend.md`](examples/profiles/frontend.md) 프로파일은 한 번도 돈 적이 없다.
-- 리스크 규칙의 경로(`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`)는 처음 만든 저장소에 맞춰져 있다. `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 를 자기 저장소에 맞는지 확인한다.
+- 리스크 규칙의 경로(`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`)는 처음 만든 저장소에 맞춰져 있다. `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 를 자기 저장소에 맞는지 확인한다. 신호는 경로 패턴이라, 목록에 없는 파일(배포 스크립트, 새 CI 도구의 설정)은 보통 코드로 점수가 매겨진다.
 - github.com 전용이고, 머신 한 대가 리뷰 요청을 폴링한다.
-- 실제 리뷰는 macOS 에서만 돌렸다. Linux 에서는 stub `gh`·`claude` 로 `selftest.sh` 와 cron+`flock` 만 확인했고, `bwrap` 빌드 샌드박스는 측정하지 않았다.
+- fork 에서 온 PR 은 돌리지 않는다. author 단계가 PR 브랜치에 수정을 push 하는데, fork 의 브랜치는 저장소 밖에 있다. 체인은 그런 PR 을 Stage 1 전에 `held-fork` 로 멈추고 코멘트를 하나 남긴다.
+- 실제 리뷰는 macOS 에서만 돌렸다. Linux 에서는 stub `gh`·`claude` 로 `selftest.sh` 와 cron+`flock` 만 확인했고, `bwrap` 빌드 샌드박스는 아직 자기 selftest 검사를 통과하지 못해(`bwrap` 이 도는 컨테이너에서 두 건 실패) CI 의 Linux 작업은 bwrap 없이 돈다.
 - 플러그인 경로에 `|`·`&`, `repos.*.path` 에 `*`·`[` 가 있으면 안 된다. 이스케이프 없이 권한 규칙에 들어간다.
 - 스크립트가 올리는 점수표와 알림은 영어다. 리뷰 본문만 PR 의 언어를 따른다.
 - 빌드 샌드박스는 네트워크와 `localhost` 를 열어 두고, 빌드들이 캐시 루트 하나를 같이 쓰므로 한 빌드가 다음 샌드박스 빌드의 캐시를 오염시킬 수 있다([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).

@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `8b40b7f`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `ae00d24`
 
 <p align="center">
   <picture>
@@ -164,7 +164,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 ## 环境要求
 
 - macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 launchd watcher 示例依赖 macOS。不支持原生 Windows(PowerShell、cmd)
-- [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git` 2.31 或更高版本
 - Linux 上需要构建沙箱用的 `bwrap`(bubblewrap)。macOS 自带 `sandbox-exec`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
 - github.com 上的仓库。不支持 GitHub Enterprise Server 和 ghe.com
@@ -422,9 +422,10 @@ flowchart LR
 - 没有经过人工评分的评审：作者的 `human-labels.md` 中没有任何已填写的评分，所以“流程越严格评审越好”尚未验证。
 - 一次完整链路花费 $11–30、耗时 19–47 分钟(各会话 `total_cost_usd` 与 `wall_ms` 之和；从 12 行的 PR #66 到 #61)。
 - 只在一个后端仓库上运行过(全部 14 次运行)；[`frontend.md`](examples/profiles/frontend.md) profile 从未运行过。
-- 风险规则中的路径(`common/security/`、`api/gateway/.*/filter/`、`/api/bff/auth/`)是按最初编写它的仓库定的；开启 `auto_merge` 之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq)。
+- 风险规则中的路径(`common/security/`、`api/gateway/.*/filter/`、`/api/bff/auth/`)是按最初编写它的仓库定的；开启 `auto_merge` 之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq)。这些信号是路径模式：列表里没有的文件(部署脚本、新 CI 工具的配置)会按普通代码计分。
 - 仅支持 github.com，并由一台机器轮询评审请求。
-- 真实评审只在 macOS 上运行过。Linux 上只用 stub `gh` 和 `claude` 检查过 `selftest.sh` 以及 cron 加 `flock`，`bwrap` 构建沙箱尚未实测。
+- 不运行来自 fork 的 PR：author 步骤会把修复 push 到 PR 分支，而 fork 的分支在仓库之外。链路会在 Stage 1 之前把这类 PR 停在 `held-fork`，并留下一条评论。
+- 真实评审只在 macOS 上运行过。Linux 上只用 stub `gh` 和 `claude` 检查过 `selftest.sh` 以及 cron 加 `flock`，`bwrap` 构建沙箱还没有通过它自己的 selftest 检查(在能运行 `bwrap` 的容器里有两项失败)，所以 CI 的 Linux 作业不带 bwrap 运行。
 - 插件路径不能包含 `|` 或 `&`，`repos.*.path` 不能包含 `*` 或 `[`：它们未经转义就进入权限规则。
 - 脚本发布的评分卡和通知是英文的；只有评审正文跟随 PR 的语言。
 - 构建沙箱对网络和 `localhost` 保持开放，且所有构建共用一个缓存根目录，一次构建可能污染下一次沙箱构建的缓存([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1)。
