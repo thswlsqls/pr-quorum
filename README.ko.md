@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `0b2a4ca`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `e582453`
 
 <p align="center">
   <picture>
@@ -87,7 +87,8 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 - macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 launchd watcher 예시뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
 - [Claude Code](https://code.claude.com/docs), 본인 계정으로 로그인한 `gh`, `jq`, `git`
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
-- 본인 소유의 개인 저장소. 다른 사람이 연 PR 은 건너뛴다
+- github.com 의 저장소. GitHub Enterprise Server 와 ghe.com 은 지원하지 않는다
+- 기본으로는 저장소 소유자가 연 PR 만 돌고 나머지는 건너뛴다. 팀원의 PR 도 돌리려면 `trust.authors` 나 `trust.associations` 에 넣고, 조직 저장소는 `repos.<name>.owner` 를 지정한다([설정 §3](#3-pr-quorumconfigjson)). 신뢰한 저자의 PR 본문과 diff 는 본인 gh 계정으로 push·머지하는 세션에 그대로 들어가므로, 그렇게 해도 되는 사람만 신뢰한다
 
 ## 설치
 
@@ -112,9 +113,9 @@ git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 
 자기 GitHub 봇 계정을 따로 만든다. 공용 봇은 없다.
 
-- 리뷰할 저장소마다 **collaborator read** 로 초대한다. 리뷰 요청을 받는 데는 이걸로 충분하다.
-- 봇 계정으로 scope `public_repo` 인 PAT 를 만든다.
-- 권한은 read 로 둔다. `public_repo` 는 public 저장소에 쓸 수 있으므로, 봇을 write 로 올리면 이 토큰으로 push 할 수 있게 된다.
+- 리뷰할 저장소마다 **collaborator read** 로 초대하고, 봇으로 로그인해 초대를 수락한다. 리뷰 요청을 받는 데는 이걸로 충분하다.
+- 봇 계정으로 PAT 를 만든다. public 저장소는 scope `public_repo` 인 classic 토큰이면 된다. 봇이 collaborator 로 들어간 private 저장소는 scope `repo` 를 쓴다. 외부 collaborator 는 classic 토큰만 쓸 수 있다.
+- 권한은 read 로 둔다. 두 scope 모두 봇이 write 권한을 가진 저장소에 쓸 수 있으므로, 봇을 write 로 올리면 이 토큰으로 push 할 수 있게 된다.
 
 봇은 리뷰와 코멘트만 올린다. 승인이나 변경 요청은 하지 않는다.
 
@@ -140,10 +141,17 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 | 키 | 뜻 |
 |---|---|
-| `owner` | 본인 GitHub 로그인. watcher 는 이 소유자의 저장소에서 리뷰 요청을 찾는다 |
+| `owner` | 본인 GitHub 로그인. `repos` 중 소유자를 따로 지정하지 않은 저장소의 소유자다. watcher 는 소유자마다 그 저장소들에서 리뷰 요청을 찾는다 |
 | `bot` | 1단계에서 만든 봇 로그인. 토큰의 계정과 같아야 한다 |
 | `auto_merge` | 두 게이트를 지난 PR 을 체인이 머지할지. 기본값 `false` 면 체인은 `ready` 에서 멈춘다 |
+| `trust` | 누구의 PR 이 체인을 돌리는지. `authors`(로그인 목록) 또는 `associations`(GitHub `author_association` 값). 없으면 `associations` 는 `["OWNER"]`. GitHub 가 쓰지 않는 값이 있으면 watcher 와 체인이 exit 2 로 멈추고, `OWNER`, `MEMBER`, `COLLABORATOR` 밖의 값은 경고를 남긴다. 조직이라면 로그인 목록이 낫다. `MEMBER` 는 조직 전원이다 |
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
+| `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
+| `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 명령이 없는 종류는 `not measured` 로 기록된다 |
+| `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
+| `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 Claude Code 기본값 |
+
+모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 
@@ -156,6 +164,8 @@ cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
 견본([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md))은 Spring Boot 백엔드와 Next.js 프런트엔드에 맞춰 썼다.
+
+그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json`, 저장소마다 경로와 프로파일, gh 로그인, 토큰 파일의 권한과 계정, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. 읽기만 하고 아무것도 올리지 않는다.
 
 ### 5. watcher (선택)
 
@@ -223,7 +233,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 | `merged` | `auto_merge: true` 에서 두 게이트를 통과했다 | 없음 |
 | `ready` | 두 게이트를 통과했지만 `auto_merge` 가 꺼져 있다 | 직접 머지한다 |
 | `needs-human` | 리스크가 `medium` 이상이거나, Stage 3 이 놓친 `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
-| `blocked` | 머지 게이트 실패, 머지 충돌, 세션이 기록을 남기지 않음, head 가 바뀜 중 하나 | `chain.reason` 을 보고 원인을 고친 뒤 체인을 다시 돌린다 |
+| `blocked` | 머지 게이트 실패, 머지 충돌, 세션이 기록을 남기지 않음, 세션이 `limits` 의 예산·시간 상한에 걸림, head 가 바뀜 중 하나 | `chain.reason` 을 보고 원인을 고친 뒤 체인을 다시 돌린다. 봇도 그 이유와 재개 명령을 PR 에 코멘트로 한 번 남긴다 |
 
 ### 체인 직접 돌리기
 
@@ -261,8 +271,21 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 지난 run 들의 학습 후보를 `~/.pr-quorum/runs/_dream/<time>/proposal.md` 로 정리한다. `learnings.md` 에 넣을지는 사람이 정한다 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 최근 머지된 PR N건(기본 30)의 리스크 점수를 14일 안에 뒤따른 수정·revert PR 과 나란히 보여 준다. 자동 머지 기준을 조정할 때 쓴다 |
 | `<plugin-dir>/scripts/selftest.sh` | 게이트 스크립트를 고친 뒤. LLM 없이 지난 산출물에 게이트를 다시 돌린다 |
+| `<plugin-dir>/scripts/doctor.sh` | 설정 직후나 `config.json` 을 고친 뒤, 또는 watcher 가 요청을 집지 않을 때. 읽기만 하며 `FAIL` 이 있으면 exit 2 |
 
 마켓플레이스 설치본은 `version` 이 오르면 `claude plugin update pr-quorum@pr-quorum` 으로 새 판을 받는다. 바뀐 내용은 [`CHANGELOG.md`](CHANGELOG.md) 에 있다.
+
+## 문제 해결
+
+| 증상 | 원인 | 할 일 |
+|---|---|---|
+| watcher 로그: `error — search failed (<owner>): …` | 봇 토큰으로 한 검색이 실패했다. 토큰 만료·폐기, rate limit, 네트워크 중 하나다. watcher 는 이를 요청 없음으로 읽지 않고 exit 2 로 끝난다 | `doctor.sh` 를 돌린다. `bot.env` 의 토큰을 바꾸거나 rate limit 이 풀리기를 기다린다 |
+| watcher 로그: `warning — search for <owner> hit --limit 100` | 한 소유자 아래 봇에게 열린 리뷰 요청이 100건을 넘었다 | 100건 넘는 요청은 놓칠 수 있다. 오래된 PR 에서 봇을 리뷰어에서 뺀다 |
+| `doctor.sh` 가 `FAIL — …` 을 출력 | 전제 조건이 빠졌다. 줄마다 고칠 곳이 나온다 | 고친 뒤 `doctor — all checks passed` 가 나올 때까지 `doctor.sh` 를 다시 돌린다 |
+| `budget cap $… reached` 나 `wall-clock cap of … min reached` 로 `blocked` | 세션이 `limits.<step>.budget_usd` 나 `timeout_min` 에 걸렸다. 재시도하지 않는다 | 상한을 올리고 `chain.sh <repo> <pr>` 를 다시 돌린다. 멈춘 세션이 남긴 Stage 1 lock 은 그 프로세스가 사라지거나 3시간이 지나면 풀린다. 바로 풀려면 `<plugin-dir>/scripts/pr-quorum.sh unlock <repo> <pr>` |
+| Stage 3 이 빌드나 테스트를 `not measured` 로 보고 | 그 종류의 명령이 없다. `repos.<name>.commands` 에 빠져 있거나, `commands` 가 없고 worktree 에 `gradlew` 도 `package.json` 도 없다(Gradle 은 기본 lint 가 없다) | `repos.<name>.commands.build`, `test`, `lint` 를 지정한다 |
+| watcher 로그: `skip <repo>#<pr> — author is not trusted (<login>, <association>)`, 또는 `chain.sh` 가 같은 이유로 exit 3 | PR 저자가 `trust.authors` 에도 `trust.associations` 에도 없다 | 그 사람을 신뢰한다면 로그인을 `trust.authors` 에 넣는다 |
+| 스크립트가 `GH_HOST=… — pr-quorum supports only github.com` 으로 exit 2 | `GH_HOST` 가 github.com 이 아닌 호스트로 잡혀 있다 | watcher 와 체인이 도는 환경에서 `GH_HOST` 를 지운다 |
 
 ## 보안
 
@@ -270,7 +293,10 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 
 그 밖의 안전장치:
 
-- 저장소 소유자가 연 PR 만 돈다. watcher 가 거르고 `chain.sh` 가 다시 확인한다.
+- 신뢰한 저자의 PR 만 돈다. 기본은 저장소 소유자이고, `trust.authors` 나 `trust.associations` 에 든 사람이 더해진다. 신뢰는 `config.json` 과 GitHub API 에서만 정해진다. watcher 가 PR 을 거르고 `chain.sh` 가 다시 확인한다. 신뢰한 저자의 PR 텍스트는 본인 계정으로 push·머지하는 세션에 들어가므로, 신뢰 목록이 곧 경계다.
+- 세션은 빌드 도구를 직접 부르지 못한다. 빌드와 테스트는 `pr-quorum.sh build`(리뷰: PR 이 고정한 SHA 의 깨끗한 worktree)와 `pr-quorum.sh author-build`(저자의 worktree)로만 돌고, 이 둘은 `repos.<name>.commands` 의 명령이나 Gradle/npm 기본 명령을 실행한다.
+- 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다.
+- 세션은 머지 게이트가 읽는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
 
 ## 기여
