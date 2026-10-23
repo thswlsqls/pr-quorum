@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `5dadc1b`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `cd0bb87`
 
 <p align="center">
   <picture>
@@ -25,35 +25,74 @@ PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다
 | Stage 3 · measured | 고친 커밋으로 빌드와 테스트를 다시 돌리고, 리뷰가 놓친 결함(`P`)을 찾는다 |
 
 <details>
-<summary>Stage 1·2·3 한눈에 보기</summary>
+<summary>Stage 1 · review (위원 → 반박자 → 검증자)</summary>
 
 ```mermaid
 flowchart TD
-  RQ(["봇을 리뷰어로<br/>지정"]) --> S1
-  RQ -. "held-large:<br/>파일 50개 초과 또는<br/>3,000줄 초과" .-> BL[blocked]
-  subgraph S1["Stage 1 · review · 최대 5라운드"]
+  subgraph J["위원 4인 · 축을 나눠 맡음 · 서로의 결과를 모름"]
     direction LR
-    S1a["위원 4인이<br/>동시에"] --> S1b["반박자"] --> S1c["검증자 셋"]
+    J1[위원 1] ~~~ J2[위원 2] ~~~ J3[위원 3] ~~~ J4[위원 4]
   end
-  S1 -. "held-large 또는<br/>main 과 충돌" .-> BL
-  S1 --> A1["저자 1차 반영<br/>Stage 1<br/>코멘트를 고침"]
-  A1 --> S2
-  subgraph S2["Stage 2 · followup"]
-    direction LR
-    S2a["관점 4개"] --> S2b["코멘트마다<br/>판정"] --> S2c["스레드마다<br/>답함"]
-  end
-  S2 --> S3
-  subgraph S3["Stage 3 · measured"]
-    direction LR
-    S3a["위원·빌드·<br/>테스트"] --> S3b["결함을<br/>출처별로 나눔"] --> S3c["P: 새<br/>코멘트"]
-  end
-  S3 --> A2["저자 2차 반영<br/>남은 것을<br/>고침"]
-  A2 -- "push 함" --> S2x["Stage 2<br/>다시"]
-  A2 -- "push 할 것 없음" --> G(["게이트 (아래)"])
-  S2x --> G
+  J --> D["같은 수정끼리<br/>중복 제거"]
+  D --> C["반박자가<br/>critical·major<br/>지적마다 확인"]
+  C --> DR["요약 초안<br/>+ 코멘트"]
+  DR --> V["검증자 셋이<br/>초안을 확인"]
+  V --> X{"종료 조건<br/>수렴했나,<br/>라운드<br/>상한인가,<br/>같은 곳을<br/>4번 고쳤나?"}
+  X -- "아니오" --> J
+  X -- "예" --> P(["요약과 인라인<br/>코멘트를 올림<br/>수렴 못 했으면<br/>못 채운 항목을<br/>함께 적음"])
 ```
 
-스테이지마다 자세한 흐름은 아래 접힌 절에 그려 두었다.
+수렴: [`rules/01-stages.md`](rules/01-stages.md) §4 의 종료 조건. 라운드 상한은 `config.json` 의 `limits.stage1.max_rounds` 이고, 없으면 5다.
+
+Stage 1 전에 변경 파일이 50개를 넘거나 변경 줄이 3,000줄을 넘는 PR 은 `held-large` 로 보류되고 체인은 `blocked` 에서 멈춘다. Stage 1 뒤에 main 과 충돌하는 PR 도 여기서 멈춘다.
+
+</details>
+
+<details>
+<summary>Stage 2 · followup (코멘트마다 판정 하나)</summary>
+
+```mermaid
+flowchart TD
+  IN(["봇 코멘트<br/>+ 수정 커밋"]) --> L
+  subgraph L["위원 4인 · 관점 하나씩"]
+    direction LR
+    L1["L1 수정의<br/>충실도"] ~~~ L2["L2 정확성,<br/>역행"] ~~~ L3["L3 문서와<br/>코드 일치"] ~~~ L4["L4 재발<br/>방지"]
+  end
+  L --> V{"코멘트마다<br/>판정"}
+  V -- regressed --> C["반박자가<br/>다시 확인"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["답글 초안<br/>+ 새 코멘트<br/>최대 3건"]
+  C --> D
+  D --> P(["스레드마다<br/>한 번 답함"])
+```
+
+Stage 2 는 저자가 Stage 1 코멘트를 고친 뒤에 돌고, Stage 3 뒤 저자의 두 번째 패스가 push 했으면 한 번 더 돈다.
+
+`regressed` 판정이 하나라도 남으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+
+</details>
+
+<details>
+<summary>Stage 3 · measured (측정한 뒤 결함을 출처별로 나눔)</summary>
+
+```mermaid
+flowchart TD
+  IN(["고친 커밋"]) --> S
+  subgraph S["동시에 진행"]
+    direction LR
+    J["위원 4인<br/>Stage 1 축"] ~~~ M["worktree 에서<br/>빌드·테스트"]
+  end
+  S --> C["반박자가<br/>P 와 critical<br/>마다 확인"]
+  C --> O{"결함마다<br/>출처 분류"}
+  O -- "P: 리뷰가 놓침" --> NP["새 리뷰<br/>코멘트"]
+  O -- "Q: 일부만 고침<br/>N: 수정이 만듦" --> T["Stage 2<br/>스레드에 답함"]
+  NP --> G{"critical/major<br/>P 가 있나?"}
+  G -- "예" --> H["게이트에서<br/>needs-human"]
+  G -- "아니오" --> OK(["평소대로<br/>게이트 진행"])
+```
+
+Stage 3 은 첫 Stage 2 뒤에 한 번 돈다.
+
+측정할 수 없는 것은 `not measured` 로 적는다. 출처 분류: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
 
 </details>
 
@@ -72,75 +111,11 @@ flowchart TD
   RG -- "medium 이상" --> H["needs-human<br/>사람이 리뷰하고<br/>머지한다"]
 ```
 
+세션이 `limits` 의 예산이나 시간 상한에 걸려도 체인은 게이트 전에 `blocked` 에서 멈춘다.
+
 </details>
 
 리스크 게이트는 코드 품질이 아니라 어떤 파일을 얼마나 바꿨는지만 본다. 인증·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동 머지되지 않는다. 규칙: [`rules/03-risk.md`](rules/03-risk.md).
-
-<details>
-<summary>Stage 1 한 라운드 안에서 (위원 → 반박자 → 검증자)</summary>
-
-```mermaid
-flowchart TD
-  subgraph J["위원 4인 · 축을 나눠 맡음 · 서로의 결과를 모름"]
-    direction LR
-    J1[위원 1] ~~~ J2[위원 2] ~~~ J3[위원 3] ~~~ J4[위원 4]
-  end
-  J --> D["같은 수정끼리<br/>중복 제거"]
-  D --> C["반박자가<br/>critical·major<br/>지적마다 확인"]
-  C --> DR["요약 초안<br/>+ 코멘트"]
-  DR --> V["검증자 셋이<br/>초안을 확인"]
-  V --> X{"종료 조건<br/>수렴했나,<br/>5라운드인가,<br/>같은 곳을<br/>4번 고쳤나?"}
-  X -- "아니오" --> J
-  X -- "예" --> P(["요약과 인라인<br/>코멘트를 올림<br/>수렴 못 했으면<br/>못 채운 항목을<br/>함께 적음"])
-```
-
-수렴: [`rules/01-stages.md`](rules/01-stages.md) §4 의 종료 조건.
-
-</details>
-
-<details>
-<summary>Stage 2 안에서 (코멘트마다 판정 하나)</summary>
-
-```mermaid
-flowchart TD
-  IN(["봇 코멘트<br/>+ 수정 커밋"]) --> L
-  subgraph L["위원 4인 · 관점 하나씩"]
-    direction LR
-    L1["L1 수정의<br/>충실도"] ~~~ L2["L2 정확성,<br/>역행"] ~~~ L3["L3 문서와<br/>코드 일치"] ~~~ L4["L4 재발<br/>방지"]
-  end
-  L --> V{"코멘트마다<br/>판정"}
-  V -- regressed --> C["반박자가<br/>다시 확인"]
-  V -- "addressed · partial ·<br/>not-addressed" --> D["답글 초안<br/>+ 새 코멘트<br/>최대 3건"]
-  C --> D
-  D --> P(["스레드마다<br/>한 번 답함"])
-```
-
-`regressed` 판정이 하나라도 남으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
-
-</details>
-
-<details>
-<summary>Stage 3 안에서 (측정한 뒤 결함을 출처별로 나눔)</summary>
-
-```mermaid
-flowchart TD
-  IN(["고친 커밋"]) --> S
-  subgraph S["동시에 진행"]
-    direction LR
-    J["위원 4인<br/>Stage 1 축"] ~~~ M["worktree 에서<br/>빌드·테스트"]
-  end
-  S --> C["반박자가<br/>P 와 critical<br/>마다 확인"]
-  C --> O{"결함마다<br/>출처 분류"}
-  O -- "P: 리뷰가 놓침" --> NP["새 리뷰<br/>코멘트"]
-  O -- "Q: 일부만 고침<br/>N: 수정이 만듦" --> T["Stage 2<br/>스레드에 답함"]
-  NP --> G{"critical/major<br/>P 가 있나?"}
-  G -- "예" --> H["게이트에서<br/>needs-human"]
-  G -- "아니오" --> OK(["평소대로<br/>게이트 진행"])
-```
-
-측정할 수 없는 것은 `not measured` 로 적는다. 출처 분류: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
-
-</details>
 
 ### 예시
 
