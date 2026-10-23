@@ -62,25 +62,28 @@ for t in "$HARNESS_DIR"/README.*.md; do
 done
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file, write into
-# ~/.pr-quorum or the git dir, or see a token from the environment, while the worktree stays writable. No network, no gh.
+# ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
+# stay writable. No network, no gh.
 # Skipped on a host without a sandbox (doctor.sh reports that as FAIL)
 source "$HARNESS_DIR/scripts/build-sandbox.sh"
 SB_KIND="$(sandbox_kind)"
 sandbox_probe() {
   local h rc=0
   h="$(cd "$(mktemp -d)" && pwd -P)" || return 1
-  mkdir -p "$h/.config/pr-quorum" "$h/.pr-quorum" && echo canary > "$h/.config/pr-quorum/x" && git init -q "$h/wt" || return 1
+  mkdir -p "$h/.config/pr-quorum" "$h/.pr-quorum" "$h/.gradle/wrapper" && echo canary > "$h/.config/pr-quorum/x" && git init -q "$h/wt" || return 1
   HOME="$h" GH_TOKEN=selftest-not-a-token sandbox_run "$SB_KIND" "$h/wt" "$h/wt" '
     cat "$HOME/.config/pr-quorum/x" && exit 11
     : > "$HOME/.pr-quorum/x" && exit 12
     : > .git/hooks/x && exit 13
     [ -z "${GH_TOKEN:-}" ] || exit 14
+    : > "$HOME/.gradle/wrapper/x" && exit 15
+    : > "$GRADLE_USER_HOME/x" || exit 16
     : > ok' >/dev/null 2>&1 || rc=$?
   [ "$rc" = 0 ] && [ -f "$h/wt/ok" ] || rc="${rc/#0/no-write}"
   rm -rf "$h"
-  [ "$rc" = 0 ] || { echo "build shell got through (11 read secret · 12 wrote ~/.pr-quorum · 13 wrote .git · 14 saw GH_TOKEN): $rc"; return 1; }
+  [ "$rc" = 0 ] || { echo "build shell got through (11 read secret · 12 wrote ~/.pr-quorum · 13 wrote .git · 14 saw GH_TOKEN · 15 wrote ~/.gradle · 16 cache root not writable): $rc"; return 1; }
 }
-if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git and env tokens" sandbox_probe
+if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git, user caches and env tokens" sandbox_probe
 else echo "warning — no build sandbox on this host (sandbox-exec / bwrap) — skipping its check"; fi
 
 [ -d "$RUNS" ] || { echo "no runs/ — skipping PG5/PG6"; echo "selftest — passed $pass · failed $fail"; [ "$fail" = 0 ] || exit 3; exit 0; }
