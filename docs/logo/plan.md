@@ -1,6 +1,6 @@
 # 로고 보강 계획
 
-README 맨 위에 pr-quorum 로고를 넣는 계획이다. 영문 README PR(#12 `docs/english-docs`)이 머지된 뒤 별도 PR 로 낸다.
+README 맨 위에 pr-quorum 로고를 넣는 계획이다. 영문 README(#12)와 다국어 README(#15)가 머지된 뒤 별도 PR 로 낸다.
 
 2026-10-23 에 원격 저장소(`thswlsqls/pr-quorum`)와 `feat/english` 브랜치를 읽고, GitHub 트렌딩 저장소 49곳의 README 머리를 조사해 정했다. 트렌딩은 2026-10-23 하루 기준이다. 같은 날 계획서를 근거·컨셉·기술 정확성·실행성 네 축으로 검증해 고친 판이다.
 
@@ -69,7 +69,7 @@ SVG 규칙:
 
 ## 6. README 변경
 
-`# pr-quorum` H1 을 아래로 바꾼다.
+`README.md`, `README.ko.md`, `README.zh-CN.md` 세 파일 모두 언어 전환 링크는 두고 `# pr-quorum` H1 을 아래로 바꾼다. 세 파일이 모두 루트에 있어 경로는 같다.
 
 ```html
 <p align="center">
@@ -85,19 +85,19 @@ SVG 규칙:
 
 ## 7. 순서
 
-1. #12 를 먼저 머지한다. README 머리가 겹친다.
+1. #12·#15 를 먼저 머지한다. README 머리가 겹친다.
 2. `main` 에서 `docs/logo` 브랜치를 판다. 커밋은 `docs : [docs/logo] …` 꼴이다.
 3. Claude 가 시안 A 로 SVG 초안 2–3개를 쓰고 소유자가 심볼과 워드마크 글자 모양을 함께 하나로 고른다. §4 의 D 조건에 걸리면 D 로 간다.
 4. 다크·라이트 두 벌을 만들고 §5 의 svgo 명령으로 정리한다.
-5. README 머리를 §6 대로 바꾼다.
+5. README 세 파일의 머리를 §6 대로 바꾼다.
 6. PR 을 올리고 §8 을 마친 뒤 머지한다. 문서만 바뀌므로 `plugin.json` 의 `version` 과 `CHANGELOG.md` 는 건드리지 않는다. `.claude-plugin/` 을 건드리면 하네스 신호 15점이 붙어 `medium` 이 된다.
 
 ## 8. 확인
 
-- [ ] 브랜치 README 를 GitHub 라이트·다크 테마로 각각 열어 로고가 보인다 (Settings → Appearance 에서 바꾼다)
+- [ ] 브랜치 README 세 파일을 GitHub 라이트·다크 테마로 각각 열어 로고가 보인다 (Settings → Appearance 에서 바꾼다)
 - [ ] 시안을 git-merge 옥티콘·⋮ 메뉴 옆에 두고 봐도 닮지 않았다. 소유자가 판단한다
 - [ ] `grep -nE '<(text|script|image|foreignObject)|href=|url\(|@import' assets/logo-*.svg` 가 비어 있다
-- [ ] `gh pr diff <번호> --name-only` 에 `README.md`, `assets/logo-*.svg`, `docs/logo/plan.md` 만 나온다. 모두 `scripts/risk.jq:5` 의 문서 패턴이라 리스크 점수표가 0점 `low` 다 (`rules/03-risk.md:29`)
+- [ ] `gh pr diff <번호> --name-only` 에 `README.md`, `README.ko.md`, `README.zh-CN.md`, `assets/logo-*.svg`, `docs/logo/plan.md` 만 나온다. 모두 `scripts/risk.jq:5` 의 문서 패턴이라 리스크 점수표가 0점 `low` 다 (`rules/03-risk.md:29`)
 
 ## 하지 않을 것
 
