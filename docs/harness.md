@@ -114,7 +114,11 @@ Sessions cannot edit `meta.json` — both session templates deny `Edit(/runs/*/m
 - **Network stays open** — first builds fetch dependencies. **Tradeoff: private-registry auth is not available.** `~/.npmrc`, `~/.yarnrc*`, `~/.gradle/gradle.properties`, `~/.m2/settings.xml` and the like are refused, and `build.env_passthrough` refuses credential-like names, so a build that needs registry credentials needs `build.sandbox: "off"`. Public registries work (npm ignores an unreadable `~/.npmrc`).
 - **`build.sandbox`** in `config.json` — `"require"` (default, also when the key is missing) or `"off"`. With `"require"`, a host without the tool or where it fails to start (`true` is run inside it first) exits 2 "sandbox unavailable — record it as not measured" and nothing is built. `"off"` runs the command as before, with the session's environment and no sandbox — for repositories whose tests need Docker, the keychain, or other places under the home folder. `scripts/doctor.sh` checks the sandbox and the passthrough names; `scripts/selftest.sh` runs an offline check of it.
 - The first stderr line, `pr-quorum: running in <dir> (sandbox=seatbelt|bwrap|off): <command>`, records which applied in the session log.
-- Left open: a build can poison the sandbox cache root for later sandboxed builds (not for the user's own), reach anything on the network including `localhost`, and read source code anywhere readable. The Linux side has not been measured on a host yet.
+- **Left open (residual risk):**
+  - Network and loopback stay open: a build can reach any host, and any service listening on `localhost` (a Gradle daemon the user started is no longer found through the registry, since builds use their own `GRADLE_USER_HOME`, but its port is still reachable), and can send out source code it can read.
+  - Dependencies and wrapper or JDK downloads in the shared cache root can be poisoned for later sandboxed builds (not for the user's own builds); only the Gradle init files are reset before each run.
+  - On macOS, mach lookups stay open apart from `com.apple.SecurityServer`. The exec denies on `open`, `osascript`, `launchctl`, `security` only stop accidental use, since a build can copy the binary to `$TMPDIR`; the real fix, a broad `mach-lookup` deny with an allow list for the JVM, is deferred because it risks breaking the JVM.
+  - The Linux (`bwrap`) side has not been measured on a host yet.
 
 ## 4. Output spec
 
@@ -245,10 +249,10 @@ Probe run through `author-build` and `build` with a fake `HOME`; the real home w
 | Read `~/.config/pr-quorum/*`, `~/.config/gh/hosts.yml`, `~/.ssh`, `~/.aws`, `~/.claude`, `~/.claude.json`, `~/.pr-quorum/config.json` | all 0 | all 1 |
 | `security find-generic-password -s gh:github.com` (real home) · `ssh-add -l` | 0 · 1 (agent reachable) | 44 · 2 (no agent) |
 | Write `~/.pr-quorum/probe-target`, `~/.zshrc-probe`, `~/.gradle/init.d/probe`, `<repo>/.git/hooks/probe` | all 0 | all 1 |
-| Write the worktree, `$TMPDIR`, `~/.gradle/caches` · `curl -I registry.npmjs.org` | 0 · 0 | 0 · 0 |
+| Write the worktree, `$TMPDIR` · `~/.gradle/caches` · `curl -I registry.npmjs.org` | 0 · 0 · 0 | 0 · 1 (builds write `~/.cache/pr-quorum-build/` instead) · 0 |
 | Gradle daemon started in the user's shell, then a wrapper build | **the build ran in that daemon** ("Starting 2nd build in daemon", same pid) — outside any sandbox | `GRADLE_OPTS=-Dorg.gradle.daemon=false` forks a single-use daemon under the sandbox, even with `org.gradle.daemon=true` in the project's `gradle.properties`; the outer daemon stays idle |
 | Java `user.home` with `HOME` changed | stays the passwd home — Gradle keeps using the real `~/.gradle` | — |
-| tech-n-ai-backend `:common-security:test` (2 tests) and `build -x test`, twice | pass | pass, same results; second run all `UP-TO-DATE`, no downloads |
+| tech-n-ai-backend `:common-security:test` (2 tests) and `build -x test`, twice | pass | pass, same results. With the own cache root: first run 4 min, Gradle distribution and dependencies downloaded (573 MB); later runs 6 s, no downloads, compile tasks `UP-TO-DATE` |
 | tech-n-ai-frontend `npm run lint` in `app/` | exit 1, 3 errors | exit 1, the same 3 errors |
 
 ## 7. Porting order — how far along
