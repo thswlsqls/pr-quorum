@@ -63,7 +63,8 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     reply       <repo> <pr> <comment_id> <body.md>
     patch       <repo> <pr> <comment_id> <body.md>
     patch-review <repo> <pr> <review_id> <body.md>   edit the summary body of a posted review
-    comment     <repo> <pr> <body.md>        one general comment on the PR
+    comment     <repo> <pr> <body.md> [<key>]   one general comment on the PR
+                                             (with a key: not posted again if a bot comment with that key exists)
                                              every post refuses a body that holds a token (scripts/token-scan.sh), before any API call
 
   Check (bot token needed, no repo or pr)
@@ -758,18 +759,38 @@ record_review() {
 }
 
 cmd_reply() {
-  local repo="$1" pr="$2" cid="$3" bfile="$4" rid
+  local repo="$1" pr="$2" cid="$3" bfile="$4" rid m head mk known
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   need_meta "$repo" "$pr"
   load_bot_token
-  rid="$(jq -n --rawfile b "$bfile" '{body:$b}' \
+  m="$(meta_path "$repo" "$pr")"
+  # Adoption, as in post-review — a bot reply carrying this thread/stage/head marker that meta.json does not know went up in an
+  # earlier call whose response or record was lost. Record it instead of replying twice. Recorded replies are left out, so a
+  # deliberate second reply and the next round (a new head) still post. A failed check posts nothing
+  head="$(cmd_sha "$repo" "$pr")"
+  mk="<!-- pr-quorum:reply:$cid:$(jq -r '.lock.stage // "x"' "$m"):${head:0:7} -->"
+  known="$(jq -c '[.posted_reply_ids[]?, .stage2[]?.replies[]?, .stage3.replies[]?, .stage3_replies[]?, .stage3_history[]?.replies[]?] | map(select(type == "number"))' "$m")"
+  rid="$(api --paginate "repos/$SLUG/pulls/$pr/comments" \
+    | jq -s -r --arg b "$(cfg '.bot // empty')" --arg mk "$mk" --argjson k "$known" '
+        [add // [] | .[] | select(.user.login == $b and ((.body // "") | contains($mk)) and ((.id as $i | $k | index($i)) == null))]
+        | last | .id // empty')" \
+    || die "$E_API" "could not list review comments to check for an unrecorded earlier reply — nothing was posted"
+  if [ -n "$rid" ]; then
+    record_reply "$repo" "$pr" "$cid" "$rid" \
+      || die "$E_API" "reply id $rid is on GitHub but recording it in meta.json failed — rerun the same reply command"
+    echo "$rid"
+    echo "adopted — reply_id=$rid (already posted, now recorded)" >&2
+    return 0
+  fi
+
+  rid="$(jq -n --rawfile b "$bfile" --arg mk "$mk" '{body:($b + "\n\n" + $mk)}' \
     | gh api "repos/$SLUG/pulls/$pr/comments/$cid/replies" --input - --jq '.id')" \
-    || die "$E_API" "reply failed (comment_id=$cid)"
+    || die "$E_API" "reply failed (comment_id=$cid). If the reply did go up, rerunning the same reply command records it without posting again"
   echo "$rid"
 
-  # The post already went through, so exit 0 even if recording fails — retrying on a failure code would post the reply twice.
+  # Sessions cannot write meta.json, so a failed record is a failure — the rerun adopts this reply instead of posting it again.
   record_reply "$repo" "$pr" "$cid" "$rid" \
-    || echo "warning — the reply was posted (id $rid) but recording it in meta.json failed. Do not post again; record it by hand" >&2
+    || die "$E_API" "reply posted (id $rid) but not recorded — rerun the same reply command; it records this reply without posting again"
 }
 
 # Records the reply id in the stage record of the current lock. Without it, the next stage cannot find the thread and
@@ -790,7 +811,9 @@ record_reply() {
                                   then .stage3.replies[$k] = $rid else .stage3_replies[$k] = $rid end' \
          --arg k "${code:-$cid}" --argjson rid "$rid" ;;
     *) echo "warning — the lock has no stage 2 or 3, so reply id ($rid) was not recorded in meta.json" >&2 ;;
-  esac
+  esac || return 1
+  # Every reply id stays known to the adoption check: a second reply under the same code key overwrites the first
+  meta_update "$repo" "$pr" '.posted_reply_ids = ((.posted_reply_ids // []) + [$rid] | unique)' --argjson rid "$rid"
 }
 
 cmd_patch() {
@@ -812,13 +835,27 @@ cmd_patch_review() {
     || die "$E_API" "summary correction failed (review_id=$rid)"
 }
 
+# With a key, the body ends with <!-- pr-quorum:comment:<key> --> and a bot comment already carrying it is reused (its id printed,
+# exit 0) — a key always means the same notice, so a caller that wants to post again passes another key. Without one, it posts as before
 cmd_comment() {
-  local repo="$1" pr="$2" bfile="$3"
+  local repo="$1" pr="$2" bfile="$3" key="${4:-}" mk="" cid
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   load_bot_token
-  jq -n --rawfile b "$bfile" '{body:$b}' \
+  if [ -n "$key" ]; then
+    mk="<!-- pr-quorum:comment:$key -->"
+    cid="$(api --paginate "repos/$SLUG/issues/$pr/comments" \
+      | jq -s -r --arg b "$(cfg '.bot // empty')" --arg mk "$mk" '
+          [add // [] | .[] | select(.user.login == $b and ((.body // "") | contains($mk)))] | last | .id // empty')" \
+      || die "$E_API" "could not list the PR's comments to check for an earlier one with key $key — nothing was posted"
+    if [ -n "$cid" ]; then
+      echo "$cid"
+      echo "adopted — comment_id=$cid (key $key already posted)" >&2
+      return 0
+    fi
+  fi
+  jq -n --rawfile b "$bfile" --arg mk "$mk" '{body:(if $mk == "" then $b else $b + "\n\n" + $mk end)}' \
     | gh api "repos/$SLUG/issues/$pr/comments" --input - --jq '.id' \
-    || die "$E_API" "comment post failed"
+    || die "$E_API" "comment post failed${key:+. If it did go up, rerunning the same comment command finds it by key and does not post again}"
 }
 
 # ---------- Check ----------
@@ -873,7 +910,10 @@ case "$sub" in
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch "$@" ;;
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
-  comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; need_clean_body "$3"; cmd_comment "$@" ;;
+  comment)     [ $# -ge 3 ] && [ $# -le 4 ] || usage; need_run_file "$3"; need_clean_body "$3"
+               # The key goes inside an HTML comment marker, so it may not hold "-->" or anything else outside this set
+               [ $# -eq 3 ] || [[ "$4" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || die "$E_USAGE" "comment key must be 1–64 of a-z 0-9 . _ - (starting with a letter or digit): $4"
+               cmd_comment "$@" ;;
   whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
   config)      [ $# -eq 0 ] || usage; cmd_config ;;
   learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;
