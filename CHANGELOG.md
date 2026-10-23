@@ -5,6 +5,7 @@
 - Docs, prompts, and script messages are in English.
 - Stored values (verdicts, grades, status) and the posted Stage 2 verdict line now use English IDs: `addressed`·`partial`·`not-addressed`·`regressed`, `critical`·`major`·`minor`·`nit`, `pending`·`running`·`done`·`held-large`·`held-failed`. Readers still accept the old Korean values, so existing runs in `~/.pr-quorum/runs/` keep working.
 - Review text follows the language of the PR.
+- `README.ko.md` and `README.zh-CN.md` translate the README. Each records the `README.md` commit it follows, and `scripts/selftest.sh` warns when a translation falls behind.
 
 ## 0.1.1
 

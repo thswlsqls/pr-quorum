@@ -1,3 +1,7 @@
+<p align="right">
+  <strong>English</strong> | <a href="./README.ko.md">한국어</a> | <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
 # pr-quorum
 
 A Claude Code plugin that splits a GitHub PR review across several Claude sessions, re-checks and re-measures after the author addresses the review, and uses a risk score to decide whether to merge.
