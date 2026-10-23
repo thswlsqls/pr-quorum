@@ -47,17 +47,17 @@ flowchart LR
 
 ## 실제로 붙은 리뷰
 
-tech-n-ai-backend PR #34(신기술 다건 저장을 건별 왕복에서 일괄 왕복으로 바꾼 리팩토링)에 봇이 남긴 리뷰다.
+tech-n-ai-backend PR #68(`TextTruncator` 가 이모지를 반으로 자르지 않게 한 수정)에 봇이 남긴 리뷰다. PR 을 한국어로 썼으니 봇도 한국어로 썼다.
 
 리뷰 요약. 머지를 막을 만한 것을 먼저 적고, 리뷰 축마다 무엇이 걸렸고 무엇을 확인하지 못했는지 표로 정리했다.
 
-![PR #34 에 봇이 남긴 리뷰 요약](assets/pr34-review-summary.png)
+![PR #68 에 봇이 남긴 리뷰 요약](assets/review-summary-ko.png)
 
 인라인 코멘트 한 건. 문제가 되는 줄에 붙고, 근거로 든 파일과 줄 번호가 적혀 있다. 가운데가 저자의 답이고, 그 아래는 저자가 고친 뒤 봇이 같은 스레드에 남긴 Stage 2 판정이다.
 
-![PR #34 의 인라인 코멘트와 후속 판정](assets/pr34-inline-comment.png)
+![PR #68 의 인라인 코멘트와 후속 판정](assets/inline-comment-ko.png)
 
-이 PR 에서 Stage 1 은 코멘트 6건(그중 잘한 점 1건)을 남겼다. 저자가 고친 뒤 Stage 2 가 `addressed` 5건·`partial` 1건으로 판정했고, Stage 3 이 리뷰가 놓친 테스트 빈틈 1건을 더 찾았다.
+이 PR 에서 Stage 1 은 코멘트 3건(suggestion 1건·nitpick 1건·잘한 점 1건)을 남겼다. 저자가 고친 뒤 Stage 2 가 두 건 모두 `addressed` 로 판정했고, Stage 3 은 리뷰가 놓친 결함을 찾지 못했다. 리스크 게이트가 0점(`low`)을 매겨 체인이 머지했다.
 
 ## 다른 리뷰 도구와 다른 점
 

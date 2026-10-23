@@ -45,19 +45,17 @@ The risk gate does not judge whether the code is good. It scores only which file
 
 ## A real review
 
-This is the review the bot left on tech-n-ai-backend PR #34 (a refactoring that changed bulk saving of new technologies from one round trip per item to a single batched round trip).
+This is the review the bot left on tech-n-ai-backend PR #67 (a fix that decodes `&amp;` last so RSS text is not decoded twice). The PR was written in English, so the bot wrote in English. The Korean README shows a Korean PR and the Chinese README a Chinese one.
 
 The review summary. It lists what could block the merge first, then a table of what each review axis flagged and what it could not verify.
 
-![Review summary the bot left on PR #34](assets/pr34-review-summary.png)
+![Review summary the bot left on PR #67](assets/review-summary-en.png)
 
 One inline comment. It is attached to the problem line and names the files and line numbers it cites as evidence. In the middle is the author's reply, and below it is the Stage 2 verdict the bot left in the same thread after the author's fix.
 
-![Inline comment and follow-up verdict on PR #34](assets/pr34-inline-comment.png)
+![Inline comment and follow-up verdict on PR #67](assets/inline-comment-en.png)
 
-This PR was in Korean, so the bot wrote in Korean. The Korean in the screenshots maps to the IDs used now: 반영 → `addressed`, 부분 → `partial`, 미반영 → `not-addressed`, 역행 → `regressed`, 치명 → `critical`, 중대 → `major`, 경미 → `minor`, 사소 → `nit`.
-
-On this PR, Stage 1 left 6 comments (1 of them praise). After the author's fixes, Stage 2 judged 5 `addressed` (반영) and 1 `partial` (부분), and Stage 3 found 1 more test gap the review had missed.
+On this PR, Stage 1 left 3 comments (2 nits and 1 praise). After the author's fixes, Stage 2 judged both nits `addressed`, and Stage 3 found no defect the review had missed. The risk gate scored it 0 points (`low`), and the chain merged it.
 
 ## How it differs from other review tools
 

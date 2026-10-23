@@ -47,19 +47,17 @@ flowchart LR
 
 ## 真实审查示例
 
-这是机器人在 tech-n-ai-backend PR #34 上留下的审查（该 PR 是一次重构，把新技术的批量保存从每条一次往返改为一次批量往返）。
+这是机器人在 tech-n-ai-backend PR #69 上留下的审查（该 PR 让 `ScrapedDataCleaner` 最后再替换 `&amp;`，避免实体被解码两次）。该 PR 使用中文，所以机器人也用中文撰写。
 
 审查摘要。先列出可能阻止合并的内容，再用表格列出每个审查维度指出了什么、无法验证什么。
 
-![机器人在 PR #34 上留下的审查摘要](assets/pr34-review-summary.png)
+![机器人在 PR #69 上留下的审查摘要](assets/review-summary-zh-CN.png)
 
 一条行内评论。它附在问题所在的行上，并写明作为证据引用的文件和行号。中间是作者的回复，下方是作者修改后机器人在同一讨论串中留下的 Stage 2 判定。
 
-![PR #34 上的行内评论与后续判定](assets/pr34-inline-comment.png)
+![PR #69 上的行内评论与后续判定](assets/inline-comment-zh-CN.png)
 
-该 PR 使用韩语，所以机器人也用韩语撰写。截图中的韩语与现在使用的 ID 对应如下：반영 → `addressed`，부분 → `partial`，미반영 → `not-addressed`，역행 → `regressed`，치명 → `critical`，중대 → `major`，경미 → `minor`，사소 → `nit`。
-
-在这个 PR 上，Stage 1 留下了 6 条评论（其中 1 条是表扬）。作者修改后，Stage 2 判定 5 条 `addressed`（반영）、1 条 `partial`（부분），Stage 3 又发现了 1 处审查遗漏的测试缺口。
+在这个 PR 上，Stage 1 留下了 3 条评论（1 条 nitpick、2 条表扬）。作者修改后，Stage 2 判定这条 nitpick 为 `addressed`，Stage 3 没有发现审查遗漏的缺陷。风险门禁打出 0 分（`low`），由链路自动合并。
 
 ## 与其他审查工具的区别
 
