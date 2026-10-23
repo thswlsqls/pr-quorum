@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `b2dc4d7`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `9263127`
 
 <p align="center">
   <picture>
@@ -187,15 +187,22 @@ watcher 는 60초마다 봇에게 온 리뷰 요청을 찾는다. watcher 가 �
 
 launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once` 를 돌린다. watcher 는 PR 을 한 번에 한 건씩 처리하고, 머신이 꺼져 있던 동안 들어온 요청은 다시 켜졌을 때 처리한다.
 
-Linux(클라우드 VM, Windows 의 WSL2)에서는 launchd 대신 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 돌린다. `caffeinate` 는 macOS 전용이니 뺀다. launchd 는 watcher 가 체인을 돌리는 동안 다시 띄우지 않지만 cron 은 띄우므로, `flock -n` 으로 감싸 PR 을 한 번에 한 건씩 처리하게 한다. 감싸지 않으면 다음 주기의 watcher 가 돌고 있는 PR 옆에서 다음 PR 을 시작하고, 돌고 있는 PR 의 시도 횟수도 하나 올려서 실제로는 한 번 시도한 PR 이 `held-failed` 로 멈출 수 있다. plist 와 마찬가지로 cron 이 `claude`, `gh`, `jq`, `git` 을 찾도록 `PATH` 를 지정한다.
+Linux(클라우드 VM, Windows 의 WSL2)에서는 launchd 대신 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 돌린다. `caffeinate` 는 macOS 전용이니 뺀다.
+
+`gh` 는 `gh auth login --with-token` 으로 로그인한다. Claude Code 는 `claude setup-token` 을 돌려 출력된 토큰을 작업 환경의 `CLAUDE_CODE_OAUTH_TOKEN` 에 넣는다. 이 명령은 토큰을 어디에도 저장하지 않고, cron 과 systemd 는 셸 프로필을 읽지 않는다.
+
+launchd 는 watcher 가 체인을 돌리는 동안 다시 띄우지 않지만 cron 은 띄우므로, `flock -n` 으로 감싼다. 감싸지 않으면 다음 주기의 watcher 가 돌고 있는 PR 과 동시에 다음 PR 을 시작한다. 그 주기가 돌고 있는 PR 의 Stage 1 리뷰가 게시되기 전이고 어떤 세션도 그 PR 의 락을 잡고 있지 않을 때 오면, 그 PR 에 체인을 하나 더 띄우고 시도 횟수도 하나 올려서 실제로는 한 번 시도한 PR 이 `held-failed` 로 멈출 수 있다. plist 와 마찬가지로 cron 이 `claude`, `gh`, `jq`, `git` 을 찾도록 `PATH` 를 지정한다. cron 은 이 줄들에서 `$HOME` 같은 변수를 펼치지 않는다.
 
 ```
 # crontab -e
 PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+CLAUDE_CODE_OAUTH_TOKEN=<token from claude setup-token>
 * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
 ```
 
-systemd timer(`OnUnitActiveSec=60`)로 `Type=oneshot` 서비스를 띄우면 `flock` 이 필요 없다. 서비스가 아직 돌고 있으면 timer 가 다시 띄우지 않는다. 브라우저가 없는 VM 에서는 `gh` 와 Claude Code 를 토큰으로 로그인한다(`gh auth login --with-token`, `claude setup-token`). WSL2 에서는 WSL VM 이 떠 있는 동안에만 cron 과 systemd 가 돌고, systemd 는 `/etc/wsl.conf` 에서 켜야 한다.
+systemd 에서는 `OnBootSec=1min` 과 `OnUnitActiveSec=1min` 을 둔 timer 로 `Type=oneshot` 서비스를 띄우면 `flock` 이 필요 없다. 서비스가 아직 돌고 있으면 timer 가 다시 띄우지 않는다. `OnUnitActiveSec=` 만 두면 서비스가 한 번도 돈 적이 없어서 timer 가 끝내 울리지 않는다. 서비스에는 `Environment=` 나 `EnvironmentFile=` 로 `PATH` 와 `CLAUDE_CODE_OAUTH_TOKEN` 을 지정한다. 사용자 timer 라면 로그아웃한 뒤에도 돌도록 `loginctl enable-linger` 를 실행한다.
+
+WSL2 에서는 `/etc/wsl.conf` 의 `[boot]` 아래 `systemd=true` 로 systemd 를 켜고 `wsl --shutdown` 을 실행해, distro 가 뜰 때 cron 이나 timer 도 함께 뜨게 한다. WSL 은 distro 가 15초 동안 유휴 상태면 내린다(`instanceIdleTimeout`). 마지막 WSL 터미널을 닫은 뒤가 그런 경우다. 터미널을 하나 열어 두거나 `%UserProfile%\.wslconfig` 의 `[general]` 아래 `instanceIdleTimeout=-1` 을 둔다.
 
 ## 사용법
 
@@ -285,7 +292,7 @@ Claude Code 의 [sandbox](https://code.claude.com/docs/en/sandboxing) 를 켜서
 - **리스크 규칙이 처음 만든 저장소의 경로에 맞춰져 있다**(`common/security/`, `filter/`, `/api/bff/auth/` …). `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 `scripts/risk.jq` 가 자기 저장소에 맞는지 확인한다.
 - **개인 저장소 전용이다.** organization 저장소에서는 구성원이 연 PR 도 건너뛴다.
 - **GitHub 만, 한 머신에서 돈다.** watcher 가 폴링 방식이라 머신이 켜져 있어야 한다.
-- **실제 리뷰는 macOS 에서만 돌려 봤다.** Linux 에서는 Ubuntu 24.04 컨테이너에서 `gh`·`claude` 를 대역 명령으로 바꿔 `selftest.sh` 와 cron + `flock` watcher 만 확인했다. Linux 에서의 실제 리뷰, systemd timer, WSL2 는 돌려 보지 않았다.
+- **실제 리뷰는 macOS 에서만 돌려 봤다.** Linux 에서는 Ubuntu 24.04 컨테이너에서 `gh`·`claude` 를 가짜(stub) 명령으로 바꿔 `selftest.sh` 와 cron + `flock` watcher 를 확인했다. Linux 에서의 실제 리뷰, systemd timer, WSL2 는 돌려 보지 않았다.
 - **경로 제약.** 플러그인 경로에 `|`·`&` 가, `config.json` 의 저장소 경로에 `*`·`[` 가 있으면 안 된다.
 - 스크립트가 만드는 점수표와 알림은 영어다. 리뷰 글은 PR 의 언어를 따른다.
 
