@@ -69,7 +69,7 @@ already has the same branch checked out — changing that worktree is outside yo
 Do not touch the main working tree. After fixing, run the affected module's tests through the harness wrapper — build tools called directly are denied:
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh build --author $0 $1 <absolute path of the working folder's parent>/$0-worktrees/pr-author-$1 test [target]
+${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh author-build $0 $1 <absolute path of the working folder's parent>/$0-worktrees/pr-author-$1 test [target]
 ```
 
 The command is `repos.$0.commands.test` in `~/.pr-quorum/config.json`; `target` fills its `<target>` (the affected module or path, e.g. `:api-auth`). `build` and `lint` work the same way.

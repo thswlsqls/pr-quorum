@@ -11,7 +11,7 @@
       "Agent",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh sha:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh meta:*)",
-      "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh build --author:*)",
+      "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh author-build:*)",
       "Bash(__PLUGIN_ROOT__/scripts/gh-get.sh:*)",
       "Bash(__PLUGIN_ROOT__/scripts/author-push.sh:*)",
       "Bash(__PLUGIN_ROOT__/scripts/author-reply.sh:*)",

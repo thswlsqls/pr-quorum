@@ -232,7 +232,7 @@ Run builds, tests, and lint only through the harness wrapper, on the worktree fo
 
 The command comes from `repos.<repo>.commands` in `~/.pr-quorum/config.json`; you pass only the kind and the target that fills its `<target>`
 (the affected module or path, e.g. `:api-auth` or `tests/api` — letters, digits, and `: _ . / -` only).
-Without `commands`, a worktree with `gradlew` runs `./gradlew <target>:build|test`, and one with `package.json` runs `npm run build`, `npm run lint`, and `npx tsc --noEmit` for `test` (target = app folder, e.g. `app`).
+Without `commands`, a worktree with `gradlew` runs `./gradlew <target>:build|test`, and one with `package.json` runs `npm run build`, `npm run lint`, and `npx --no -- tsc --noEmit` for `test` (target = app folder, e.g. `app`).
 The wrapper refuses a dirty tree, a HEAD that is not a SHA this PR pinned, and a worktree outside `<repo>-worktrees/`. Running build tools directly is denied by permissions.
 Other measurements (`EXPLAIN` on the problem query, build output size, …) and the infrastructure the repo lacks locally follow the measurement baseline in the profile's §6.
 

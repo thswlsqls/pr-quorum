@@ -62,7 +62,6 @@
       "Bash(gh repo:*)",
       "Bash(gh api:*)",
       "Bash(rtk:*)",
-      "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh build --author:*)",
       "Read(~/.config/pr-quorum/**)",
       "Read(~/.config/gh/**)",
       "Edit(/__PLUGIN_ROOT__/scripts/**)",

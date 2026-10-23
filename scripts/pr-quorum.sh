@@ -47,9 +47,10 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     attempt    <repo> <pr> inc|reset
 
   Build (no bot token needed)
-    build      [--author] <repo> <pr> <worktree> build|test|lint [target]
+    build      <repo> <pr> <worktree> build|test|lint [target]
+    author-build <repo> <pr> <worktree> build|test|lint [target]   same, for the author session
                                              run repos.<repo>.commands.<kind> from config.json in the worktree, <target> filled in
-                                             (review: clean tree at a pinned SHA · --author: <repo>-worktrees/pr-author-<pr>)
+                                             (build: clean tree at a pinned SHA · author-build: <repo>-worktrees/pr-author-<pr>)
 
   Post (bot token needed)
     post-review <repo> <pr> <sha> <summary.md> <comments.json> [stage1|stage2|stage3]
@@ -456,7 +457,8 @@ cmd_snapshot() {
 # The only way sessions run a build, test, or lint. The command comes from repos.<repo>.commands.<kind> in config.json, which sessions cannot edit;
 # the session passes only the kind and a target. Allowing ./gradlew or npm run build directly let a session write a package.json under runs/
 # and run any shell from it (improvement plan 02 §1-A), so the tree a build runs in is checked here too.
-# Review sessions: a clean worktree whose HEAD is a SHA this PR pinned. --author: the author worktree pr-author-<pr>, edits allowed.
+# build (review sessions): a clean worktree whose HEAD is a SHA this PR pinned. author-build: the author worktree pr-author-<pr>, edits allowed.
+# author-build is a separate subcommand, not a flag, so the review settings keep it out by simply not allowing it — no deny prefix to get around
 BUILD_AUTHOR=0
 
 cmd_build() {
@@ -476,7 +478,7 @@ cmd_build() {
   runs="$(cd "$RUNS_DIR" 2>/dev/null && pwd -P || echo "$RUNS_DIR")"
   case "$real/" in "$runs"/*) die "$E_GATE" "builds do not run under runs/: $real" ;; esac
   if [ "$BUILD_AUTHOR" = 1 ]; then
-    [ "$real" = "$wtroot/pr-author-$pr" ] || die "$E_GATE" "--author builds run only in $wtroot/pr-author-$pr: $real"
+    [ "$real" = "$wtroot/pr-author-$pr" ] || die "$E_GATE" "author-build runs only in $wtroot/pr-author-$pr: $real"
   else
     case "$real/" in "$wtroot"/?*/) ;; *) die "$E_GATE" "builds run only in a worktree under $wtroot/: $real" ;; esac
   fi
@@ -522,7 +524,7 @@ cmd_build() {
     case "$kind" in
       build) c="npm run build" ;;
       lint)  c="npm run lint" ;;
-      test)  c="npx tsc --noEmit" ;;
+      test)  c="npx --no -- tsc --noEmit" ;;   # --no: never fetch a package from the registry when typescript is not installed locally
     esac
   fi
 
@@ -691,8 +693,6 @@ need_sha() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]] || die "$E_USAGE" "SHA must be 7–4
 
 [ $# -ge 1 ] || usage
 sub="$1"; shift
-# build --author must come before the repo so the review settings can deny that one prefix
-[ "$sub" = build ] && [ "${1:-}" = --author ] && { BUILD_AUTHOR=1; shift; }
 # The repository name and PR number become gh api paths and paths under runs/. Only repository names in config.json repos are accepted.
 # A non-numeric PR number could make init create a folder and frozen.md outside runs/
 case "$sub" in
@@ -716,6 +716,7 @@ case "$sub" in
   status)      [ $# -eq 3 ] || usage; cmd_status "$@" ;;
   attempt)     [ $# -eq 3 ] || usage; cmd_attempt "$@" ;;
   build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
+  author-build) [ $# -ge 4 ] && [ $# -le 5 ] || usage; BUILD_AUTHOR=1; cmd_build "$@" ;;
   post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
   reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_reply "$@" ;;
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;
