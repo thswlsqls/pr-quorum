@@ -194,6 +194,49 @@ check "post T3 recorded review, rerun reposts"  t3_recorded_reposts
 check "post T4 other stage's marker not adopted" t4_other_stage_marker
 check "api T5 GET retries 5xx, not 404"         t5_get_retry
 
+# G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
+stub_worktrees() {
+  local wt
+  stub_home; rm -rf "$STUB/repo"; mkdir -p "$STUB/repo/demo"
+  git -C "$STUB/repo/demo" init -q && git -C "$STUB/repo/demo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init || return 1
+  for wt in pr-quorum-1-abcdef0 pr-author-2 pr-author-3 pr-author-4; do
+    git -C "$STUB/repo/demo" worktree add -q --detach "$STUB/repo/demo-worktrees/$wt" || return 1
+  done
+}
+stub_wts() { ls "$STUB/repo/demo-worktrees" | paste -sd ' ' -; }
+g1_closed_removed() {
+  local out; stub_worktrees || return 1
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --gc-only 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_wts)" = "pr-author-3 pr-author-4" ] || { echo "left: $(stub_wts) (want pr-author-3 pr-author-4)"; echo "$out"; return 1; }
+  grep -q 'removed — demo pr-quorum-1-abcdef0 (MERGED PR)' <<<"$out" && grep -q 'removed — demo pr-author-2 (CLOSED PR)' <<<"$out" \
+    || { echo "no removal reason in the log: $out"; return 1; }
+}
+g2_dirty_kept() {
+  local out; stub_worktrees || return 1
+  touch "$STUB/repo/demo-worktrees/pr-author-2/scratch.txt"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --gc-only 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_wts)" = "pr-author-2 pr-author-3 pr-author-4" ] && grep -q 'removal failed — demo pr-author-2' <<<"$out" \
+    || { echo "left: $(stub_wts) (want pr-author-2 pr-author-3 pr-author-4)"; echo "$out"; return 1; }
+}
+g3_chain_running_kept() {
+  local out; stub_worktrees || return 1
+  mkdir -p "$STUB/home/.pr-quorum/runs/demo-pr2/.chain.lock"; echo $$ > "$STUB/home/.pr-quorum/runs/demo-pr2/.chain.lock/pid"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --gc-only 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_wts)" = "pr-author-2 pr-author-3 pr-author-4" ] || { echo "left: $(stub_wts) (want pr-author-2 pr-author-3 pr-author-4)"; echo "$out"; return 1; }
+}
+g4_stamp_skips() {
+  local out; stub_worktrees || return 1
+  touch "$STUB/home/.pr-quorum/.gc-stamp"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --once 2>&1)" || { echo "$out"; return 1; }
+  [ "$(grep -c '^pr view' "$STUB/state/calls.log")" = 0 ] && [ "$(stub_wts | wc -w | tr -d ' ')" = 4 ] \
+    || { echo "cleanup ran within 30 minutes of the stamp: $(grep -c '^pr view' "$STUB/state/calls.log") state lookups, left $(stub_wts)"; return 1; }
+}
+check "gc G1 merged and closed removed, open and unknown kept" g1_closed_removed
+check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
+check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
+check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
+
+
 [ -d "$RUNS" ] || { echo "no runs/ — skipping PG5/PG6"; echo "selftest — passed $pass · failed $fail"; [ "$fail" = 0 ] || exit 3; exit 0; }
 
 # PG5 — folders with both a summary and comments. The stage comes from the path (in early runs, outputs/ itself is Stage 1).
