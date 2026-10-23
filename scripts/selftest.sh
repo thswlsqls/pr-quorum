@@ -10,6 +10,14 @@ PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 source "$HARNESS_DIR/scripts/config.sh"
 RUNS="$PR_QUORUM_HOME/runs"
 
+# Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
+for t in "$HARNESS_DIR"/README.*.md; do
+  [ -f "$t" ] || continue
+  base="$(grep -oE '@ `[0-9a-f]{7,40}`' "$t" | head -1 | tr -d '@` ')"
+  n="$(git -C "$HARNESS_DIR" rev-list --count "$base..HEAD" -- README.md 2>/dev/null)" && [ -n "$base" ] || n="?"
+  [ "$n" = 0 ] || echo "warning — $(basename "$t") is $n commit(s) behind README.md (base ${base:-missing})"
+done
+
 [ -d "$RUNS" ] || { echo "no runs/ — skipping"; exit 0; }
 
 pass=0; fail=0
