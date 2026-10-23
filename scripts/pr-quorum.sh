@@ -52,6 +52,9 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     patch       <repo> <pr> <comment_id> <body.md>
     patch-review <repo> <pr> <review_id> <body.md>   edit the summary body of a posted review
     comment     <repo> <pr> <body.md>        one general comment on the PR
+
+  Check (bot token needed, no repo or pr)
+    whoami                                   print the bot token's login (doctor.sh compares it with config.json bot)
 USAGE
   exit "$E_USAGE"
 }
@@ -587,6 +590,11 @@ cmd_comment() {
     || die "$E_API" "comment post failed"
 }
 
+# ---------- Check ----------
+
+# doctor.sh calls this instead of reading the token file itself — the token is read only in this script
+cmd_whoami() { load_bot_token; api user --jq '.login'; }
+
 # ---------- Entry point ----------
 
 # Comment and review ids go straight into gh api paths. A non-numeric value could call a different API path
@@ -599,7 +607,7 @@ sub="$1"; shift
 # The repository name and PR number become gh api paths and paths under runs/. Only repository names in config.json repos are accepted.
 # A non-numeric PR number could make init create a folder and frozen.md outside runs/
 case "$sub" in
-  pg5|pg6|snapshot) ;;
+  pg5|pg6|snapshot|whoami) ;;
   *) profile_of "${1:-}" >/dev/null
      [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR number must be a positive integer: ${2:-}" ;;
 esac
@@ -623,5 +631,6 @@ case "$sub" in
   patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; cmd_patch_review "$@" ;;
   comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; cmd_comment "$@" ;;
+  whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
   *) usage ;;
 esac

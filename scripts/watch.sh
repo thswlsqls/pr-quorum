@@ -13,6 +13,9 @@ BOT="$(cfg '.bot // empty')"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
+SEARCH_LIMIT=100
+SEARCH_ERR="$(mktemp)"
+trap 'rm -f "$SEARCH_ERR"' EXIT
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -59,9 +62,14 @@ run_once() {
   local prs n
   gc_worktrees || log "worktree cleanup step failed — polling continues"
   # This is the only query that looks for review requests (apart from the merged-list query in the cleanup step above). PR comments are not polled.
-  prs="$(gh search prs --owner "$OWNER" --review-requested="$BOT" --state=open \
-          --json number,repository,isDraft,authorAssociation 2>/dev/null || echo '[]')"
+  # A failed search (expired token, rate limit, network) exits 2 — it must not read as "no review requests"
+  if ! prs="$(gh search prs --owner "$OWNER" --review-requested="$BOT" --state=open --limit "$SEARCH_LIMIT" \
+          --json number,repository,isDraft,authorAssociation 2>"$SEARCH_ERR")"; then
+    log "error — search failed: $(head -3 "$SEARCH_ERR" | paste -sd ' ' -)" >&2
+    return 2
+  fi
   n="$(jq 'length' <<<"$prs")"
+  [ "$n" -lt "$SEARCH_LIMIT" ] || log "warning — search hit --limit $SEARCH_LIMIT; some review requests may be missed" >&2
   [ "$n" -gt 0 ] || { log "no review requests"; return 0; }
 
   local i
