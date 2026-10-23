@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `0b2a4ca`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `e582453`
 
 <p align="center">
   <picture>
@@ -87,7 +87,8 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 - macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 launchd watcher 示例依赖 macOS。不支持原生 Windows(PowerShell、cmd)
 - [Claude Code](https://code.claude.com/docs)、用你自己的账号登录的 `gh`、`jq`、`git`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
-- 你本人拥有的个人仓库。其他人开的 PR 会被跳过
+- github.com 上的仓库。不支持 GitHub Enterprise Server 和 ghe.com
+- 默认只运行仓库所有者开的 PR，其余跳过。要运行队友的 PR，把他们加入 `trust.authors` 或 `trust.associations`；组织的仓库需设置 `repos.<name>.owner`([配置 §3](#3-pr-quorumconfigjson))。受信任作者的 PR 描述和 diff 会直接进入以你的 gh 账号推送和合并的会话，所以只信任你愿意让其这样做的人
 
 ## 安装
 
@@ -112,9 +113,9 @@ git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
 
 创建你自己的 GitHub 机器人账号；没有共享的机器人。
 
-- 以 **collaborator read** 邀请它加入每个要评审的仓库。这足以接收评审请求。
-- 为它创建 scope 为 `public_repo` 的 PAT。
-- 保持 read 权限。`public_repo` 能写公开仓库，一旦把机器人提升为 write，这个令牌就能推送。
+- 以 **collaborator read** 邀请它加入每个要评审的仓库，然后以机器人身份登录并接受邀请。这足以接收评审请求。
+- 为它创建 PAT：公开仓库用 scope 为 `public_repo` 的 classic 令牌。机器人作为 collaborator 加入的私有仓库用 scope `repo`；外部 collaborator 只能使用 classic 令牌。
+- 保持 read 权限。两个 scope 都能写入机器人有 write 权限的仓库，一旦把机器人提升为 write，这个令牌就能推送。
 
 机器人只发布评审和评论，从不批准或请求修改。
 
@@ -140,10 +141,17 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 | 键 | 含义 |
 |---|---|
-| `owner` | 你的 GitHub 登录名。watcher 在该所有者的仓库中查找评审请求 |
+| `owner` | 你的 GitHub 登录名。`repos` 中未单独指定所有者的仓库都以它为所有者；watcher 按所有者分别查找其仓库中的评审请求 |
 | `bot` | 第 1 步创建的机器人登录名。必须与令牌的账号一致 |
 | `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready` |
+| `trust` | 谁的 PR 运行链路：`authors`(登录名列表)或 `associations`(GitHub 的 `author_association` 值)。缺省时 `associations` 为 `["OWNER"]`。含 GitHub 不使用的值时，watcher 和链路以 exit 2 停止；`OWNER`、`MEMBER`、`COLLABORATOR` 以外的值会记录警告。组织建议列登录名：`MEMBER` 指组织里的所有人 |
 | `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
+| `repos.<name>.owner` | 该仓库的 GitHub 所有者(用户或组织)。缺省时为顶层 `owner` |
+| `repos.<name>.commands` | 会话在 PR worktree 中运行的 `build`、`test`、`lint` 命令；命令中的 `<target>` 每次运行时填入。缺省时，Gradle worktree 用 `./gradlew [<target>:]build` 和 `test`，否则用 `npm run build`、`npm run lint`，测试用 `npx --no -- tsc --noEmit`。没有命令的类别记为 `not measured` |
+| `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
+| `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 Claude Code 的默认值 |
+
+所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 新增的键都是可选的；没有它们时链路的行为与以前相同。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
 `learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
@@ -156,6 +164,8 @@ cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
 ```
 
 样例([`backend.md`](examples/profiles/backend.md)、[`frontend.md`](examples/profiles/frontend.md))是为 Spring Boot 后端和 Next.js 前端写的。
+
+然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json`、每个仓库的路径和 profile、gh 登录、令牌文件的权限和账号、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。它只读取，不发布任何内容。
 
 ### 5. Watcher(可选)
 
@@ -223,7 +233,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 | `merged` | 在 `auto_merge: true` 下通过了两道关卡 | 无 |
 | `ready` | 通过了两道关卡，但 `auto_merge` 关闭 | 自己合并 |
 | `needs-human` | 风险为 `medium` 及以上，或 Stage 3 发现遗漏的 `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
-| `blocked` | 合并关卡未通过、合并冲突、会话未留下记录，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路 |
+| `blocked` | 合并关卡未通过、合并冲突、会话未留下记录、会话触及 `limits` 的预算或时间上限，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路。机器人还会在 PR 上发一次评论，写明原因和恢复命令 |
 
 ### 手动运行链路
 
@@ -261,8 +271,21 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 把以往运行中的经验候选整理到 `~/.pr-quorum/runs/_dream/<time>/proposal.md`。是否写入 `learnings.md` 由你决定 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 列出最近 N 个已合并 PR(默认 30)的风险分，并对照 14 天内的修复或回滚 PR，用于调整自动合并阈值 |
 | `<plugin-dir>/scripts/selftest.sh` | 修改关卡脚本后。不用 LLM，在以往产出上重跑关卡 |
+| `<plugin-dir>/scripts/doctor.sh` | 配置完成后、修改 `config.json` 后，或 watcher 不再接收请求时。只读；有 `FAIL` 时 exit 2 |
 
 Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@pr-quorum` 获取新版本。变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+
+## 故障排查
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| Watcher 日志：`error — search failed (<owner>): …` | 用机器人令牌的搜索失败：令牌过期或被撤销、触发 rate limit，或网络问题。Watcher 不会把它当作没有请求，而是以 exit 2 结束 | 运行 `doctor.sh`。更换 `bot.env` 中的令牌，或等待 rate limit 解除 |
+| Watcher 日志：`warning — search for <owner> hit --limit 100` | 同一所有者下发给机器人的未关闭评审请求超过 100 个 | 超出 100 个的请求可能被漏掉。把机器人从陈旧的 PR 上移出评审人 |
+| `doctor.sh` 输出 `FAIL — …` | 缺少某项前提，每行写明要修正的地方 | 修正后重新运行 `doctor.sh`，直到输出 `doctor — all checks passed` |
+| 因 `budget cap $… reached` 或 `wall-clock cap of … min reached` 而 `blocked` | 会话触及 `limits.<step>.budget_usd` 或 `timeout_min`，不会重试 | 提高上限后重新运行 `chain.sh <repo> <pr>`。被停止的会话留下的 Stage 1 锁会在其进程消失或 3 小时后自行解除；要立即解除，运行 `<plugin-dir>/scripts/pr-quorum.sh unlock <repo> <pr>` |
+| Stage 3 把构建或测试报告为 `not measured` | 该类别没有命令：`repos.<name>.commands` 中缺少它，或没有 `commands` 且 worktree 中既无 `gradlew` 也无 `package.json`(Gradle 没有默认 lint) | 设置 `repos.<name>.commands.build`、`test`、`lint` |
+| Watcher 日志：`skip <repo>#<pr> — author is not trusted (<login>, <association>)`，或 `chain.sh` 以同样原因 exit 3 | PR 作者既不在 `trust.authors` 也不在 `trust.associations` 中 | 如果信任此人，把其登录名加入 `trust.authors` |
+| 脚本以 `GH_HOST=… — pr-quorum supports only github.com` exit 2 | `GH_HOST` 被设为 github.com 以外的主机 | 在 watcher 和链路运行的环境中取消设置 `GH_HOST` |
 
 ## 安全
 
@@ -270,7 +293,10 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 
 其他防护：
 
-- 只运行仓库所有者开的 PR。Watcher 先过滤，`chain.sh` 再检查一次。
+- 只运行受信任作者的 PR：默认是仓库所有者，另加 `trust.authors` 或 `trust.associations` 中的人。信任只来自 `config.json` 和 GitHub API。Watcher 先过滤，`chain.sh` 再检查一次。受信任作者的 PR 文本会进入以你的账号推送和合并的会话，所以信任列表就是边界。
+- 会话不能直接调用构建工具。构建和测试只通过 `pr-quorum.sh build`(评审：PR 固定的 SHA 上的干净 worktree)和 `pr-quorum.sh author-build`(作者的 worktree)运行，二者执行 `repos.<name>.commands` 中的命令或 Gradle/npm 默认命令。
+- 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。
+- 会话不能编辑合并关卡读取的 `meta.json`。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
 
 ## 参与贡献

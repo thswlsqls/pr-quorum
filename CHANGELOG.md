@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+New `config.json` keys are optional. With none of them set, the chain runs as in 0.2.1, except for how builds run (last item).
+
+- PRs from trusted authors run the chain: `trust.authors` (logins) and `trust.associations` (GitHub `author_association` values, default `["OWNER"]`). Unknown association values stop the watcher and chain with exit 2; values beyond `OWNER`, `MEMBER`, `COLLABORATOR` log a warning. Skipped PRs log `author is not trusted (<login>, <association>)`.
+- `repos.<name>.owner` sets a repository's GitHub owner, so one `config.json` can hold personal and organization repositories. Missing, it is the top-level `owner`. The watcher searches once per owner.
+- Only github.com is supported. With `GH_HOST` set to another host, `watch.sh`, `chain.sh`, `pr-quorum.sh`, and `doctor.sh` exit 2 before reading or posting anything.
+- `limits.<step>.budget_usd` and `limits.<step>.timeout_min` cap each chain session (`stage1`, `stage2`, `stage3`, `author`), and `limits.stage1.max_rounds` caps Stage 1 rounds (5 when missing). A session cut by a cap is not retried; the chain stops at `blocked` with the cap in the reason. `models.session` and `models.subagent` pick the session and subagent models. The template sets sample limits.
+- A failed watcher search (expired token, rate limit, network) logs `error — search failed` and exits 2 instead of reporting no review requests. The search asks for up to 100 PRs per owner and warns when it hits that.
+- `scripts/doctor.sh` checks the first-run setup, one line per check, and exits 2 on any `FAIL`. `pr-quorum.sh whoami` prints the bot token's login.
+- Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse (exit 3) a body or commit holding a GitHub token pattern or a known token value; `author-push.sh` scans each pushed commit.
+- Sessions can no longer edit `meta.json`. Stage 2 and Stage 3 records go through new `pr-quorum.sh` subcommands: `stage2-begin`, `verdicts`, `stage3-replies`.
+- The risk score counts code under nested `docs/` and `contents/` folders (only top-level ones are documents), `doctor.sh` and `token-scan.sh` as harness scripts, and build, dependency, and test files of Maven, Python, Go, and Rust.
+- Builds and tests run only through `pr-quorum.sh build` (review sessions) and `pr-quorum.sh author-build` (the author session), which run `repos.<name>.commands.{build,test,lint}`. Without `commands` they fall back to `./gradlew` or `npm run build`/`npm run lint`/`npx --no -- tsc --noEmit`, as before. The session settings no longer allow `./gradlew`, `npm`, or `npx` directly, so a profile or local setup that called them must use the wrapper.
+
 ## 0.2.1
 
 - Axis names in posted comments and the summary legend (names and headers) follow the PR's language, like the rest of the review. When the profile is in another language, the session translates the names and keeps one translation per axis for the whole PR. Before, they were copied from the profile, so a Korean PR got English axis names with an English profile.
