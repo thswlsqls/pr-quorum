@@ -53,7 +53,10 @@ sandbox_env_ok() {
 # for writes too, in case one of them sits under an allowed folder (a HOME under /tmp, as in selftest.sh).
 # Builds get their own cache root (CACHE): what they leave in a cache is run again by later builds, so the user's ~/.gradle, ~/.m2, ~/.npm,
 # ~/.cache and ~/Library/Caches stay read-only — a poisoned wrapper, JDK or package would otherwise run in the user's own builds.
-# The git dir stays read-only: hooks or a rewritten .git pointer would run in the next git commit, outside the sandbox
+# The git dir stays read-only: hooks or a rewritten .git pointer would run in the next git commit, outside the sandbox.
+# (allow default) leaves other mach services open (the JVM needs some); Apple events, LaunchServices and the tools that drive them or
+# launchd and the keychain are refused, so a build cannot hand work to a process outside the sandbox that way. A copied binary still meets
+# the appleevent-send, lsopen and SecurityServer denies
 SANDBOX_SEATBELT='(version 1)
 (allow default)
 (define (home p) (subpath (string-append (param "HOME") p)))
@@ -67,6 +70,9 @@ SANDBOX_SEATBELT='(version 1)
 (deny file-write* (cache "/gradle/init.d") (cache "/gradle/gradle.properties"))
 (deny file-read* secrets)
 (deny mach-lookup (global-name "com.apple.SecurityServer"))
+(deny appleevent-send)
+(deny lsopen)
+(deny process-exec (literal "/usr/bin/open") (literal "/usr/bin/osascript") (literal "/bin/launchctl") (literal "/usr/bin/security"))
 (deny network-outbound (remote unix-socket (path-regex #"^/private/var/run/com\.apple\.launchd\.[^/]+/Listeners$")))'
 
 # sandbox_run <seatbelt|bwrap|off> <worktree root> <dir> <command> [passthrough names...]
