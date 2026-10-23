@@ -187,20 +187,19 @@ To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The
 
 On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only.
 
-Log in `gh` with `gh auth login --with-token`. For Claude Code, run `claude setup-token` and put the token it prints in the job's environment as `CLAUDE_CODE_OAUTH_TOKEN`: the command does not save it, and cron and systemd do not read your shell profile.
+On a machine without a browser, `gh auth login` offers a one-time device code, or you can pipe a personal access token to `gh auth login --with-token`. Log in Claude Code once by running `claude` and pasting the login code when asked. Linux keeps that login in `~/.claude/.credentials.json`, where cron and systemd jobs can read it. A `claude setup-token` token in `CLAUDE_CODE_OAUTH_TOKEN` also works, but every session and build the chain runs inherits that variable.
 
-launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n`. Without it, the next tick starts the next PR alongside the running one. If the tick lands before the running PR's Stage 1 review is posted and while no session holds its lock, it also starts a second chain on that PR and counts another attempt, which can stop it at `held-failed` after one real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`. cron does not expand `$HOME` or other variables in these lines:
+launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n`. Without it, the next tick starts the next PR alongside the running one. If the tick lands before the running PR's Stage 1 review is posted and while no session holds its lock, it also starts a second chain on that PR and counts another attempt, which can stop it at `held-failed` after one real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`. cron does not expand `$HOME` or other variables in the `NAME=value` lines:
 
 ```
 # crontab -e
 PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-CLAUDE_CODE_OAUTH_TOKEN=<token from claude setup-token>
 * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
 ```
 
-With systemd, a timer with `OnBootSec=1min` and `OnUnitActiveSec=1min` that starts a `Type=oneshot` service needs no `flock`: the timer does not start the service again while it is still running. `OnUnitActiveSec=` alone never fires, because the service has not run yet. Set `PATH` and `CLAUDE_CODE_OAUTH_TOKEN` with `Environment=` or `EnvironmentFile=` in the service. For a user timer, run `loginctl enable-linger` so it keeps running after you log out.
+With systemd, a timer with `OnBootSec=1min` and `OnUnitActiveSec=1min` that starts a `Type=oneshot` service needs no `flock`: the timer does not start the service again while it is still running. `OnUnitActiveSec=` alone never fires, because the service has not run yet. Set `PATH` with `Environment=` in the service. For a user timer, run `loginctl enable-linger` so it keeps running after you log out.
 
-On WSL2, enable systemd with `systemd=true` under `[boot]` in `/etc/wsl.conf`, then run `wsl --shutdown`, so cron or the timer starts with the distro. WSL shuts down a distro once it has been idle for 15 seconds (`instanceIdleTimeout`), for example after the last WSL terminal closes. Keep a terminal open, or set `instanceIdleTimeout=-1` under `[general]` in `%UserProfile%\.wslconfig`.
+On WSL2, enable systemd with `systemd=true` under `[boot]` in `/etc/wsl.conf`, then run `wsl --shutdown`, so cron or the timer starts with the distro. WSL shuts down a distro once it has been idle for 15 seconds (`instanceIdleTimeout`), for example after the last WSL terminal closes. Keep a terminal open, or set `instanceIdleTimeout=-1` under `[general]` in `%UserProfile%\.wslconfig`. WSL also does not start the distro when you log in to Windows: open a WSL terminal, or run `wsl.exe -d <distro>` from Task Scheduler at logon. Windows sleep pauses it too, so keep Windows awake while the watcher should run.
 
 ## Usage
 
