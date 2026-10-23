@@ -24,7 +24,7 @@ die() { echo "pr-quorum: $2" >&2; exit "$1"; }
 TMP=""
 cleanup() { [ -n "${TMP:-}" ] && rm -rf "$TMP"; return 0; }
 trap cleanup EXIT
-mktmp() { cleanup; TMP="$(mktemp -d)"; }
+mktmp() { cleanup; TMP="$(pq_mktemp -d)"; }
 
 usage() {
   cat >&2 <<'USAGE'
@@ -117,7 +117,7 @@ api() {
   for a in "$@"; do
     case "$a" in -X*|--method*|--input*|-f*|-F*|--field*|--raw-field*) gh api "$@" || die "$E_API" "gh api failed: $*"; return 0 ;; esac
   done
-  d="$(mktemp)"; e="$(mktemp)"
+  d="$(pq_mktemp)"; e="$(pq_mktemp)"
   for w in ${PR_QUORUM_API_BACKOFF:-2 5} end; do
     if gh api "$@" > "$d" 2> "$e"; then cat "$d"; rm -f "$d" "$e"; return 0; fi
     [ "$w" != end ] && grep -qiE 'HTTP (5[0-9]{2}|429)|secondary rate limit|timeout|timed out|connection reset' "$e" || break
@@ -549,7 +549,7 @@ cmd_build() {
 
   if [ "$BUILD_AUTHOR" = 0 ]; then
     # Clean means nothing planted only because review sessions cannot write inside <repo>-worktrees (gitignored files do not show here)
-    [ -z "$(cd "$real" && git status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
+    [ -z "$(cd "$real" && git -c core.hooksPath=/dev/null status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
     head="$(cd "$real" && git rev-parse HEAD)"
     # The SHAs this PR pinned (§6 of rules/01-stages.md), else the current PR head on GitHub
     m="$(meta_path "$repo" "$pr")"
@@ -632,7 +632,7 @@ need_clean_body() { scan_tokens "$@" || die "$E_GATE" "outgoing body holds a tok
 # comments.json goes out through jq, which decodes escapes such as \u0067hp_…, so scan the decoded strings too, not only the file as written.
 # A file jq cannot parse fails closed
 need_clean_json() {
-  local d; d="$(mktemp)"
+  local d; d="$(pq_mktemp)"
   jq -r '.. | strings' "$1" > "$d" 2>/dev/null || { rm -f "$d"; die "$E_GATE" "could not decode $1 for the token scan — nothing was posted"; }
   scan_tokens "$d" || { rm -f "$d"; die "$E_GATE" "outgoing comments hold a token once decoded — nothing was posted. Remove it from $1"; }
   rm -f "$d"

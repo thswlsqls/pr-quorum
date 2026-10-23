@@ -28,6 +28,11 @@ if command -v claude >/dev/null; then
     ok "claude version $cv"
   else bad "claude version ${cv:-unknown} — 2.1.257 or later is needed (blockReadsOutsideWorkingDirectories)"; fi
 fi
+# chain.sh turns off repository hooks in sessions through GIT_CONFIG_COUNT (git 2.31+) and stops with exit 2 without it
+if command -v git >/dev/null; then
+  if [ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ]; then ok "git reads GIT_CONFIG_COUNT"
+  else bad "$(git --version) — 2.31 or later is needed (GIT_CONFIG_COUNT turns off repository hooks in chain sessions)"; fi
+fi
 command -v jq >/dev/null || finish   # everything below reads config.json with jq
 
 # 2) config.json and its required keys

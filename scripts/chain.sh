@@ -28,6 +28,10 @@ trust_check || exit 2
 # Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json
 render_settings "$HARNESS_DIR" author-settings.json
+# Hooks under a relative core.hooksPath (husky) live in the worktree, which PRs and builds write — no git call below runs them (harness.md §3-1)
+[ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ] \
+  || { echo "git 2.31+ is needed (GIT_CONFIG_COUNT) to turn off repository hooks in sessions" >&2; exit 2; }
+n="${GIT_CONFIG_COUNT:-0}"; export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n+1))
 RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"

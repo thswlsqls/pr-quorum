@@ -117,7 +117,13 @@ take() {
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
   search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
+  repo) [ -e "$S/push" ] && { echo main; exit 0; }; exit 1 ;;
   pr)
+    # author-push.sh test (H2): a same-repository PR on branch pr whose head on GitHub is the SHA in $S/push
+    if [ -e "$S/push" ]; then
+      case "$*" in *isCrossRepository*) echo false ;; *headRefName*) echo pr ;; *headRefOid*) cat "$S/push" ;; esac
+      exit 0
+    fi
     # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup
     if [ -e "$S/chain" ]; then
       case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) echo OPEN ;; esac
@@ -178,9 +184,25 @@ case "$path" in
 esac
 GH
 chmod +x "$STUB/bin/gh"
-# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH
-printf '#!/usr/bin/env bash\necho "claude $*" >> "$STUB_STATE/calls.log"; exit 1\n' > "$STUB/bin/claude"
-chmod +x "$STUB/bin/claude"
+# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH.
+# When $STUB_STATE/session-git names a worktree (H1), it first commits there the way an author session does
+cat > "$STUB/bin/claude" <<'CLAUDE'
+#!/usr/bin/env bash
+echo "claude $*" >> "$STUB_STATE/calls.log"
+[ ! -f "$STUB_STATE/session-git" ] \
+  || ( cd "$(cat "$STUB_STATE/session-git")" && echo x >> a && git add a && git commit -qm s ) >> "$STUB_STATE/calls.log" 2>&1
+exit 1
+CLAUDE
+# git's ssh transport for H2: the last argument is the remote command (git-receive-pack 'acme/demo.git'), run against $STUB/ssh
+cat > "$STUB/bin/stub-ssh" <<'SSH'
+#!/usr/bin/env bash
+c="${!#}"; cd "$(dirname "$0")/../ssh" && eval "git ${c#git-}"
+SSH
+# H2·H3: a mktemp with no template lands in $TMPDIR (BSD mktemp falls back to the user temp folder when TMPDIR is missing) — refuse it
+mkdir -p "$STUB/tmpbin"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in -*) ;; *) exec %s "$@" ;; esac; done\necho "mktemp with no template" >&2; exit 1\n' \
+  "$(command -v mktemp)" > "$STUB/tmpbin/mktemp"
+chmod +x "$STUB/bin/claude" "$STUB/bin/stub-ssh" "$STUB/tmpbin/mktemp"
 
 stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/demo-pr1 with a stage1 draft that passes PG1 and PG5
   rm -rf "$STUB/home" "$STUB/state"
@@ -199,7 +221,7 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
-    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID
+    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT
     "$@" )
 }
 stub_post() {  # stub_post [stage] — post-review of that stage's draft
@@ -388,6 +410,57 @@ f3_fork_again_once() { fork_stop alice/demo || return 1; fork_again; }
 check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alice/demo
 check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
 check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
+
+# H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
+# a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
+hooked_repo() {  # hooked_repo — $STUB/repo/demo on core.hooksPath=.husky, a bare copy as acme/demo under $STUB/ssh, and HOOKED_WT on branch pr
+  local r="$STUB/repo/demo" h
+  HOOKED_WT="$STUB/repo/demo-worktrees/pr-author-1"
+  rm -rf "$STUB/repo" "$STUB/ssh"; mkdir -p "$r/.husky" "$STUB/ssh/acme"
+  for h in pre-commit post-index-change reference-transaction pre-push; do
+    printf '#!/bin/sh\necho %s >> "%s"\n' "$h" "$STUB/state/hooks-ran" > "$r/.husky/$h"; chmod +x "$r/.husky/$h"
+  done
+  git -C "$r" init -q && git -C "$r" config user.name t && git -C "$r" config user.email t@t && git -C "$r" config core.hooksPath .husky \
+    && echo a > "$r/a" && git -C "$r" add -A && git -C "$r" commit -qm init || return 1
+  [ -s "$STUB/state/hooks-ran" ] || { echo "the test hooks do not run at all"; return 1; }
+  git -C "$r" branch pr && git clone -q --bare "$r" "$STUB/ssh/acme/demo.git" && git -C "$r" remote add origin git@github.com:acme/demo.git \
+    && git -C "$r" worktree add -q "$HOOKED_WT" pr && rm -f "$STUB/state/hooks-ran"
+}
+# H1 — the author step's session commits in the worktree twice (two tries, no record, blocked): two commits, no hook ran
+h1_session_hooks_off() {
+  local rc=0 out
+  stub_chain_home; rm "$STUB_RUN/outputs/author/round-02.json"; hooked_repo || return 1
+  echo "$HOOKED_WT" > "$STUB/state/session-git"
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(git -C "$HOOKED_WT" rev-list --count HEAD)" = 3 ] \
+    || { echo "exit $rc, $(git -C "$HOOKED_WT" rev-list --count HEAD) commits (want 4, 3)"; echo "$out"; return 1; }
+  [ ! -e "$STUB/state/hooks-ran" ] || { echo "hooks ran in the session: $(paste -sd ' ' - < "$STUB/state/hooks-ran")"; return 1; }
+}
+# H2 — author-push.sh, called with no chain environment and no usable $TMPDIR: the push lands, no hook ran, its temp file is gone
+h2_push_hooks_off() {
+  local rc=0 out
+  stub_home; hooked_repo || return 1
+  git -C "$HOOKED_WT" rev-parse HEAD > "$STUB/state/push"
+  echo x >> "$HOOKED_WT/a" && git -C "$HOOKED_WT" -c core.hooksPath=/dev/null commit -qam fix || return 1
+  out="$(cd "$HOOKED_WT" && stub_run env PATH="$STUB/tmpbin:$STUB/bin:$PATH" TMPDIR="$STUB/no-such-dir" GIT_SSH_VARIANT=simple GIT_SSH_COMMAND="$STUB/bin/stub-ssh" \
+         "$HARNESS_DIR/scripts/author-push.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 0 ] && [ "$(git -C "$STUB/ssh/acme/demo.git" rev-parse refs/heads/pr)" = "$(git -C "$HOOKED_WT" rev-parse HEAD)" ] \
+    || { echo "exit $rc, remote pr $(git -C "$STUB/ssh/acme/demo.git" rev-parse --short refs/heads/pr) (want 0, $(git -C "$HOOKED_WT" rev-parse --short HEAD))"; echo "$out"; return 1; }
+  [ ! -e "$STUB/state/hooks-ran" ] || { echo "hooks ran in the push: $(paste -sd ' ' - < "$STUB/state/hooks-ran")"; return 1; }
+  [ -d "$STUB/home/.pr-quorum/tmp" ] && [ -z "$(ls -A "$STUB/home/.pr-quorum/tmp")" ] || { echo "~/.pr-quorum/tmp missing or not emptied"; return 1; }
+}
+# H3 — pr-quorum.sh keeps its temp files under ~/.pr-quorum/tmp, not $TMPDIR, which a build's leftover process can write
+h3_harness_tmp() {
+  local out
+  stub_home
+  out="$(stub_run env PATH="$STUB/tmpbin:$STUB/bin:$PATH" TMPDIR="$STUB/no-such-dir" "$PR_QUORUM" ranges demo 1 "$STUB_SHA" 2>&1)" || { echo "$out"; return 1; }
+  [ -d "$STUB/home/.pr-quorum/tmp" ] && [ -z "$(ls -A "$STUB/home/.pr-quorum/tmp")" ] || { echo "~/.pr-quorum/tmp missing or not emptied"; return 1; }
+}
+if [ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ]; then
+  check "hooks H1 chain sessions run no repository hook"      h1_session_hooks_off
+else echo "warning — git does not read GIT_CONFIG_COUNT (2.31+) — skipping H1"; fi
+check "hooks H2 author-push runs no repository hook"          h2_push_hooks_off
+check "tmp H3 harness temp files under ~/.pr-quorum/tmp"      h3_harness_tmp
 
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
