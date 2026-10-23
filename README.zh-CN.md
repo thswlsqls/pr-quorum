@@ -29,10 +29,10 @@ flowchart TD
   RQ(["机器人被设为<br/>评审人"]) --> S1["Stage 1 ·<br/>review<br/>最多 5 轮"]
   RQ -. "held-large:<br/>超过 50 个文件或<br/>超过 3,000 行" .-> BL[blocked]
   S1 -. "held-large 或<br/>与 main 冲突" .-> BL
-  S1 --> A1["作者第 1 轮<br/>修复 Stage 1<br/>的评论"]
+  S1 --> A1["作者第 1 次修复<br/>Stage 1<br/>的评论"]
   A1 --> S2["Stage 2 ·<br/>followup<br/>逐个讨论串<br/>给出判定"]
   S2 --> S3["Stage 3 ·<br/>measured<br/>构建、测试、<br/>遗漏的缺陷"]
-  S3 --> A2["作者第 2 轮<br/>修复剩余问题"]
+  S3 --> A2["作者第 2 次修复<br/>剩余问题"]
   A2 -- "已推送" --> S2b["Stage 2 ·<br/>followup"]
   A2 -- "无需推送" --> G(["关卡(见下)"])
   S2b --> G
@@ -326,8 +326,8 @@ flowchart LR
   R1["评审会话<br/>Stage 1 · 2 · 3"]
   A1["作者会话"]
   R1 -- "通过它发布" --> PQ["scripts/<br/>pr-quorum.sh<br/>(机器人令牌)"]
-  R1 -. "仅按文件名<br/>拒绝" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
-  A1 -. "仅按文件名<br/>拒绝" .-> TOK
+  R1 -. "仅拦截点名<br/>该文件的命令" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "仅拦截点名<br/>该文件的命令" .-> TOK
   R1 -- "写入" --> RUNS["~/.pr-quorum/<br/>runs/"]
   A1 -- "写入" --> RUNS
   A1 -- "写入" --> WT["worktree<br/>pr-author-N/"]
