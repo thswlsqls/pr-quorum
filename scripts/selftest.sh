@@ -151,6 +151,9 @@ case "$path" in
     [ ! -e "$S/fail-comments" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     cat "$S/comments.json" ;;
   */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
+  repos/acme/demo)
+    [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "HTTP 404: Not Found" >&2; exit 1 ;;
   *) echo "HTTP 404: Not Found" >&2; exit 1 ;;
 esac
 GH
@@ -337,6 +340,53 @@ check "gc G1 merged and closed removed, open and unknown kept" g1_closed_removed
 check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
+
+# D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
+# The stub gh is not logged in, so doctor always exits 2 here; only the lines matter
+doctor_home() {  # doctor_home [jq filter on config.json] — stub_home, path a git repository, profiles/backend.md edited from the sample
+  stub_home; rm -rf "$STUB/repo"; git init -q "$STUB/repo/demo" || return 1
+  mkdir -p "$STUB/home/.pr-quorum/profiles"; { cat "$HARNESS_DIR/examples/profiles/backend.md"; echo; } > "$STUB/home/.pr-quorum/profiles/backend.md"
+  [ -z "${1:-}" ] || { jq "$1" "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"; }
+}
+stub_doctor() { stub_run bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true; }
+d1_template_values() {
+  local out; doctor_home || return 1
+  cp "$HARNESS_DIR/templates/config.json" "$STUB/home/.pr-quorum/config.json"; out="$(stub_doctor)"
+  grep -qF 'FAIL — config.json still has template values: your-github-login, your-bot-login, your-repo, /absolute/path/to/your-repo' <<<"$out" \
+    && ! grep -q 'config owner = your-github-login' <<<"$out" || { echo "$out"; return 1; }
+}
+d2_repo_404() {
+  local out; doctor_home || return 1
+  out="$(stub_doctor)"
+  grep -q 'FAIL — demo repository acme/demo not found' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" || { echo "404: $out"; return 1; }
+  touch "$STUB/state/fail-repo"; out="$(stub_doctor)"
+  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not found\|not a collaborator' <<<"$out" \
+    || { echo "502: $out"; return 1; }
+}
+d3_sample_profile() {
+  local out a b; doctor_home || return 1
+  out="$(stub_doctor)"; a="$(grep -c '^warn — demo profile' <<<"$out")"
+  cp "$HARNESS_DIR/examples/profiles/backend.md" "$STUB/home/.pr-quorum/profiles/backend.md"; out="$(stub_doctor)"
+  grep -q 'warn — demo profile backend is an unmodified copy of examples/profiles/backend.md' <<<"$out" || { echo "copy: $out"; return 1; }
+  b="$(grep -c '^FAIL' <<<"$out")"
+  { echo; cat "$HARNESS_DIR/examples/profiles/generic.md"; } > "$STUB/home/.pr-quorum/profiles/backend.md"; out="$(stub_doctor)"
+  grep -qE 'warn — demo profile backend has [1-9][0-9]* placeholder\(s\) left' <<<"$out" || { echo "fill in: $out"; return 1; }
+  [ "$a" = 0 ] && [ "$b" = "$(grep -c '^FAIL' <<<"$out")" ] || { echo "edited profile warned ($a) or FAIL count changed"; return 1; }
+}
+d4_commands() {
+  local out
+  doctor_home '.repos.demo.commands = {build: "./gradlew build", test: "npm test"}' || return 1; out="$(stub_doctor)"
+  grep -q 'FAIL — demo commands.build runs ./gradlew, but .* has no gradlew' <<<"$out" \
+    && grep -q 'warn — demo commands.test runs npm, but .* has no package.json' <<<"$out" || { echo "missing: $out"; return 1; }
+  touch "$STUB/repo/demo/gradlew" "$STUB/repo/demo/package.json"; out="$(stub_doctor)"
+  ! grep -q 'commands\.' <<<"$out" || { echo "set right: $out"; return 1; }
+  doctor_home || return 1; out="$(stub_doctor)"
+  ! grep -q 'commands\.' <<<"$out" || { echo "no commands: $out"; return 1; }
+}
+check "doctor D1 template values, one line"            d1_template_values
+check "doctor D2 repository 404 is not 'not a collaborator'" d2_repo_404
+check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
+check "doctor D4 commands that cannot start"           d4_commands
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
