@@ -185,7 +185,7 @@ The watcher polls every 60 seconds for review requests to the bot. Without it, r
 
 To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher handles one PR at a time; requests made while the machine was off are picked up when it comes back.
 
-On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only. launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n` to keep one PR at a time. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`:
+On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only. launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n` to keep one PR at a time. Without it, the next tick starts the next PR alongside the running one, and also counts another attempt for the running PR, which can stop it at `held-failed` after a single real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`:
 
 ```
 # crontab -e
@@ -283,7 +283,7 @@ Enabling Claude Code's [sandbox](https://code.claude.com/docs/en/sandboxing) to 
 - **Risk rules are fitted to the repository they were written for** (`common/security/`, `filter/`, `/api/bff/auth/`, …). Check [`rules/03-risk.md`](rules/03-risk.md) and `scripts/risk.jq` against your repository before turning on `auto_merge`.
 - **Personal repositories only.** In an organization, PRs from members are skipped too.
 - **GitHub only, one machine.** The watcher polls, so the machine must be on.
-- **Run on macOS only.** The Linux and WSL2 watcher setups follow from the scripts but have not been run.
+- **Real reviews have run on macOS only.** On Linux, `selftest.sh` and the cron + `flock` watcher were checked in an Ubuntu 24.04 container with stand-in `gh` and `claude` commands. A real review on Linux, the systemd timer, and WSL2 have not been run.
 - **Path restrictions.** The plugin path must not contain `|` or `&`, and repository paths in `config.json` must not contain `*` or `[`.
 - Script-generated scorecards and notices are in English; review text follows the PR's language.
 
