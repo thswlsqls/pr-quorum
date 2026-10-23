@@ -17,7 +17,7 @@
 
 ## 0.1.0
 
-First public release. Moved the review harness that ran in tech-n-ai-backend's `tools/pr-eval/` into a Claude Code plugin.
+First public release. Moved a review harness that ran inside a personal repository into a Claude Code plugin.
 
 Two things were fixed before release.
 

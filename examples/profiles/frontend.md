@@ -1,4 +1,4 @@
-# Profile: frontend (`tech-n-ai-frontend`)
+# Profile: frontend (Next.js)
 
 Axis definitions for Stages 1 and 3. The orchestrator copies **the full section for each judge** into the prompt body.
 

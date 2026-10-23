@@ -1,6 +1,6 @@
 # pr-quorum harness
 
-A harness that evaluates incoming PRs axis by axis and posts the review. This is the first document to read when changing or operating the plugin. The design rationale is in `docs/plans/20260820075900/tech-n-ai-pr-eval-harness/` of the tech-n-ai-backend repository (untracked).
+A harness that evaluates incoming PRs axis by axis and posts the review. This is the first document to read when changing or operating the plugin.
 
 ## 0. Invariants — before anything else
 
@@ -13,7 +13,6 @@ A harness that evaluates incoming PRs axis by axis and posts the review. This is
 6. Do not commit the bot token to a repository.
 
 > - The only enforcement that keeps the bot from changing code is **the collaborator read role.** The token scope cannot prevent it — `public_repo` includes code write on public repositories. If the repository the bot reviews is public, the moment the bot is raised to write, this token allows push.
-> - **Do not confuse this with `tools/pipeline/`.** This plugin is used **when evaluating an incoming PR**; tech-n-ai-backend's `tools/pipeline/` (impl, impl-validate) is used **when opening a PR**. Neither reads the other's outputs.
 > - When the harness lived inside the product repository, harness changes got mixed into a product PR, and the chain stopped on a conflict with main (PR #36 — a session edited `_memory/learnings.md` in the working tree directly).
 > - **State lives in `~/.pr-quorum/`, not in the repository.** `config.json`, `profiles/`, `learnings.md`, `human-labels.md`, the three rendered settings files, and `runs/` are here. `runs/` holds per-PR scratch folders that are thrown away. This folder has no backup and does not come along when you clone on another machine. Rule documents, scripts, and settings templates are tracked in the plugin repository.
 
@@ -63,7 +62,7 @@ Reassigning the reviewer does not rerun Stage 1. **Stage N runs only if `meta.js
 
 **Backend has 9 axes, frontend has 8** — `R-I` exists only in the backend profile, and even there it is conditional; its trigger conditions are in §1 of `profiles/backend.md`.
 
-The order `J1`–`J4` is not a score but **deduplication priority** — if the design or data is wrong, that is the premise for everything else. The sources of the axis criteria (Google eng-practices · Conventional Comments) and their quotations used to be in tech-n-ai-backend's old `tools/pr-eval/README.md`, and are now in [the README's "Where the criteria come from"](../README.md#where-the-criteria-come-from).
+The order `J1`–`J4` is not a score but **deduplication priority** — if the design or data is wrong, that is the premise for everything else. The sources of the axis criteria (Google eng-practices · Conventional Comments) and their quotations are in [the README's "Where the criteria come from"](../README.md#where-the-criteria-come-from).
 
 ## 3. `pr-quorum.sh` contract
 
@@ -128,7 +127,7 @@ Line-range anchors (`path:12-18`) and whole-file anchors (`path:0`) cannot be in
 
 | Item | Value |
 |---|---|
-| Account | `tech-n-ai-eval-bot` (a regular GitHub account) |
+| Account | A dedicated bot (a regular GitHub account; `bot` in `config.json`) |
 | Repository permission | **collaborator read** — read is enough for review requests |
 | Token | Bot PAT, scope `public_repo` |
 | What it writes | Only reviews and comments. Uses only `event=COMMENT`; never approves or requests changes |
@@ -181,7 +180,7 @@ It does not run while the machine is off. Once on, it polls and handles the back
 | What | Result |
 |---|---|
 | Assigning the bot as reviewer while it is a **read** collaborator | **Works.** But the GitHub search index takes a few seconds to catch up — right after assignment, `gh search prs --review-requested=` returns an empty array. The watcher's 60-second polling absorbs this |
-| `POST /pulls/{N}/reviews` with a `public_repo` PAT | **Works.** Author `tech-n-ai-eval-bot`, state `COMMENTED` |
+| `POST /pulls/{N}/reviews` with a `public_repo` PAT | **Works.** Author is the bot account, state `COMMENTED` |
 | Review request cleared automatically on review submission | **Cleared.** After posting, `reviewRequests` became an empty array |
 | Anchor outside the diff | **Rejected — and the whole review with it.** `422 {"errors":["Line could not be resolved"]}`; a nonexistent file gives `Path could not be resolved`. **PG1 is the cheapest safeguard in this harness** |
 | `line` anchor when `eval_sha` is older than head | **Attaches.** Posted with a SHA two commits behind head, and `line` and `original_line` were kept as is. There is no need to move the pinned SHA up to head |

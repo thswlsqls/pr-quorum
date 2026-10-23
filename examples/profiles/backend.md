@@ -1,4 +1,4 @@
-# Profile: backend (`tech-n-ai-backend`)
+# Profile: backend (Spring Boot)
 
 Axis definitions for Stages 1 and 3. The orchestrator copies **the full section for each judge** into the prompt body.
 
@@ -62,7 +62,7 @@ R-I (Security)
 ```
 
 > **R-B differs from the original harness, starting with its name.** The original R-B was `aggregation correctness`, an axis specific to the ad-aggregation domain.
-> tech-n-ai has no such domain, so it was **redefined as `Data correctness`.**
+> The repository this profile was written for has no such domain, so it was **redefined as `Data correctness`.**
 > Carrying over the original definition as-is would produce an axis that almost never fires.
 
 > **`R-I` is conditional.** Not every PR touches a security path.
