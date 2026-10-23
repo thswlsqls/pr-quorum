@@ -758,18 +758,38 @@ record_review() {
 }
 
 cmd_reply() {
-  local repo="$1" pr="$2" cid="$3" bfile="$4" rid
+  local repo="$1" pr="$2" cid="$3" bfile="$4" rid m head mk known
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   need_meta "$repo" "$pr"
   load_bot_token
-  rid="$(jq -n --rawfile b "$bfile" '{body:$b}' \
+  m="$(meta_path "$repo" "$pr")"
+  # Adoption, as in post-review — a bot reply carrying this thread/stage/head marker that meta.json does not know went up in an
+  # earlier call whose response or record was lost. Record it instead of replying twice. Recorded replies are left out, so a
+  # deliberate second reply and the next round (a new head) still post. A failed check posts nothing
+  head="$(cmd_sha "$repo" "$pr")"
+  mk="<!-- pr-quorum:reply:$cid:$(jq -r '.lock.stage // "x"' "$m"):${head:0:7} -->"
+  known="$(jq -c '[.posted_reply_ids[]?, .stage2[]?.replies[]?, .stage3.replies[]?, .stage3_replies[]?, .stage3_history[]?.replies[]?] | map(select(type == "number"))' "$m")"
+  rid="$(api --paginate "repos/$SLUG/pulls/$pr/comments" \
+    | jq -s -r --arg b "$(cfg '.bot // empty')" --arg mk "$mk" --argjson k "$known" '
+        [add // [] | .[] | select(.user.login == $b and ((.body // "") | contains($mk)) and ((.id as $i | $k | index($i)) == null))]
+        | last | .id // empty')" \
+    || die "$E_API" "could not list review comments to check for an unrecorded earlier reply — nothing was posted"
+  if [ -n "$rid" ]; then
+    record_reply "$repo" "$pr" "$cid" "$rid" \
+      || die "$E_API" "reply id $rid is on GitHub but recording it in meta.json failed — rerun the same reply command"
+    echo "$rid"
+    echo "adopted — reply_id=$rid (already posted, now recorded)" >&2
+    return 0
+  fi
+
+  rid="$(jq -n --rawfile b "$bfile" --arg mk "$mk" '{body:($b + "\n\n" + $mk)}' \
     | gh api "repos/$SLUG/pulls/$pr/comments/$cid/replies" --input - --jq '.id')" \
-    || die "$E_API" "reply failed (comment_id=$cid)"
+    || die "$E_API" "reply failed (comment_id=$cid). If the reply did go up, rerunning the same reply command records it without posting again"
   echo "$rid"
 
-  # The post already went through, so exit 0 even if recording fails — retrying on a failure code would post the reply twice.
+  # Sessions cannot write meta.json, so a failed record is a failure — the rerun adopts this reply instead of posting it again.
   record_reply "$repo" "$pr" "$cid" "$rid" \
-    || echo "warning — the reply was posted (id $rid) but recording it in meta.json failed. Do not post again; record it by hand" >&2
+    || die "$E_API" "reply posted (id $rid) but not recorded — rerun the same reply command; it records this reply without posting again"
 }
 
 # Records the reply id in the stage record of the current lock. Without it, the next stage cannot find the thread and
@@ -790,7 +810,9 @@ record_reply() {
                                   then .stage3.replies[$k] = $rid else .stage3_replies[$k] = $rid end' \
          --arg k "${code:-$cid}" --argjson rid "$rid" ;;
     *) echo "warning — the lock has no stage 2 or 3, so reply id ($rid) was not recorded in meta.json" >&2 ;;
-  esac
+  esac || return 1
+  # Every reply id stays known to the adoption check: a second reply under the same code key overwrites the first
+  meta_update "$repo" "$pr" '.posted_reply_ids = ((.posted_reply_ids // []) + [$rid] | unique)' --argjson rid "$rid"
 }
 
 cmd_patch() {
