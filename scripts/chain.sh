@@ -286,7 +286,10 @@ do_merge() {
 
 # ---------- Main ----------
 # Same check as watch.sh, read again from the API — even if a person calls chain.sh directly, a PR from an untrusted author never reaches a session
-author="$(gh api "repos/$SLUG/pulls/$PR" --jq '"\(.user.login) \(.author_association)"')" || die "could not check the PR author" 4
+pj="$(gh api "repos/$SLUG/pulls/$PR")" || die "could not check the PR author" 4
+author="$(jq -r '"\(.user.login) \(.author_association)"' <<<"$pj")"
+# A fork keeps the head branch outside this repository, so the author pass could not push to it. A null head.repo is a deleted fork
+fork="$(jq -r 'if .head.repo == null then "a deleted fork" elif (.head.repo.full_name|ascii_downcase) != (.base.repo.full_name|ascii_downcase) then .head.repo.full_name else empty end' <<<"$pj")"
 trust_rc=0; is_trusted "${author% *}" "${author#* }" || trust_rc=$?
 [ "$trust_rc" != 2 ] || die "trust in config.json is invalid" 2
 [ "$trust_rc" = 0 ] || die "author is not trusted (${author% *}, ${author#* }) — not running the chain" 3
@@ -318,10 +321,21 @@ case "$(jq -r '.chain.state // empty' "$M")" in
   merged) log "already merged"; exit 0 ;;
 esac
 case "$(jq -r '.status' "$M")" in
-  # held-large already has its notice — the large-PR comment, or the one posted when Stage 1 held it
-  held-large|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
+  # held-large and held-fork already have their notice — the large-PR or fork comment, or the one posted when Stage 1 held it
+  held-large|held-fork|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
   held-*|보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
 esac
+
+# A fork PR stops before any session runs. The notice comment is posted once — a later call stops at the hold check above first
+if [ -n "$fork" ]; then
+  "$PR_QUORUM" status "$REPO" "$PR" "held-fork" >/dev/null
+  mkdir -p "$RUN/outputs"
+  printf 'This PR comes from %s. The automated chain does not run on fork PRs because its author pass pushes fixes to the PR branch, which is outside this repository. Push the branch to this repository and open a new PR, or ask for a human review.\n' \
+    "$fork" > "$RUN/outputs/fork-pr.md"
+  "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/fork-pr.md" >/dev/null || log "failed to post the fork notice comment"
+  NO_NOTICE=1   # The fork comment is this stop's notice
+  chain_state "blocked" "PR comes from a fork ($fork) — the author pass cannot push to it"; exit 3
+fi
 
 # The large-PR cutoff is checked here, not left to the session. The notice comment is posted once — a later call stops at the hold check above first
 pre_rc=0

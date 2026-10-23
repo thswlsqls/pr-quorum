@@ -292,7 +292,7 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
   "stage3_history": [],            // when Stage 3 is re-posted with a different stage_sha, the previous pass's stage3 moves here
   "chain": {"sessions": [{"step": "stage1", "try": 1, "at": "…", "session_id": "…", "duration_ms": 0, "cost_usd": 0, "num_turns": 0, "is_error": false}]},   // chain.sh appends one per session
 
-  "status": "pending|running|done|held-large|held-failed"   // the watcher skips held-*
+  "status": "pending|running|done|held-large|held-fork|held-failed"   // the watcher skips held-*
 }
 ```
 

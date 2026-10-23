@@ -11,6 +11,7 @@ Develop in a separate clone or worktree, not in the clone your watcher runs from
 ## Checks
 
 - After changing a gate script (`scripts/pr-quorum.sh`, `scripts/risk.jq`), run `scripts/selftest.sh`. It re-runs the gates on past outputs without an LLM. If an output that was already posted fails the new rule, the rule is most likely wrong.
+- CI runs `bash -n` and `selftest.sh` on macOS and Ubuntu for every PR.
 - Add a line to [`CHANGELOG.md`](CHANGELOG.md) for user-visible changes. A marketplace install only picks up a release when `version` in `.claude-plugin/plugin.json` goes up.
 
 ## Sharing learnings

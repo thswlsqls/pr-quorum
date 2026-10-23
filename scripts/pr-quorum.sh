@@ -377,7 +377,7 @@ cmd_unlock() { need_meta "$1" "$2"; meta_update "$1" "$2" '.lock=null'; echo "lo
 cmd_status() {
   need_meta "$1" "$2"
   case "$3" in
-    pending|running|done|held-large|held-failed) ;;
+    pending|running|done|held-large|held-fork|held-failed) ;;
     대기|진행|완료|"보류(대형PR)"|"보류(실패)") ;;   # old Korean values, still accepted
     *) die "$E_USAGE" "status value is not on the scale: $3" ;;
   esac
