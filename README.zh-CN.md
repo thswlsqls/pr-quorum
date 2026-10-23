@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `4e43dff`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `87737b7`
 
 <p align="center">
   <picture>
@@ -164,7 +164,8 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 ## 环境要求
 
 - macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 launchd watcher 示例依赖 macOS。不支持原生 Windows(PowerShell、cmd)
-- [Claude Code](https://code.claude.com/docs)、用你自己的账号登录的 `gh`、`jq`、`git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git`
+- Linux 上需要构建沙箱用的 `bwrap`(bubblewrap)。macOS 自带 `sandbox-exec`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
 - github.com 上的仓库。不支持 GitHub Enterprise Server 和 ghe.com
 - 默认只运行仓库所有者开的 PR，其余跳过。要运行队友的 PR，把他们加入 `trust.authors` 或 `trust.associations`；组织的仓库需设置 `repos.<name>.owner`([配置 §3](#3-pr-quorumconfigjson))。受信任作者的 PR 描述和 diff 会直接进入以你的 gh 账号推送和合并的会话，所以只信任你愿意让其这样做的人
@@ -244,10 +245,12 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
 | `repos.<name>.owner` | 该仓库的 GitHub 所有者(用户或组织)。缺省时为顶层 `owner` |
 | `repos.<name>.commands` | 会话在 PR worktree 中运行的 `build`、`test`、`lint` 命令；命令中的 `<target>` 每次运行时填入。缺省时，Gradle worktree 用 `./gradlew [<target>:]build` 和 `test`，否则用 `npm run build`、`npm run lint`，测试用 `npx --no -- tsc --noEmit`。没有命令的类别记为 `not measured` |
+| `build.sandbox` | `"require"`(默认)：构建和测试在操作系统沙箱中运行，沙箱无法启动的机器上记为 `not measured`。`"off"`：不用沙箱，适用于需要 Docker、钥匙串，或需要沙箱屏蔽的 `~/.npmrc`、`~/.m2/settings.xml` 中私有仓库凭据的构建 |
+| `build.env_passthrough` | 构建额外保留的环境变量名(默认 `[]`；除此之外构建从清空的环境启动)。看起来像凭据的名字(`*TOKEN*`、`*SECRET*`、`*KEY*`)会被拒绝，所以私有仓库凭据不能从这里传入 |
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
 | `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 Claude Code 的默认值 |
 
-所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 新增的键都是可选的；没有它们时链路的行为与以前相同。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
+所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
 `learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
@@ -385,22 +388,24 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 
 ## 安全
 
-每个链路会话都以 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 运行，不在允许列表([`templates/`](templates/))中的工具一律直接拒绝。评审会话只能写入 `~/.pr-quorum/runs/` 之下，只能通过 `scripts/pr-quorum.sh` 向 GitHub 发布，且无法读取令牌文件。作者会话只通过 `scripts/author-push.sh` 推送，该脚本拒绝强制推送和其他分支。
+每个链路会话都以 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 运行，不在允许列表([`templates/`](templates/))中的工具一律直接拒绝。评审会话和作者会话无法读取工作目录之外的内容，因此碰不到令牌文件和其他凭据。评审会话只能写入 `~/.pr-quorum/runs/` 之下，只能通过 `scripts/pr-quorum.sh` 向 GitHub 发布。作者会话只通过 `scripts/author-push.sh` 推送，该脚本拒绝强制推送和其他分支。
 
 ```mermaid
 flowchart LR
   R1["评审会话<br/>Stage 1 · 2 · 3"]
   A1["作者会话"]
   R1 -- "通过它发布" --> PQ["scripts/<br/>pr-quorum.sh<br/>(机器人令牌)"]
-  R1 -. "仅拦截点名<br/>该文件的命令" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
-  A1 -. "仅拦截点名<br/>该文件的命令" .-> TOK
+  R1 -. "禁止<br/>读取" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "禁止<br/>读取" .-> TOK
   R1 -- "写入" --> RUNS["~/.pr-quorum/<br/>runs/"]
   A1 -- "写入" --> RUNS
   A1 -- "写入" --> WT["worktree<br/>pr-author-N/"]
   A1 -- "推送、回复" --> AS["author-push.sh<br/>author-reply.sh<br/>你的 gh 账号<br/>禁止强制推送"]
 ```
 
-图中未画出：令牌的拒绝规则只匹配点名该文件的命令；Stage 3 在自己的 worktree 中构建并测试 PR；合并关卡信任作者会话自己的报告(测试、未解决的 blocker)。
+构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
+
+图中未画出：合并关卡信任作者会话自己的报告(测试、未解决的 blocker)。
 
 其他防护：
 
@@ -409,6 +414,20 @@ flowchart LR
 - 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。
 - 会话不能编辑合并关卡读取的 `meta.json`。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
+
+## 限制
+
+截至 2026-10：
+
+- 没有经过人工评分的评审：作者的 `human-labels.md` 中没有任何已填写的评分，所以“流程越严格评审越好”尚未验证。
+- 一次完整链路花费 $11–30、耗时 19–47 分钟(各会话 `total_cost_usd` 与 `wall_ms` 之和；从 12 行的 PR #66 到 #61)。
+- 只在一个后端仓库上运行过(全部 14 次运行)；[`frontend.md`](examples/profiles/frontend.md) profile 从未运行过。
+- 风险规则中的路径(`common/security/`、`api/gateway/.*/filter/`、`/api/bff/auth/`)是按最初编写它的仓库定的；开启 `auto_merge` 之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq)。
+- 仅支持 github.com，并由一台机器轮询评审请求。
+- 真实评审只在 macOS 上运行过。Linux 上只用 stub `gh` 和 `claude` 检查过 `selftest.sh` 以及 cron 加 `flock`，`bwrap` 构建沙箱尚未实测。
+- 插件路径不能包含 `|` 或 `&`，`repos.*.path` 不能包含 `*` 或 `[`：它们未经转义就进入权限规则。
+- 脚本发布的评分卡和通知是英文的；只有评审正文跟随 PR 的语言。
+- 构建沙箱对网络和 `localhost` 保持开放，且所有构建共用一个缓存根目录，一次构建可能污染下一次沙箱构建的缓存([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1)。
 
 ## 参与贡献
 

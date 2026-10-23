@@ -7,6 +7,7 @@ set -uo pipefail
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 source "$HARNESS_DIR/scripts/config.sh"
+source "$HARNESS_DIR/scripts/build-sandbox.sh"
 require_dotcom
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"   # same default as pr-quorum.sh
 
@@ -20,6 +21,13 @@ finish() { [ "$fails" = 0 ] && { echo "doctor — all checks passed"; exit 0; };
 for c in claude gh jq git; do
   if command -v "$c" >/dev/null; then ok "command $c"; else bad "command $c not found — install it (README Requirements)"; fi
 done
+# Session templates set permissions.blockReadsOutsideWorkingDirectories, which needs Claude Code 2.1.257 or later
+if command -v claude >/dev/null; then
+  cv="$(claude --version 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+  if [ -n "$cv" ] && awk -v v="$cv" 'BEGIN { split(v, a, "."); exit !(a[1] > 2 || (a[1] == 2 && (a[2] > 1 || (a[2] == 1 && a[3] >= 257)))) }'; then
+    ok "claude version $cv"
+  else bad "claude version ${cv:-unknown} — 2.1.257 or later is needed (blockReadsOutsideWorkingDirectories)"; fi
+fi
 command -v jq >/dev/null || finish   # everything below reads config.json with jq
 
 # 2) config.json and its required keys
@@ -85,5 +93,29 @@ if [ -n "$BOT" ]; then
     fi
   done
 fi
+
+# 8) Build sandbox — with build.sandbox "require" (the default) builds refuse to run without one, so every measurement would be "not measured"
+sb="$(cfg '.build.sandbox // "require"')"; kind="$(sandbox_kind)"
+if [ "$sb" = off ]; then
+  warn "build.sandbox is off — builds run with your environment and can read your credentials (docs/harness.md §3-1)"
+elif [ "$sb" != require ]; then
+  bad "build.sandbox must be \"require\" or \"off\": $sb"
+elif [ -z "$kind" ]; then
+  case "$(uname -s)" in
+    Darwin) bad "build sandbox: sandbox-exec not found — it ships with macOS at /usr/bin/sandbox-exec; check PATH" ;;
+    *)      bad "build sandbox: bwrap not found — install bubblewrap (apt install bubblewrap · dnf install bubblewrap), or set build.sandbox \"off\"" ;;
+  esac
+elif sandbox_check "$kind"; then
+  ok "build sandbox $kind"
+else
+  if [ "$kind" = bwrap ]; then
+    bad "build sandbox bwrap does not start — on Ubuntu 24.04+ allow unprivileged user namespaces for it (https://code.claude.com/docs/en/sandboxing#set-up-linux-and-wsl2), or set build.sandbox \"off\""
+  else
+    bad "build sandbox seatbelt does not start — sandbox-exec could not run true; run it by hand to see why, or set build.sandbox \"off\""
+  fi
+fi
+for n in $(cfg '.build.env_passthrough // [] | .[]'); do
+  sandbox_env_ok "$n" || bad "build.env_passthrough refuses $n — not a variable name, or looks like a credential (*TOKEN*, *SECRET*, *KEY*, PR_QUORUM_*)"
+done
 
 finish

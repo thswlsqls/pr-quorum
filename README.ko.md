@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `4e43dff`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `87737b7`
 
 <p align="center">
   <picture>
@@ -164,7 +164,8 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 ## 요구사항
 
 - macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 launchd watcher 예시뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
-- [Claude Code](https://code.claude.com/docs), 본인 계정으로 로그인한 `gh`, `jq`, `git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git`
+- Linux 에서는 빌드 샌드박스용 `bwrap`(bubblewrap). macOS 에는 `sandbox-exec` 가 기본으로 들어 있다
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
 - github.com 의 저장소. GitHub Enterprise Server 와 ghe.com 은 지원하지 않는다
 - 기본으로는 저장소 소유자가 연 PR 만 돌고 나머지는 건너뛴다. 팀원의 PR 도 돌리려면 `trust.authors` 나 `trust.associations` 에 넣고, 조직 저장소는 `repos.<name>.owner` 를 지정한다([설정 §3](#3-pr-quorumconfigjson)). 신뢰한 저자의 PR 본문과 diff 는 본인 gh 계정으로 push·머지하는 세션에 그대로 들어가므로, 그렇게 해도 되는 사람만 신뢰한다
@@ -244,10 +245,12 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
 | `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
 | `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 명령이 없는 종류는 `not measured` 로 기록된다 |
+| `build.sandbox` | `"require"`(기본): 빌드와 테스트를 OS 샌드박스 안에서 돌리고, 샌드박스가 뜨지 않는 머신에서는 `not measured` 로 기록한다. `"off"`: 샌드박스 없이 돌린다. Docker, 키체인, 또는 샌드박스가 가리는 `~/.npmrc`·`~/.m2/settings.xml` 의 사설 레지스트리 자격 증명이 필요한 빌드용이다 |
+| `build.env_passthrough` | 빌드가 추가로 넘겨받을 환경 변수 이름(기본 `[]`. 이 밖에는 비운 환경으로 시작한다). 자격 증명처럼 보이는 이름(`*TOKEN*`, `*SECRET*`, `*KEY*`)은 거부하므로, 레지스트리 자격 증명은 이 길로 넘길 수 없다 |
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
 | `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 Claude Code 기본값 |
 
-모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
+모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돈다. 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 
@@ -385,22 +388,24 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 
 ## 보안
 
-체인 세션은 모두 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 로 뜨며, 허용 목록([`templates/`](templates/))에 없는 도구는 묻지 않고 거부한다. 리뷰 세션은 `~/.pr-quorum/runs/` 아래에만 쓸 수 있고, GitHub 에는 `scripts/pr-quorum.sh` 로만 올리며, 토큰 파일을 읽지 못한다. 저자 세션은 `scripts/author-push.sh` 로만 push 하고, 이 스크립트는 force push 와 다른 브랜치를 거부한다.
+체인 세션은 모두 `claude -p --settings <rendered-settings-file> --permission-mode dontAsk` 로 뜨며, 허용 목록([`templates/`](templates/))에 없는 도구는 묻지 않고 거부한다. 리뷰 세션과 저자 세션은 작업 폴더 밖을 읽지 못하므로, 토큰 파일과 다른 자격 증명에 닿지 않는다. 리뷰 세션은 `~/.pr-quorum/runs/` 아래에만 쓸 수 있고, GitHub 에는 `scripts/pr-quorum.sh` 로만 올린다. 저자 세션은 `scripts/author-push.sh` 로만 push 하고, 이 스크립트는 force push 와 다른 브랜치를 거부한다.
 
 ```mermaid
 flowchart LR
   R1["리뷰 세션<br/>Stage 1 · 2 · 3"]
   A1["저자 세션"]
   R1 -- "게시" --> PQ["scripts/<br/>pr-quorum.sh<br/>(봇 토큰)"]
-  R1 -. "이름을 적을<br/>때만 거부" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
-  A1 -. "이름을 적을<br/>때만 거부" .-> TOK
+  R1 -. "읽기<br/>차단" .-> TOK["~/.config/<br/>pr-quorum/<br/>bot.env"]
+  A1 -. "읽기<br/>차단" .-> TOK
   R1 -- "쓰기" --> RUNS["~/.pr-quorum/<br/>runs/"]
   A1 -- "쓰기" --> RUNS
   A1 -- "쓰기" --> WT["worktree<br/>pr-author-N/"]
   A1 -- "push, 답글" --> AS["author-push.sh<br/>author-reply.sh<br/>사용자 gh 계정<br/>force push 안 함"]
 ```
 
-그림에 없는 것: 토큰 파일 거부 규칙은 파일 이름을 적은 명령만 막는다. Stage 3 은 자기 worktree 에서 PR 을 빌드하고 테스트한다. 머지 게이트는 저자 세션이 스스로 보고한 결과(테스트, 남은 blocker)를 그대로 믿는다.
+빌드와 테스트는 PR 이 정한 코드를 실행하므로, 비운 환경으로 OS 샌드박스(macOS 는 `sandbox-exec`, Linux 는 `bwrap`) 안에서 돈다. 빌드는 자격 증명 파일을 읽지 못하고, worktree·임시 폴더·자기 캐시 루트 밖에는 쓰지 못한다. 그래도 열려 있는 것은 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1 에 있다.
+
+그림에 없는 것: 머지 게이트는 저자 세션이 스스로 보고한 결과(테스트, 남은 blocker)를 그대로 믿는다.
 
 그 밖의 안전장치:
 
@@ -409,6 +414,20 @@ flowchart LR
 - 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다.
 - 세션은 머지 게이트가 읽는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
+
+## 제약
+
+2026-10 기준:
+
+- 사람이 채점한 리뷰가 없다. 작성자의 `human-labels.md` 에 채워진 판정이 하나도 없어서, "절차가 엄격하면 리뷰가 낫다"는 아직 검증되지 않았다.
+- 체인 한 번에 $11~30, 19~47분이 든다(세션별 `total_cost_usd` 와 `wall_ms` 의 합. 12줄 PR #66 부터 #61 까지).
+- 백엔드 저장소 하나에서만 돌려 봤다(실행 14건 모두). [`frontend.md`](examples/profiles/frontend.md) 프로파일은 한 번도 돈 적이 없다.
+- 리스크 규칙의 경로(`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`)는 처음 만든 저장소에 맞춰져 있다. `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 를 자기 저장소에 맞는지 확인한다.
+- github.com 전용이고, 머신 한 대가 리뷰 요청을 폴링한다.
+- 실제 리뷰는 macOS 에서만 돌렸다. Linux 에서는 stub `gh`·`claude` 로 `selftest.sh` 와 cron+`flock` 만 확인했고, `bwrap` 빌드 샌드박스는 측정하지 않았다.
+- 플러그인 경로에 `|`·`&`, `repos.*.path` 에 `*`·`[` 가 있으면 안 된다. 이스케이프 없이 권한 규칙에 들어간다.
+- 스크립트가 올리는 점수표와 알림은 영어다. 리뷰 본문만 PR 의 언어를 따른다.
+- 빌드 샌드박스는 네트워크와 `localhost` 를 열어 두고, 빌드들이 캐시 루트 하나를 같이 쓰므로 한 빌드가 다음 샌드박스 빌드의 캐시를 오염시킬 수 있다([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
 
 ## 기여
 

@@ -245,7 +245,7 @@ The author's fix commits are objects in the same repo, so they are there without
 git worktree add --detach <absolute path of the repo's parent>/<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
 ```
 
-Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`) — chain sessions start there. Give the new worktree as an absolute path, and pass that same path to the build wrapper.
+Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`) — chain sessions start there. Give the new worktree as an absolute path (permissions allow `git worktree add --detach` only under `<repo>-worktrees/` and deny any path with `..`), and pass that same path to the build wrapper.
 `cd` and `git -C` are denied by permissions. If the working folder is not that repo, do not create the worktree; write the measurements as `not measured`.
 
 If another tool also uses the `<repo>-worktrees/` parent folder, **the leaf name `pr-quorum-` is the only distinction**,

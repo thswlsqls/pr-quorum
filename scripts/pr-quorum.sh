@@ -6,6 +6,7 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/build-sandbox.sh"
 require_dotcom
 SLUG=""   # <owner>/<repo> of the repository argument, set at the entry point (config.sh repo_slug)
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
@@ -67,6 +68,10 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
 
   Check (bot token needed, no repo or pr)
     whoami                                   print the bot token's login (doctor.sh compares it with config.json bot)
+
+  State files (no bot token needed, no repo or pr)
+    config                                   print config.json
+    learnings                                print learnings.md (nothing if it is missing)
 USAGE
   exit "$E_USAGE"
 }
@@ -101,7 +106,24 @@ load_bot_token() {
   unset GITHUB_TOKEN || true
 }
 
-api() { gh api "$@" || die "$E_API" "gh api failed: $*"; }
+# Reads retry on 5xx, 429, a secondary rate limit, or a dropped connection: at most 3 tries, waiting 2 s then 5 s
+# (PR_QUORUM_API_BACKOFF overrides the waits; selftest sets "0 0"). 4xx such as 401, 404, 422 fail at once.
+# Anything that writes — a method, --input, or a field flag (gh api -f/-F turns the call into a POST) — is never retried:
+# a retried POST is a second review. post-review's adoption check covers that side instead.
+# Output is held in a file and printed only on success, so a --paginate that fails midway does not print its first pages twice
+api() {
+  local a d e w
+  for a in "$@"; do
+    case "$a" in -X*|--method*|--input*|-f*|-F*|--field*|--raw-field*) gh api "$@" || die "$E_API" "gh api failed: $*"; return 0 ;; esac
+  done
+  d="$(mktemp)"; e="$(mktemp)"
+  for w in ${PR_QUORUM_API_BACKOFF:-2 5} end; do
+    if gh api "$@" > "$d" 2> "$e"; then cat "$d"; rm -f "$d" "$e"; return 0; fi
+    [ "$w" != end ] && grep -qiE 'HTTP (5[0-9]{2}|429)|secondary rate limit|timeout|timed out|connection reset' "$e" || break
+    sleep "$w"
+  done
+  cat "$e" >&2; rm -f "$d" "$e"; die "$E_API" "gh api failed: $*"
+}
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -567,10 +589,28 @@ cmd_build() {
     esac
   fi
 
-  echo "pr-quorum: running in $real: $c" >&2
+  # The build runs PR-controlled files, so it gets an emptied environment inside an OS sandbox (scripts/build-sandbox.sh).
+  # build.sandbox: "require" (default) refuses to build without one · "off" runs as before, with the session's environment
+  local sb pass n
+  sb="$(cfg '.build.sandbox // "require"')"
+  case "$sb" in
+    off) ;;
+    require)
+      sb="$(sandbox_kind)"
+      [ -n "$sb" ] && sandbox_check "$sb" \
+        || die "$E_ENV" "sandbox unavailable (sandbox-exec on macOS, bwrap on Linux; scripts/doctor.sh checks it) — record it as not measured"
+      pass="$(cfg '.build.env_passthrough // [] | .[]')"
+      for n in $pass; do
+        sandbox_env_ok "$n" || die "$E_ENV" "build.env_passthrough refuses $n (not a variable name, or looks like a credential) — use build.sandbox \"off\" if the build needs it"
+      done ;;
+    *) die "$E_ENV" "build.sandbox must be \"require\" or \"off\": $sb" ;;
+  esac
+
+  echo "pr-quorum: running in $real (sandbox=$sb): $c" >&2
   # The command's own exit code and output pass through as-is
   local rc=0
-  (cd "$real" && exec bash -c "$c") || rc=$?
+  # shellcheck disable=SC2086  # pass holds checked variable names, one per word
+  sandbox_run "$sb" "$top" "$real" "$c" ${pass:-} || rc=$?
   return "$rc"
 }
 
@@ -613,55 +653,107 @@ cmd_post_review() {
   cmd_pg5 "$sfile" "$cfile" "$stage"
 
   load_bot_token
-  mktmp; local tmp="$TMP"
+  mktmp; local tmp="$TMP" known rid posting
+  # The draft as posted. When a later call adopts the review, this copy stands in for comments.json — a retrying session may have
+  # rewritten that file, and its codes must not land on the earlier review's comments. Removed once the review is recorded
+  posting="$(run_dir "$repo" "$pr")/outputs/$stage/posting-${sha:0:7}.json"
+  # Sessions can write under runs/, so the copy gets the same distrust as comments.json: no link, nothing but a regular file,
+  # and a stage folder that resolves inside runs/
+  mkdir -p "$(dirname "$posting")"
+  { [ ! -L "$posting" ] && { [ ! -e "$posting" ] || [ -f "$posting" ]; }; } \
+    || die "$E_USAGE" "posting copy is a link or not a regular file — nothing was posted. Remove it: $posting"
+  case "$(cd "$(dirname "$posting")" && pwd -P)/" in
+    "$(cd "$RUNS_DIR" && pwd -P)"/*) ;;
+    *) die "$E_USAGE" "outputs/$stage resolves outside runs/ — nothing was posted: $(dirname "$posting")" ;;
+  esac
+
+  # Adoption — a bot review on this SHA carrying this stage's marker that meta.json does not know was posted by an earlier call
+  # that died before recording it, or whose POST response was lost. Record that one instead of posting a second.
+  # Reviews already recorded are left out, so rerunning a stage on purpose still posts. A failed check posts nothing
+  known="$(jq -c '[.posted_review_ids[]?, .stage1[]?.review_id, .stage2[]?.review_id, .stage3.review_id?, .stage3_history[]?.review_id] | map(select(. != null))' \
+    "$(meta_path "$repo" "$pr")")"
+  rid="$(api --paginate "repos/$SLUG/pulls/$pr/reviews" \
+    | jq -s -r --arg b "$(cfg '.bot // empty')" --arg s "$sha" --arg mk "<!-- pr-quorum:$stage -->" --argjson k "$known" '
+        [add // [] | .[] | select(.user.login == $b and ((.commit_id // "") | startswith($s)) and ((.body // "") | contains($mk))
+                                 and ((.id as $i | $k | index($i)) == null))]
+        | last | .id // empty')" \
+    || die "$E_API" "could not list the PR's reviews to check for an unrecorded earlier post — nothing was posted"
+  if [ -n "$rid" ]; then
+    [ -f "$posting" ] || posting="$cfile"
+    # The file whose codes go into meta.json passes the checks comments.json passed at the entry point
+    need_run_file "$posting"; need_clean_body "$posting"; need_clean_json "$posting"
+    jq -e 'type == "array"' "$posting" >/dev/null 2>&1 || die "$E_USAGE" "$posting must be a JSON array — nothing was recorded"
+    record_review "$repo" "$pr" "$stage" "$rid" "$sha" "$posting" \
+      || die "$E_API" "review_id=$rid is on GitHub but recording it in meta.json failed — rerun the same post-review command"
+    [ "$posting" = "$cfile" ] || rm -f "$posting"
+    echo "adopted — review_id=$rid (already posted, now recorded)"
+    return 0
+  fi
 
   # Only path/line/side/body are posted. code/axis/grade are for the meta record.
-  jq -n --arg cid "$sha" --rawfile body "$sfile" --slurpfile c "$cfile" '
-    {commit_id:$cid, event:"COMMENT", body:$body,
+  # The body ends with a stage marker (an HTML comment, not rendered) — the adoption check above looks for it
+  jq -n --arg cid "$sha" --rawfile body "$sfile" --slurpfile c "$cfile" --arg st "$stage" '
+    {commit_id:$cid, event:"COMMENT", body:($body + "\n\n<!-- pr-quorum:" + $st + " -->"),
      comments: ($c[0] | map({path, line, side:(.side // "RIGHT"), body}))}
   ' > "$tmp/payload.json"
 
+  # Written to a temp file beside it and renamed over, so the copy is never half-written and never followed through a link
+  local t; t="$(mktemp "$(dirname "$posting")/.posting.XXXXXX")" && cp "$cfile" "$t" && mv -f "$t" "$posting" \
+    || { rm -f "${t:-}"; die "$E_ENV" "could not write the posting copy — nothing was posted: $posting"; }
   local resp; resp="$(gh api "repos/$SLUG/pulls/$pr/reviews" --input "$tmp/payload.json")" \
-    || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7)"
+    || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7). If the review did go up, rerunning the same post-review command records it without posting again"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
+  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$posting" \
+    || die "$E_API" "review posted (review_id=$review_id) but not recorded in meta.json — rerun the same post-review command; it records this review without posting again"
+  rm -f "$posting"
+  echo "posted — review_id=$review_id, $(jq 'length' "$cfile") inline comments"
+}
+
+# record_review <repo> <pr> <stage> <review_id> <sha> <draft comments.json> — writes a posted review into meta.json.
+# It runs after the review is public and is called with ||, so errexit is off here: each step returns 1 on failure instead.
+record_review() {
+  local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" tmp="$TMP" merged
+
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
-  gh api --paginate "repos/$SLUG/pulls/$pr/comments" \
+  api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
-             | map({id, path, line, body})' > "$tmp/posted.json"
+             | map({id, path, line, body})' > "$tmp/posted.json" || return 1
 
   # Match by body first — with two comments at the same spot, (path,line) alone cannot tell them apart,
   # the ids get swapped, and Stage 2 replies in the wrong thread.
-  local merged; merged="$(jq -s '
+  merged="$(jq -s '
       .[0] as $draft | .[1] as $posted |
       $draft | map(. as $d
         | (first($posted[] | select(.body == $d.body) | .id)
            // first($posted[] | select(.path==$d.path and .line==$d.line) | .id)) as $id
         | {id: ($id // null), code:$d.code, path:$d.path, line:$d.line,
            axis:$d.axis, grade:($d.grade // null)})
-    ' "$cfile" "$tmp/posted.json")"
+    ' "$cfile" "$tmp/posted.json")" || return 1
 
   # Each stage records in a different place. Appending stage2 to stage1 would break both the watcher's "already posted" check and
   # the stage1[].comments[].id that Stage 2 uses to find threads.
   case "$stage" in
     stage1)
       meta_update "$repo" "$pr" '.stage1 += [{review_id:$rid, posted_at:$at, eval_sha:$sha, comments:$c}] | .attempts=0 | .status="done"' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
     stage2)
       # If the last element is a round that judged a different commit, append a new element — merging would overwrite the previous round's post record (L0-25)
       meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 or ((.[-1].stage_sha // $sha) != $sha) then . + [{}] else . end)
                                  | .stage2[-1] += {review_id:$rid, posted_at:$at, stage_sha:$sha, new_comments:$c}' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
     stage3)
       # On a rerun against a different commit, move the previous round to stage3_history — merging would overwrite its review_id and stage_sha (L0-43)
       meta_update "$repo" "$pr" '((.stage3 != null) and ((.stage3.stage_sha // $sha) != $sha)) as $new
                                  | (if $new then .stage3_history = ((.stage3_history // []) + [.stage3]) | .stage3 = null else . end)
                                  | .stage3 = ((.stage3 // {}) + {review_id:$rid, posted_at:$at, stage_sha:$sha, comments:$c})
                                  | .stage3.replies = ((.stage3.replies // {}) + (.stage3_replies // {})) | del(.stage3_replies)' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" ;;
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
   esac
+  # Every recorded id stays known to the adoption check: a second post on the same SHA overwrites stage3.review_id
+  # (and a stage2 element), and the earlier review must not look unrecorded to the next post
+  meta_update "$repo" "$pr" '.posted_review_ids = ((.posted_review_ids // []) + [$rid] | unique)' --argjson rid "$review_id" || return 1
 
-  echo "posted — review_id=$review_id, $(jq 'length' <<<"$merged") inline comments"
   jq -r '.[] | select(.id == null) | "warning — comment with no id found: \(.code) \(.path):\(.line)"' <<<"$merged" >&2
 }
 
@@ -733,6 +825,10 @@ cmd_comment() {
 
 # doctor.sh calls this instead of reading the token file itself — the token is read only in this script
 cmd_whoami() { load_bot_token; api user --jq '.login'; }
+# Sessions block reads outside their working folders, and ~/.pr-quorum itself is not opened (that would expose every other PR's runs/).
+# These two print the only state files the skills read there, so a session needs no Read access to ~/.pr-quorum
+cmd_config() { cat "$PR_QUORUM_HOME/config.json"; }
+cmd_learnings() { [ ! -f "$PR_QUORUM_HOME/learnings.md" ] || cat "$PR_QUORUM_HOME/learnings.md"; }
 
 # ---------- Entry point ----------
 
@@ -748,7 +844,7 @@ sub="$1"; shift
 # The repository name and PR number become gh api paths and paths under runs/. Only repository names in config.json repos are accepted.
 # A non-numeric PR number could make init create a folder and frozen.md outside runs/
 case "$sub" in
-  pg5|pg6|snapshot|whoami) ;;
+  pg5|pg6|snapshot|whoami|config|learnings) ;;
   *) profile_of "${1:-}" >/dev/null
      [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR number must be a positive integer: ${2:-}"
      SLUG="$(repo_slug "$1")" || exit "$E_ENV" ;;
@@ -779,5 +875,7 @@ case "$sub" in
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
   comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; need_clean_body "$3"; cmd_comment "$@" ;;
   whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
+  config)      [ $# -eq 0 ] || usage; cmd_config ;;
+  learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;
   *) usage ;;
 esac

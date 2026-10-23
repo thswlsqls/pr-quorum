@@ -3,6 +3,7 @@
   "bot": "your-bot-login",
   "auto_merge": false,
   "trust": { "authors": [], "associations": ["OWNER"] },
+  "build": { "sandbox": "require", "env_passthrough": [] },
   "repos": {
     "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "backend", "owner": "your-github-login",
                    "commands": { "build": "./gradlew <target>:build", "test": "./gradlew <target>:test", "lint": "./gradlew <target>:check" } }
