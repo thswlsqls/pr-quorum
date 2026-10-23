@@ -23,35 +23,74 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 | Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
 
 <details>
-<summary>Stage 1, 2, and 3 at a glance</summary>
+<summary>Stage 1 · review (judges → challenger → verifiers)</summary>
 
 ```mermaid
 flowchart TD
-  RQ(["Bot requested<br/>as reviewer"]) --> S1
-  RQ -. "held-large:<br/>>50 files or<br/>>3,000 lines" .-> BL[blocked]
-  subgraph S1["Stage 1 · review · up to 5 rounds"]
+  subgraph J["Four judges · separate axes · no shared results"]
     direction LR
-    S1a["Four judges<br/>in parallel"] --> S1b["Challenger"] --> S1c["Three<br/>verifiers"]
+    J1[Judge 1] ~~~ J2[Judge 2] ~~~ J3[Judge 3] ~~~ J4[Judge 4]
   end
-  S1 -. "held-large or<br/>conflict with<br/>main" .-> BL
-  S1 --> A1["Author pass 1<br/>fixes Stage 1<br/>comments"]
-  A1 --> S2
-  subgraph S2["Stage 2 · followup"]
-    direction LR
-    S2a["Four lenses"] --> S2b["Verdict per<br/>comment"] --> S2c["Reply in<br/>each thread"]
-  end
-  S2 --> S3
-  subgraph S3["Stage 3 · measured"]
-    direction LR
-    S3a["Judges, build,<br/>tests"] --> S3b["Sort defects<br/>by origin"] --> S3c["P: new<br/>comments"]
-  end
-  S3 --> A2["Author pass 2<br/>fixes what<br/>is left"]
-  A2 -- pushed --> S2x["Stage 2<br/>again"]
-  A2 -- nothing to push --> G(["Gates (below)"])
-  S2x --> G
+  J --> D["Deduplicate<br/>by fix"]
+  D --> C["Challenger<br/>checks each<br/>critical or<br/>major finding"]
+  C --> DR["Draft summary<br/>+ comments"]
+  DR --> V["Three verifiers<br/>check the draft"]
+  V --> X{"Exit conditions<br/>converged,<br/>round cap, or<br/>same spot<br/>rewritten 4×?"}
+  X -- no --> J
+  X -- yes --> P(["Post summary<br/>+ inline<br/>comments<br/>unmet items<br/>listed if not<br/>converged"])
 ```
 
-Each stage is drawn in detail in the folded sections further down.
+Converged: the exit conditions in [`rules/01-stages.md`](rules/01-stages.md) §4. The round cap is `limits.stage1.max_rounds` in `config.json` (5 when unset).
+
+Before Stage 1, a PR over 50 changed files or 3,000 changed lines is held as `held-large` and the chain stops at `blocked`. After Stage 1, a PR that conflicts with main stops there too.
+
+</details>
+
+<details>
+<summary>Stage 2 · followup (one verdict per comment)</summary>
+
+```mermaid
+flowchart TD
+  IN(["Bot comments<br/>+ fix commits"]) --> L
+  subgraph L["Four judges · one lens each"]
+    direction LR
+    L1["L1 fidelity<br/>of the fix"] ~~~ L2["L2 accuracy,<br/>regression"] ~~~ L3["L3 docs match<br/>the code"] ~~~ L4["L4 regression<br/>lock"]
+  end
+  L --> V{"Verdict per<br/>comment"}
+  V -- regressed --> C["Challenger<br/>re-checks it"]
+  V -- "addressed · partial ·<br/>not-addressed" --> D["Draft replies<br/>+ up to 3 new<br/>comments"]
+  C --> D
+  D --> P(["Reply in each<br/>thread, once"])
+```
+
+Stage 2 runs after the author fixes the Stage 1 comments, and again after the author's second pass (following Stage 3) if that pass pushed.
+
+Any `regressed` verdict left blocks the merge gate. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+
+</details>
+
+<details>
+<summary>Stage 3 · measured (measure, then sort defects by origin)</summary>
+
+```mermaid
+flowchart TD
+  IN(["Fixed commit"]) --> S
+  subgraph S["In parallel"]
+    direction LR
+    J["Four judges<br/>Stage 1 axes"] ~~~ M["Build and tests<br/>in a worktree"]
+  end
+  S --> C["Challenger<br/>checks each P<br/>and critical"]
+  C --> O{"Origin of<br/>each defect"}
+  O -- "P: missed by the review" --> NP["New review<br/>comments"]
+  O -- "Q: partly fixed<br/>N: the fix caused it" --> T["Reply in the<br/>Stage 2 thread"]
+  NP --> G{"Any critical<br/>or major P?"}
+  G -- yes --> H["needs-human<br/>at the gate"]
+  G -- no --> OK(["Gates as usual"])
+```
+
+Stage 3 runs once, after the first Stage 2.
+
+What cannot be measured is reported as `not measured`. Origin classes: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
 
 </details>
 
@@ -70,75 +109,11 @@ flowchart TD
   RG -- "medium or higher" --> H["needs-human<br/>a human reviews<br/>and merges"]
 ```
 
+A session that hits its `limits` budget or time cap also stops the chain at `blocked`, before the gates.
+
 </details>
 
 The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically. Rules: [`rules/03-risk.md`](rules/03-risk.md).
-
-<details>
-<summary>Inside one Stage 1 round (judges → challenger → verifiers)</summary>
-
-```mermaid
-flowchart TD
-  subgraph J["Four judges · separate axes · no shared results"]
-    direction LR
-    J1[Judge 1] ~~~ J2[Judge 2] ~~~ J3[Judge 3] ~~~ J4[Judge 4]
-  end
-  J --> D["Deduplicate<br/>by fix"]
-  D --> C["Challenger<br/>checks each<br/>critical or<br/>major finding"]
-  C --> DR["Draft summary<br/>+ comments"]
-  DR --> V["Three verifiers<br/>check the draft"]
-  V --> X{"Exit conditions<br/>converged,<br/>round 5, or<br/>same spot<br/>rewritten 4×?"}
-  X -- no --> J
-  X -- yes --> P(["Post summary<br/>+ inline<br/>comments<br/>unmet items<br/>listed if not<br/>converged"])
-```
-
-Converged: the exit conditions in [`rules/01-stages.md`](rules/01-stages.md) §4.
-
-</details>
-
-<details>
-<summary>Inside Stage 2 (one verdict per comment)</summary>
-
-```mermaid
-flowchart TD
-  IN(["Bot comments<br/>+ fix commits"]) --> L
-  subgraph L["Four judges · one lens each"]
-    direction LR
-    L1["L1 fidelity<br/>of the fix"] ~~~ L2["L2 accuracy,<br/>regression"] ~~~ L3["L3 docs match<br/>the code"] ~~~ L4["L4 regression<br/>lock"]
-  end
-  L --> V{"Verdict per<br/>comment"}
-  V -- regressed --> C["Challenger<br/>re-checks it"]
-  V -- "addressed · partial ·<br/>not-addressed" --> D["Draft replies<br/>+ up to 3 new<br/>comments"]
-  C --> D
-  D --> P(["Reply in each<br/>thread, once"])
-```
-
-Any `regressed` verdict left blocks the merge gate. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
-
-</details>
-
-<details>
-<summary>Inside Stage 3 (measure, then sort defects by origin)</summary>
-
-```mermaid
-flowchart TD
-  IN(["Fixed commit"]) --> S
-  subgraph S["In parallel"]
-    direction LR
-    J["Four judges<br/>Stage 1 axes"] ~~~ M["Build and tests<br/>in a worktree"]
-  end
-  S --> C["Challenger<br/>checks each P<br/>and critical"]
-  C --> O{"Origin of<br/>each defect"}
-  O -- "P: missed by the review" --> NP["New review<br/>comments"]
-  O -- "Q: partly fixed<br/>N: the fix caused it" --> T["Reply in the<br/>Stage 2 thread"]
-  NP --> G{"Any critical<br/>or major P?"}
-  G -- yes --> H["needs-human<br/>at the gate"]
-  G -- no --> OK(["Gates as usual"])
-```
-
-What cannot be measured is reported as `not measured`. Origin classes: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
-
-</details>
 
 ### Example
 
