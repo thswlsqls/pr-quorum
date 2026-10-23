@@ -191,9 +191,11 @@ pr_state() {
 merge_gate() {
   local a head pr_json reasons=()
   a="$(last_author)"
-  head="$(head_sha)"
+  head="$(head_sha)" \
+    || { chain_state "blocked" "merge gate: could not read the PR head from GitHub — run the chain again"; exit 4; }
   GATE_SHA="$head"   # The risk gate and the merge are bound to this commit
-  pr_json="$(pr_state)"
+  pr_json="$(pr_state)" \
+    || { chain_state "blocked" "merge gate: could not read the PR state from GitHub — run the chain again"; exit 4; }
 
   [ "$(jq -r '.state' <<<"$pr_json")" = "OPEN" ] || reasons+=("PR is not open")
   [ "$(jq -r '.isDraft' <<<"$pr_json")" = "false" ] || reasons+=("PR is a draft")
