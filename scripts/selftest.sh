@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# selftest.sh — pr-quorum.sh 의 기계 게이트(PG5·PG6)를 지난 실제 산출물에 다시 돌린다. LLM 을 쓰지 않는다.
-# 게이트 스크립트를 고친 뒤 한 번 돌린다. 이미 게시된 산출물이 새 규칙에 막히면 규칙이 틀렸을 가능성이 크다
-# (PR #38 은 축 정규식 R-[A-H] 하나 때문에 게시가 막혔다 — L0-31).
-# ~/.pr-quorum/runs 는 저장소 밖이라 이 머신에만 있다. 없으면 건너뛴다.
+# selftest.sh — reruns pr-quorum.sh's mechanical gates (PG5, PG6) on real past outputs. Uses no LLM.
+# Run it once after changing a gate script. If an already-posted output fails the new rule, the rule is most likely wrong
+# (PR #38 was blocked from posting by the axis regex R-[A-H] alone — L0-31).
+# ~/.pr-quorum/runs lives outside the repository, so it exists only on this machine. Skip if it is missing.
 set -uo pipefail
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,29 +10,29 @@ PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 source "$HARNESS_DIR/scripts/config.sh"
 RUNS="$PR_QUORUM_HOME/runs"
 
-[ -d "$RUNS" ] || { echo "runs/ 가 없다 — 건너뛴다"; exit 0; }
+[ -d "$RUNS" ] || { echo "no runs/ — skipping"; exit 0; }
 
 pass=0; fail=0
-check() {  # check <이름> <명령...>
+check() {  # check <name> <command...>
   local name="$1" out; shift
   if out="$("$@" 2>&1)"; then pass=$((pass+1)); else
-    fail=$((fail+1)); echo "실패 — $name"; sed 's/^/    /' <<<"$out"
+    fail=$((fail+1)); echo "FAIL — $name"; sed 's/^/    /' <<<"$out"
   fi
 }
 
-# PG5 — 요약과 코멘트가 함께 있는 폴더. 스테이지는 경로로 정한다(초기 run 은 outputs/ 바로 아래가 Stage 1 이다).
+# PG5 — folders with both a summary and comments. The stage comes from the path (in early runs, outputs/ itself is Stage 1).
 while IFS= read -r d; do
   case "$d" in */stage2*) st=stage2 ;; */stage3*) st=stage3 ;; *) st=stage1 ;; esac
   [ -f "$d/comments.json" ] && check "pg5 ${d#"$RUNS"/} ($st)" "$PR_QUORUM" pg5 "$d/summary.md" "$d/comments.json" "$st"
 done < <(find "$RUNS"/*/outputs -name summary.md -not -path '*/pre-polish/*' -exec dirname {} \; | sort)
 
-# PG6 — 윤문 전 사본이 있는 폴더
+# PG6 — folders with a pre-edit copy
 while IFS= read -r p; do
   d="$(dirname "$p")"
-  # outputs/ 바로 아래 사본은 스테이지별 폴더(L0-15) 이전 구조다. 원본이 stage1/ 로 옮겨져 대조할 짝이 없다
-  [ "$(basename "$d")" = outputs ] && { echo "건너뜀 — ${d#"$RUNS"/}/pre-polish (스테이지별 폴더 이전 구조)"; continue; }
+  # A copy directly under outputs/ is the layout from before per-stage folders (L0-15). The original moved to stage1/, so there is nothing to compare against
+  [ "$(basename "$d")" = outputs ] && { echo "skipped — ${d#"$RUNS"/}/pre-polish (layout from before per-stage folders)"; continue; }
   check "pg6 ${d#"$RUNS"/}" "$PR_QUORUM" pg6 "$d"
 done < <(find "$RUNS"/*/outputs -type d -name pre-polish | sort)
 
-echo "selftest — 통과 $pass · 실패 $fail"
+echo "selftest — passed $pass · failed $fail"
 [ "$fail" = 0 ] || exit 3

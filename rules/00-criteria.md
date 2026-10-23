@@ -1,238 +1,239 @@
-# 00. 공통 규칙 — 세 스테이지가 함께 지키는 것
+# 00. Common rules — what all three stages follow
 
-이 파일은 Stage 1·2·3이 **모두** 지키는 규칙이다.
-스테이지마다 달라지는 일곱 가지(대상·축·예산·반박자·중복제거 우선순위·무효 조건 추가분·종료)는 `01-stages.md`에 있다.
-축 정의문과 위원별 "볼 것 / 보지 않을 것"은 `profiles/<프로파일>.md`에 있다.
+This file holds the rules that Stage 1, 2, and 3 **all** follow.
+The seven things that vary by stage (target, axes, budget, challengers, dedup priority, extra invalidation conditions, exit) are in `01-stages.md`.
+Axis definitions and each judge's "look at / do not look at" are in `profiles/<profile>.md`.
 
-> **경로 표기** — `rules/00-criteria.md`·`scripts/…`처럼 하니스 파일을 가리키는 경로는 플러그인 폴더 기준이다(규칙 문서는 `rules/` 아래에 있다).
-> 규칙 문서끼리는 파일 이름과 절만 적는다(같은 `rules/` 폴더).
-> `runs/…`·`profiles/…`·`learnings.md`처럼 상태 파일을 가리키는 경로는 `~/.pr-quorum/` 기준이다.
-> 규칙 문서는 스크립트를 이름만 적는다. 실제 경로는 스킬 본문이 알려 준다. `api/auth/…`·`README.md`처럼 평가 대상을 가리키는 경로는
-> 평가 대상 저장소 루트 기준이다.
+> **Path notation** — paths that point to harness files, such as `rules/00-criteria.md` or `scripts/…`, are relative to the plugin folder (rule documents live under `rules/`).
+> Rule documents refer to each other by file name and section only (same `rules/` folder).
+> Paths that point to state files, such as `runs/…`, `profiles/…`, or `learnings.md`, are relative to `~/.pr-quorum/`.
+> Rule documents name scripts by name only. The skill body gives the actual path. Paths that point to the evaluation target, such as `api/auth/…` or `README.md`,
+> are relative to the root of the target repository.
 
 ---
 
-## 0. 불변식 — 맨 앞에서 읽는다
+## 0. Invariants — read these first
 
-> **평가 대상은 PR이다. 한 글자도 고치지 않는다.**
+> **The evaluation target is the PR. Do not change a single character of it.**
 >
-> 쓰기가 허용된 곳은 `~/.pr-quorum/runs/<repo>-pr<N>/` 아래뿐이다. `~/.pr-quorum/learnings.md` 는 읽기만 하고, 배운 것은 같은 run 의 `learning-candidates.md` 에 후보로 적는다.
-> 평가 대상 저장소의 코드·문서·설정은 전부 읽기 전용이다. 워크트리에 체크아웃했더라도 마찬가지다.
+> The only place you may write is under `~/.pr-quorum/runs/<repo>-pr<N>/`. `~/.pr-quorum/learnings.md` is read-only; write what you learned as candidates in the same run's `learning-candidates.md`.
+> The target repository's code, docs, and config are all read-only. This holds even when they are checked out in a worktree.
 >
-> **GitHub에 쓰는 것은 `scripts/pr-quorum.sh`뿐이다.** 세션은 `gh api`로 직접 게시하지 않는다.
-> 봇 토큰은 세션이 갖지 않는다 — 스크립트가 자기 안에서 읽는다.
+> **Only `scripts/pr-quorum.sh` writes to GitHub.** The session does not post directly with `gh api`.
+> The session does not hold the bot token — the script reads it internally.
 >
-> **위원과 검증자는 아무 파일도 쓰지 않는다.** 채점 결과를 텍스트로 반환하는 것이 전부다.
-> `Bash`는 `grep`·`wc`·`jq` 같은 조회에만 쓴다. 리다이렉션·`sed -i`·`mv`·`rm`을 쓰지 않는다.
+> **Judges and verifiers write no files.** Their only job is to return results as text.
+> Use `Bash` only for lookups such as `grep`, `wc`, `jq`. Do not use redirection, `sed -i`, `mv`, or `rm`.
 
 ---
 
-## 1. 무효 조건 — 아래에 해당하는 지적은 무효다
+## 1. Invalidation conditions — a finding that meets any of these is invalid
 
-**전 스테이지 공통 8개다.** 스테이지별 추가 조건은 `01-stages.md` 규격표의 `무효 조건` 행에 있다.
+**These 8 apply to every stage.** Extra per-stage conditions are in the `Invalidation conditions` row of the spec table in `01-stages.md`.
 
-| # | 조건 | 판정 |
+| # | Condition | Result |
 |---|---|---|
-| **I-1** | **근거가 없다.** 모든 지적에 `파일:줄` 앵커를 단다. 그 줄을 실제로 열어 확인했어야 한다 | 무효 |
-| **I-2** | **앵커가 diff 밖이다.** 기준 SHA diff에 없는 줄은 inline 코멘트로 못 쓴다. 지적이 성립하면 요약 본문으로 옮긴다. **앵커 하나가 어긋나면 GitHub이 리뷰를 통째로 422로 되돌린다**(실측) — 코멘트 하나만 빠지는 게 아니다 | inline 무효 |
-| **I-3** | **출처 등급을 넘어선 주장이다.** §4의 A~D 등급이 허용하는 범위를 넘으면 무효다. 특히 **B등급(공식 문서)은 인용문이 결론까지 말하는 범위 안에서만** 쓴다. 기억으로 인용하지 않는다 | 무효 |
-| **I-4** | **동결 목록에 있다.** `runs/<…>/frozen.md`에 확정된 사실을 다시 뒤집으려면 *그 확정이 틀렸다는 새 근거*를 대야 한다 | 무효 |
-| **I-5** | **다른 축의 영역이다.** 프로파일의 축별 "보지 않을 것"을 지킨다 | 무효 |
-| **I-6** | **근거 없는 취향이다.** `CLAUDE.md`나 eslint 설정에 근거가 있으면 `suggestion` 이상으로 쓸 수 있다. 근거가 없는 순수 선호는 `nitpick`까지다 | 등급 상한 |
-| **I-7** | **그 파일이 담기로 하지 않은 것이다.** §5 유형별 조정표를 지킨다 | 무효 |
-| **I-8** | **저자가 동등한 대안임을 보일 수 있는 것이다.** 데이터나 공학적 근거로 동등하다고 보이면 저자 선호를 수용한다 | 무효 |
+| **I-1** | **No evidence.** Every finding carries a `file:line` anchor. You must have actually opened that line and checked it | invalid |
+| **I-2** | **Anchor outside the diff.** A line not in the pinned-SHA diff cannot carry an inline comment. If the finding holds, move it to the summary body. **If one anchor is off, GitHub rejects the whole review with 422** (measured) — it does not just drop that one comment | inline invalid |
+| **I-3** | **Claim exceeds its source grade.** A claim beyond what the A–D grades in §4 allow is invalid. In particular, use **grade B (official docs) only where the quoted text alone supports the conclusion**. Do not quote from memory | invalid |
+| **I-4** | **On the frozen list.** To overturn a fact settled in `runs/<…>/frozen.md`, you must give *new evidence that the settlement was wrong* | invalid |
+| **I-5** | **Belongs to another axis.** Follow each axis's "do not look at" in the profile | invalid |
+| **I-6** | **Taste without grounds.** If `CLAUDE.md` or the eslint config supports it, it can be `suggestion` or higher. Pure preference with no grounds goes up to `nitpick` at most | grade cap |
+| **I-7** | **Something the file never set out to contain.** Follow the adjustment table by file type in §5 | invalid |
+| **I-8** | **The author can show it is an equivalent alternative.** If data or engineering grounds show the two are equivalent, accept the author's preference | invalid |
 
-> **원본에 있었으나 우리가 안 쓰는 무효 조건** — 원본의 `§4 금지 주장 5개`와 `sources.md ⚠ 인용 강도 상한`은
-> 과제 전용 자산에 묶여 있어 옮겨오지 못한다. 그 둘이 하던 일은 **I-3(출처 등급) 하나로 대신한다.**
-> 그래서 V2(인용 검증자)가 원본보다 더 중요해진다.
+> **Invalidation conditions in the original that we do not use** — the original's `§4 five forbidden claims` and `sources.md ⚠ citation strength cap`
+> are tied to assignment-specific assets and cannot be carried over. **I-3 (source grade) alone takes over their job.**
+> That makes V2 (the citation verifier) more important than in the original.
 
-확신이 없으면 지적하지 말고 `미확인 우려`에 적는다. **`미확인 우려`는 `runs/`에만 남기고 게시하지 않는다.**
-
----
-
-## 2. 계수·확인 규칙
-
-- 숫자는 `grep -c`처럼 **잘리지 않는 방식**으로 센다. `head`로 자른 출력의 줄 수를 세지 않는다.
-- **없다는 것을 확인할 때는 넓은 패턴으로 먼저 훑고 좁혀 간다.** 있다고 잘못 짚으면 다음 단계에서 걸러지지만,
-  없다고 잘못 단정하면 그대로 오판이 된다.
-- 줄 앵커는 `Read`의 `offset`/`limit`으로 **그 줄을 실제로 열어** 확인한다. 추정하지 않는다.
-- 수치 주장은 **직접 계산**하고 계산식을 적는다. "이론상 최대"인지 "실제"인지 구분한다.
-  **"0건"·"어긋남 없음"·"전부" 같은 부정 계수와 전칭 표현도 수치다.** 표본으로 확인했으면 표본이라고 쓴다. 전칭으로 쓰려면 전수를 센다.
-- **취합자는 위원 보고를 믿고 쓰지 않는다.** 게시할 근거는 취합자가 앵커를 직접 열어 재확인한다.
-  위원 보고를 요약해 옮긴 문장, 저자 답글을 reply 로 옮긴 문장, 취합자가 재확인하다 덧붙인 예시도 **새로 쓴 문장**이라 같은 재확인 대상이다.
-  재확인은 앵커만이 아니다. **게시 문안의 수치는 위원·반박자·검증자 누구의 보고든 취합자가 그 명령을 다시 돌려 센다** —
-  `grep -c` 는 매치 줄 수이지 메서드·호출 같은 논리 단위 수가 아니다. **"X 가 Y 로 바꾼다" 같은 경로 서술**은 grep 매치 줄이 아니라
-  호출 사슬(핸들러 → 호출하는 메서드 → 반환 줄)을 `Read` 로 따라가 적는다. 같은 이름이 두 메서드에 나오면 매치 줄은 실행 경로가 아니다.
+If you are not sure, do not raise a finding; write it under `unverified concern`. **`unverified concern` stays in `runs/` only and is never posted.**
 
 ---
 
-## 3. 등급과 라벨 — 점수를 쓰지 않는다
+## 2. Counting and verification rules
 
-| 등급 | 뜻 | GitHub 라벨 |
+- Count numbers in a way that **does not truncate**, such as `grep -c`. Do not count the lines of output cut by `head`.
+- **When confirming that something is absent, sweep with a broad pattern first, then narrow down.** A false "it exists" gets filtered at the next step,
+  but a false "it does not exist" goes straight through as a wrong call.
+- Check line anchors by **actually opening that line** with `Read`'s `offset`/`limit`. Do not guess.
+- **Compute** numeric claims yourself and write the formula. Distinguish "theoretical maximum" from "actual".
+  **Negative counts and universal phrases such as "0 cases", "no mismatch", "all" are numbers too.** If you checked a sample, say it was a sample. To write a universal claim, count everything.
+- **The aggregator does not take judge reports on trust.** For any evidence to be posted, the aggregator opens the anchor again and re-checks it.
+  A sentence that summarizes a judge report, a sentence that carries an author reply into a reply, and an example the aggregator added while re-checking are all **newly written sentences** and need the same re-check.
+  Re-checking is not only anchors. **For numbers in the post text, the aggregator re-runs the command and counts again, whoever reported them — judge, challenger, or verifier** —
+  `grep -c` counts matching lines, not logical units such as methods or calls. **Path statements such as "X turns into Y"** are written by following
+  the call chain (handler → called method → return line) with `Read`, not from grep match lines. When the same name appears in two methods, the match lines are not an execution path.
+
+---
+
+## 3. Grades and labels — no scores
+
+| Grade | Meaning | GitHub label |
 |---|---|---|
-| **치명** | 요구사항 미충족 · 데이터가 틀림 · 장애로 번짐 | `issue (blocking)` |
-| **중대** | 재작업을 부르거나 명시된 트래픽에서 무너짐 | `issue (blocking)` / `issue (non-blocking)` |
-| 경미 | 대안이 더 낫지만 현재도 유효 | `suggestion` |
-| 사소 | 취향·네이밍·포맷 | `nitpick (non-blocking)` |
-| — | 잘한 점 | `praise` (Stage 1 게시에 최소 1건 필수) |
+| **`critical`** | Requirement not met · data is wrong · spreads into an outage | `issue (blocking)` |
+| **`major`** | Forces rework, or breaks under the stated traffic | `issue (blocking)` / `issue (non-blocking)` |
+| `minor` | An alternative is better, but the current code is valid — non-blocking | `suggestion` |
+| `nit` | Taste · naming · formatting — non-blocking | `nitpick (non-blocking)` |
+| — | Praise | `praise` (at least 1 required in a Stage 1 post) |
 
-**배점·감점 숫자·총점·합격선을 쓰지 않는다.** 평가 대상이 불변이라 점수는 매 라운드 상수가 되고,
-상수는 검사가 아니다. 판정에 남는 것은 등급 넷뿐이다.
-`J1~J4`의 순서는 점수가 아니라 **중복 제거 우선순위**로만 쓴다.
+**Do not use points, deductions, totals, or pass marks.** The evaluation target does not change, so a score would be a constant every round,
+and a constant is not a check. Only the four grades remain in the verdict.
+The order `J1`–`J4` is used only as **dedup priority**, not as a score.
 
-판정 문구는 *"이상적인 설계인가"* 가 아니라 *"코드 헬스를 악화시키는가"* 다.
+The question is not *"is this the ideal design?"* but *"does this make code health worse?"*
 
-**경미·사소는 게시하되 요약의 blocking 순서표에는 넣지 않는다.**
+**`minor` and `nit` are posted, but they do not go into the summary's blocking order table.**
 
-### F9 등급 조정 — 대상이 스스로 밝힌 한계
+### F9 grade adjustment — limits the target states itself
 
-PR 본문·`TODO` 주석·설계 문서가 **미리 밝혀 둔 한계**에서 나온 결함은 **등급을 한 칸 내린다**(치명 → 중대).
-면제가 아니라 되돌리기 비용을 반영하는 것이다.
+A defect that comes from a **limit stated in advance** in the PR description, a `TODO` comment, or a design doc is **downgraded one step** (`critical` → `major`).
+This is not an exemption; it reflects the cost of undoing it.
 
-### 묶음 지적
+### Bundled findings
 
-한 지적이 갈래 둘 이상을 담고 있으면 **갈래별로 반박시키고, 살아남은 갈래 수로 등급을 다시 정한다.**
-등급만 내린다 — 감점 숫자를 쓰지 않으므로 원본의 "강등된 등급의 하단" 규칙은 넘어오지 않는다.
+If one finding holds two or more strands, **have each strand challenged separately, and re-grade by the number of strands that survive.**
+Only lower the grade — since we use no deduction numbers, the original's "bottom of the downgraded grade" rule does not carry over.
 
-### 코멘트를 나눌 것인가 묶을 것인가
+### Split comments or bundle them
 
-**같은 수정 계획으로 해소되는 결함은 한 코멘트에 담는다.** 한 코멘트가 여러 결함을 담는 것은 정상이다.
-나누려면 "고칠 파일이 다르다"만으로는 부족하고, 저자가 **한쪽만 고쳐도 되는 경우**여야 한다.
+**Defects resolved by the same fix plan go in one comment.** One comment holding several defects is normal.
+"The files to change are different" is not enough reason to split; split only when the author **may fix one side alone**.
 
 ---
 
-## 4. 출처 등급 — 어디까지 주장할 수 있나
+## 4. Source grades — how far you can claim
 
-| 등급 | 무엇 | 어디까지 주장 가능 |
+| Grade | What | How far you can claim |
 |---|---|---|
-| **A** | 저장소 규범 문서 — `CLAUDE.md` · `README.md` · `settings.gradle`·`build.gradle` · 추적되는 `docs/reference/design/` | 그대로 근거로 쓴다 |
-| **B** | 공식 문서 — context7 MCP로 조회한 Spring Boot / Next.js / Redis / Kafka 문서 | **인용문이 결론까지 말하는 범위 안에서만.** 기억으로 인용 금지 |
-| **C** | 코드 사실 — `파일:줄` | 사실 진술까지. 영향의 크기는 별개 명제다 |
-| **D** | 실측 — 명령과 출력을 함께 적은 것 | 가장 강한 근거 |
+| **A** | Repository norm documents — `CLAUDE.md` · `README.md` · `settings.gradle`·`build.gradle` · tracked `docs/reference/design/` | Use as evidence as-is |
+| **B** | Official docs — Spring Boot / Next.js / Redis / Kafka docs looked up through the context7 MCP | **Only where the quoted text alone supports the conclusion.** No quoting from memory |
+| **C** | Code fact — `file:line` | Up to a statement of fact. The size of the impact is a separate claim |
+| **D** | Measurement — a command written together with its output | Strongest evidence |
 
-**B등급을 쓸 때는 인용문을 그대로 옮겨 적고, 그 인용문이 내 결론까지 말하는지를 따로 확인한다.**
-축자 확보는 필요조건이지 충분조건이 아니다. 이 자리를 V2가 본다.
-**praise 와 요약의 축별 판정 문장도 같다.** 근거 칸이 없어 인용이 빠지기 쉽다. "코드가 X 를 한다" 가 아니라
-"AWS·라이브러리가 X 를 한다" 인 문장은 인용을 같이 옮기거나 코드 사실(C)로 좁혀 쓴다.
+**When using grade B, copy the quote verbatim, and check separately whether that quote alone supports your conclusion.**
+Having the exact words is necessary, not sufficient. V2 checks this point.
+**The same holds for praise and for the per-axis verdict sentences in the summary.** They have no evidence column, so the quote is easy to drop. A sentence that says
+"AWS or a library does X", not "the code does X", either carries the quote with it or is narrowed to a code fact (C).
 
-실측하지 못한 것은 `미실측`이라고 쓴다. 추정을 실측으로 위장하지 않는다.
+Write `not measured` for anything you did not measure. Do not dress up a guess as a measurement.
 
 ---
 
-## 5. 유형별 조정 — 그 파일이 담기로 하지 않은 것으로 감점하지 않는다
+## 5. Adjustments by file type — do not mark down a file for what it never set out to contain
 
-| 파일 성격 | 물을 수 있는 축 | 물을 수 없는 것 |
+| File kind | Axes you can raise | What you cannot raise |
 |---|---|---|
-| 프로덕션 코드 | 전 축 | — |
-| 테스트 | R-G 중심, R-H · R-I 가능 | 테스트 파일 안의 R-C·R-E·R-D |
-| 설계 문서 (`docs/`·`README.md`) | R-A 중심, 코드와 어긋나면 R-B | R-G·R-E·R-C |
-| 설정 (`build.gradle`·`docker-compose.yml`·`package.json`) | R-F · R-H · R-I | R-A·R-B·R-C |
+| Production code | All axes | — |
+| Tests | Mainly R-G; R-H · R-I possible | R-C·R-E·R-D inside test files |
+| Design docs (`docs/`·`README.md`) | Mainly R-A; R-B if it disagrees with the code | R-G·R-E·R-C |
+| Config (`build.gradle`·`docker-compose.yml`·`package.json`) | R-F · R-H · R-I | R-A·R-B·R-C |
 
-이 표는 Stage 1 종료 조건 S1의 "해당 축" 판정에도 그대로 쓴다 —
-PR이 설정 파일만 건드렸다면 R-A·R-B·R-C는 애초에 해당 축이 아니다.
+This table is also used as-is for the "applicable axis" call in Stage 1 exit condition S1 —
+if the PR only touched config files, R-A·R-B·R-C were never applicable axes.
 
 ---
 
-## 6. 코멘트 본문 규격
+## 6. Comment body format
 
-### 문단을 쓰기 전에 두 줄을 먼저 적는다
+### Write two lines before writing the paragraph
 
-1. **저자가 이걸 읽고 취할 행동이 무엇인가.**
-2. **저자가 여기서 나를 반박한다면 무엇으로 하는가.**
+1. **What action will the author take after reading this?**
+2. **If the author pushes back on me here, with what?**
 
-**1번을 못 적으면 그 문단은 쓰지 않는다.** 참인 문장을 더하는 것과 리뷰를 좋게 만드는 것은 별개다.
-2번을 적어 두면 그 반박을 문단 안에서 먼저 집어 들 수 있다.
+**If you cannot write line 1, do not write the paragraph.** Adding true sentences and making the review better are different things.
+Writing line 2 down lets you address that pushback inside the paragraph first.
 
-### 본문 4단
+### Four-part body
 
-1. **코드의 성질** — "이 코드는 X를 한다". 사람("왜 이렇게 하셨나요")이 아니라 코드를 향한다.
-2. **그래서 생기는 일** — 영향. 가능하면 스펙·트래픽 조건과 연결한다.
-3. **근거** — §4의 A~D 중 하나. 등급을 함께 적는다.
-4. **방향** — 대안 또는 최소한 방향. 문제만 남기지 않는다.
+1. **What the code does** — "This code does X". Aim it at the code, not the person ("why did you do this").
+2. **What happens as a result** — the impact. Tie it to the spec or traffic conditions where possible.
+3. **Evidence** — one of A–D from §4. State the grade with it.
+4. **Direction** — an alternative, or at least a direction. Do not leave only the problem.
 
-### 게시 형태
+### Posting format
 
-inline 코멘트 본문 첫 줄은 아래 형식이다.
+The first line of an inline comment body has this format.
 
 ```
-**C-01** `issue (blocking)` · R-B (데이터 정확성)
+**C-01** `issue (blocking)` · R-B (Data correctness)
 ```
 
-**축은 코드만 적지 않고 이름을 함께 적는다.** `R-B` 만 적으면 저자가 프로파일 문서를 열어야 무슨 축인지 안다.
-코멘트는 저자가 그 자리에서 읽고 판단하는 단위이므로, 축의 뜻이 본문 안에 있어야 한다.
+**Write the axis name along with the code, not the code alone.** With only `R-B`, the author has to open the profile document to learn which axis it is.
+A comment is read and judged by the author on the spot, so the meaning of the axis must be in the body.
 
-축 이름은 **프로파일의 §1 축 정의표에 적힌 것을 글자 그대로** 쓴다. 같은 코드라도 프로파일마다 이름이 다르다
-(예: `R-C` 는 backend 에서 `동시성·원자성`, frontend 에서 `상태 경합`).
+Use the axis name **exactly as written in the profile's §1 axis definition table**. The same code has different names in different profiles
+(e.g. `R-C` is `Concurrency & atomicity` in backend and `State races` in frontend).
 
-한 코멘트가 축 둘에 걸리면 `·` 로 잇는다.
+If one comment covers two axes, join them with `·`.
 
 ```
-**C-10** `issue (blocking)` · R-D (인터페이스 계약) · R-B (데이터 정확성)
+**C-10** `issue (blocking)` · R-D (Interface contract) · R-B (Data correctness)
 ```
 
-코드·라벨·축코드·축이름 중 하나라도 없으면 PG5에서 걸린다.
+If any of code, label, axis code, or axis name is missing, PG5 catches it.
 
-### 요약 본문에는 축 범례표를 한 번 싣는다
+### Put an axis legend in the summary body once
 
-코멘트마다 이름을 적어도, 요약의 blocking 순서표는 칸이 좁아 코드만 들어간다.
-그래서 요약 어딘가에 **코드 ↔ 이름 대응표를 한 번** 둔다. 프로파일의 §1 축 정의표에서 그대로 가져온다.
+Even though each comment carries the name, the summary's blocking order table has narrow cells and fits only the code.
+So place a **code ↔ name table once** somewhere in the summary. Take it as-is from the profile's §1 axis definition table.
 
-| 코드 | 축 | 코드 | 축 |
+| Code | Axis | Code | Axis |
 |---|---|---|---|
-| `R-A` | 설계 ↔ 구현 정합성 | `R-E` | 부하 적합성 |
-| `R-B` | 데이터 정확성 | `R-F` | 장애 격리 |
-| `R-C` | 동시성·원자성 | `R-G` | 테스트 |
-| `R-D` | 인터페이스 계약 | `R-H` | 유지보수성 |
-| `R-I` | 보안 | — | — |
+| `R-A` | Design–implementation consistency | `R-E` | Load fitness |
+| `R-B` | Data correctness | `R-F` | Failure isolation |
+| `R-C` | Concurrency & atomicity | `R-G` | Tests |
+| `R-D` | Interface contract | `R-H` | Maintainability |
+| `R-I` | Security | — | — |
 
-(위는 backend 프로파일 기준이다. frontend 는 `R-C`·`R-E` 이름이 다르고 `R-I` 가 없다.
-`R-I` 는 조건부 축이라 **발동한 라운드에만** 범례에 싣는다.)
+(The above follows the backend profile. In frontend, `R-C`·`R-E` have different names and there is no `R-I`.
+`R-I` is a conditional axis, so include it in the legend **only in rounds where it fired**.)
 
-**게시 언어는 한국어다.**
+**Write all GitHub text in the language of the PR title and description. If unclear, use English.**
+Quotes used as evidence stay verbatim in their original language. If that is not the PR's language, follow the quote with a short translation in parentheses.
 
-### 게시 전 윤문 — 게시 직전에 한 번 줄인다
+### Pre-post edit — cut once right before posting
 
-본문은 근거를 덧붙이는 쪽으로만 자란다. 게시 직전에 한 번 줄인다.
-**코멘트 본문·요약·스레드 reply·기존 코멘트 정정 본문에 똑같이 적용한다** — GitHub 에 올라갈 텍스트는 전부다.
-언제 도는지와 대조 방법은 `01-stages.md` §3-4 · PG6 에 있다.
+The body only grows as evidence is added. Cut it once right before posting.
+**Apply this equally to comment bodies, the summary, thread replies, and correction bodies for existing comments** — every piece of text going to GitHub.
+When it runs and how it is compared is in `01-stages.md` §3-4 · PG6.
 
-지울 것
+Remove
 
-- 같은 말의 반복. 4단 중 두 칸이 같은 사실을 달리 적고 있으면 한 칸으로 합친다.
-- diff 에 그대로 보이는 코드 재인용. 앵커가 이미 그 줄을 가리킨다. **여러 줄에 걸친 흐름을 보여야 할 때만** 남긴다.
-- 완충어 — `~일 수 있습니다` · `~로 보입니다` · `~할 가능성이 있습니다`.
-  확인한 것은 단정하고, 확인 못 한 것은 애초에 게시하지 않는다(§1).
-- 배경 설명. 저자는 자기 코드를 안다. *"이 프로젝트는 CQRS 를 쓰므로…"* 같은 도입부를 지운다.
-- 하니스 내부 용어 — 라운드 · 위원 · 반박자 · 검증자 · 확정 결함 · 예산. 저자에게는 뜻이 없다.
-- 강조 남발. `**` 는 코멘트당 두 곳까지.
+- Repetition. If two of the four parts say the same fact in different words, merge them into one.
+- Re-quoting code that is plainly visible in the diff. The anchor already points at that line. Keep it **only when you must show a flow across several lines**.
+- Hedges — words that soften a claim ("might", "seems to", "there is a possibility that"; e.g. in Korean: `~일 수 있습니다` · `~로 보입니다` · `~할 가능성이 있습니다`).
+  State what you checked as fact; what you could not check is not posted in the first place (§1).
+- Background. The author knows their own code. Remove openers like *"Since this project uses CQRS…"*.
+- Harness-internal terms — round · judge · challenger · verifier · confirmed defect · budget. They mean nothing to the author.
+- Over-emphasis. At most two `**` spots per comment.
 
-반드시 남길 것 — 하나라도 바뀌면 윤문이 아니라 개작이다
+Must keep — if any of these changes, it is a rewrite, not an edit
 
-- 첫 줄 전체 — 위 "게시 형태" 의 코드·라벨·축코드·축이름을 글자 그대로 둔다
-- 앵커(`path`·`line`·`side`) · 등급 · 축
-- 근거의 `파일:줄`, B 등급 인용문 **축자 그대로**, 수치와 계산식
-- 4단의 **② 그래서 생기는 일** 과 **④ 방향** — 줄이되 지우지 않는다. 둘이 빠지면 저자가 할 일이 사라진다.
-- praise 코멘트
+- The whole first line — keep the code, label, axis code, and axis name from "Posting format" above exactly as they are
+- Anchor (`path`·`line`·`side`) · grade · axis
+- The evidence's `file:line`, grade B quotes **verbatim**, numbers and formulas
+- Part **② What happens as a result** and part **④ Direction** — shorten them but do not remove them. Without the two, the author has nothing to do.
+- Praise comments
 
-분량 기준 — 목표지 상한이 아니다. 넘겨야 할 근거가 있으면 넘기고 그 사유를 라운드 기록에 적는다.
+Length targets — these are targets, not caps. If there is reason to exceed them, exceed them and write the reason in the round log.
 
-| 무엇 | 목표 |
+| What | Target |
 |---|---|
-| 코멘트 본문 | 첫 줄 빼고 10줄 이내. 4단은 칸마다 1~2문장 |
-| 요약 총평 | 5줄 이내 |
-| 요약 blocking 순서표 | 한 행이 한 줄 — 칸 안에 줄바꿈을 넣지 않는다 |
-| 스레드 reply · 정정 본문 | 5줄 이내. 판정 한 줄 + 근거 한두 줄 + 남은 것 한 줄 |
+| Comment body | 10 lines or fewer excluding the first line. 1–2 sentences per part |
+| Summary overview | 5 lines or fewer |
+| Summary blocking order table | One row is one line — no line breaks inside cells |
+| Thread reply · correction body | 5 lines or fewer. One verdict line + one or two evidence lines + one line on what remains |
 
-**뜻이 걸리면 길게 남긴다.** 짧게 쓰다 영향이나 처방이 흐려지면 윤문이 실패한 것이다.
+**If the meaning is at stake, keep it long.** If shortening blurs the impact or the fix, the edit has failed.
 
 ---
 
-## 7. 처방 안전성 — 지적이 맞아도 처방이 새 버그를 만든다
+## 7. Fix safety — even a correct finding can carry a fix that creates a new bug
 
-- 반박자 질문 ⑥(**"이 처방을 적용하면 무슨 일이 생기나"**)은 위원이 낸 지적에만 돈다.
-  **취합자가 새로 쓴 코멘트의 처방에는 취합자가 스스로 ⑥을 적용한다.**
-- **같은 판의 처방끼리 대조한다** — 저자가 두 코멘트를 다 따르면 헛일이 되거나 새 결함이 생기는 자리를 찾는다(PG3).
-- **산출물 간 교차 대조** — 게시된 코멘트와 이번에 쓸 reply를 나란히 놓고 읽는다. 저자는 스레드에서 둘을 나란히 본다.
-- **판 전체 대조 — "이번 판에서 내가 매긴 등급들끼리 전제가 서로 맞는가."** 등급은 코멘트 하나씩 정하는데
-  전제는 판 전체에 걸쳐 있다. 같은 성질에 다른 등급을 매겼거나, 한 코멘트가 도달 불가라고 적은 전제 위에
-  다른 코멘트가 blocking 을 세운 자리를 찾는다. **게시 직전에 한 번 돌린다** — 안 돌리면 V3가 대신 잡는다.
+- Challenger question ⑥ (**"what happens if this fix is applied?"**) runs only on findings raised by judges.
+  **For fixes in comments the aggregator wrote itself, the aggregator applies ⑥ itself.**
+- **Compare the fixes in the same pass against each other** — look for places where following both comments would be wasted work or create a new defect (PG3).
+- **Cross-check outputs** — read the posted comment and the reply you are about to write side by side. The author sees both side by side in the thread.
+- **Whole-pass check — "do the premises behind the grades I gave in this pass agree with each other?"** Grades are set one comment at a time, but
+  premises span the whole pass. Look for the same property given different grades, or a comment that builds a blocking finding
+  on a premise another comment called unreachable. **Run it once right before posting** — if you don't, V3 catches it instead.

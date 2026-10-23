@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- Docs, prompts, and script messages are in English.
+- Stored values (verdicts, grades, status) and the posted Stage 2 verdict line now use English IDs: `addressed`·`partial`·`not-addressed`·`regressed`, `critical`·`major`·`minor`·`nit`, `pending`·`running`·`done`·`held-large`·`held-failed`. Readers still accept the old Korean values, so existing runs in `~/.pr-quorum/runs/` keep working.
+- Review text follows the language of the PR.
+
 ## 0.1.1
 
 - `pr-quorum.sh` rejects, with exit 1 before calling GitHub, a repository name not in `repos` of `config.json` and a SHA that is not 7–40 hex characters.

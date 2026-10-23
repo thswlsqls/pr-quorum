@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# risk-audit.sh — 머지된 PR 의 리스크 점수와, 머지 뒤 14일 안에 같은 파일을 고친 fix·revert PR 을 나란히 놓는다.
-# 자동 머지 문턱을 감이 아니라 기록으로 조정하려고 둔다(rules/03-risk.md "문턱 조정"). GitHub 에 아무것도 쓰지 않는다.
+# risk-audit.sh — puts each merged PR's risk score next to any fix or revert PR that touched the same files within 14 days of the merge.
+# It exists so the auto-merge threshold is tuned from records, not gut feeling (rules/03-risk.md "Threshold tuning"). Writes nothing to GitHub.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
@@ -8,14 +8,14 @@ OWNER="$(cfg .owner)"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WINDOW_DAYS=14
 
-[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: risk-audit.sh <repo> [최근 머지 PR 수, 기본 30]" >&2; exit 1; }
+[ $# -ge 1 ] && [ $# -le 2 ] || { echo "usage: risk-audit.sh <repo> [number of recent merged PRs, default 30]" >&2; exit 1; }
 REPO="$1"; LIMIT="${2:-30}"
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 gh pr list --repo "$OWNER/$REPO" --state merged --limit "$LIMIT" --json number,title,mergedAt > "$TMP/prs.json"
 
-# PR 마다 점수를 매기고, 겹침 비교에 쓸 문서 아닌 파일 목록을 붙인다
+# Score each PR and attach its list of non-document files for the overlap comparison
 for n in $(jq -r '.[].number' "$TMP/prs.json"); do
   gh api --paginate "repos/$OWNER/$REPO/pulls/$n/files" | jq -s 'add // []' > "$TMP/files.json"
   auto="false"
@@ -37,14 +37,14 @@ jq -r --slurpfile s "$TMP/scored.json" --argjson w "$WINDOW_DAYS" '
                                        and (.title | test("^\\s*(fix|revert)"; "i"))
                                        and ([.files[] | IN($a.files[])] | any)) | .number ],
           watching: ($now < $a.t + $w * 86400) } ] as $rows
-  | "| PR | 등급 | 점수 | 체인 자동 머지 | 14일 안 fix·revert PR |",
+  | "| PR | Level | Score | Chain auto-merged | fix/revert PRs within 14 days |",
     "|---|---|---|---|---|",
     ($rows | sort_by(-.t)[]
-      | "| #\(.number) | \(.level) | \(.score) | \(if .auto then "예" else "-" end) | \(if (.followups | length) > 0 then (.followups | map("#\(.)") | join(", ")) elif .watching then "관찰 중" else "없음" end) |"),
+      | "| #\(.number) | \(.level) | \(.score) | \(if .auto then "yes" else "-" end) | \(if (.followups | length) > 0 then (.followups | map("#\(.)") | join(", ")) elif .watching then "watching" else "none" end) |"),
     "",
-    "| 등급 | 머지 수 | 후속 수정이 붙은 수 | 관찰 중 (앞 두 칸에서 뺐다) |",
+    "| Level | Merged | With follow-up fixes | Watching (excluded from the previous two columns) |",
     "|---|---|---|---|",
     ($rows | group_by(.level)[]
-      | ([.[] | select((.watching | not) or (.followups | length) > 0)]) as $done   # 후속이 이미 붙었으면 결과가 난 것이다
+      | ([.[] | select((.watching | not) or (.followups | length) > 0)]) as $done   # A follow-up already attached means the outcome is known
       | "| \(.[0].level) | \($done | length) | \([$done[] | select((.followups | length) > 0)] | length) | \(length - ($done | length)) |")
 ' "$TMP/prs.json"

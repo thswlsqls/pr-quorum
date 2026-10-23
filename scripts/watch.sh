@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# watch.sh — 봇에게 리뷰 요청이 걸린 PR 을 찾아 체인(scripts/chain.sh)을 띄운다.
-# 체인이 Stage 1 부터 머지까지 사람 없이 돈다. 단계별로 따로 돌릴 때는 사람이 /pr-quorum:review 를 부른다.
-# launchd StartInterval 60 으로 상시 실행한다. --once 는 디버깅 경로다.
+# watch.sh — finds PRs with a review request for the bot and starts the chain (scripts/chain.sh).
+# The chain runs from Stage 1 to merge with no human involved. To run stages one at a time, a person calls /pr-quorum:review.
+# Runs continuously via launchd StartInterval 60. --once is the debugging path.
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 OWNER="$(cfg .owner)"
-# 봇 로그인은 config.json 의 bot 하나에서 읽는다 — 이 값과 토큰 파일의 계정이 어긋나면
-# watcher 가 엉뚱한 계정으로 폴링해 트리거가 조용히 안 돈다. (토큰은 읽지 않는다)
+# The bot login is read only from config.json's bot — if this value and the token file's account disagree,
+# the watcher polls as the wrong account and the trigger silently never fires. (The token is not read here)
 BOT="$(cfg '.bot // empty')"
-[ -n "$BOT" ] || { echo "봇 로그인을 못 찾았다: $PR_QUORUM_HOME/config.json 의 bot 을 설정하라" >&2; exit 2; }
+[ -n "$BOT" ] || { echo "bot login not found: set bot in $PR_QUORUM_HOME/config.json" >&2; exit 2; }
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
@@ -18,7 +18,7 @@ log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
 known_profile() { [ -n "$(cfg --arg r "$1" '.repos[$r].profile // empty')" ]; }
 
-# meta.lock 이 유효한가 — 시작 후 3시간 이내이고 pid 가 살아 있으면 유효하다.
+# Is meta.lock valid — it is valid if it started less than 3 hours ago and the pid is alive.
 lock_valid() {
   local m="$1" pid started s_epoch
   pid="$(jq -r '.lock.pid // empty' "$m")"
@@ -30,9 +30,9 @@ lock_valid() {
   [ $(( $(date -u +%s) - s_epoch )) -lt 10800 ]
 }
 
-# 머지된 PR 의 평가·저자 워크트리(pr-quorum-<N>[-<sha7>] · pr-author-<N>)를 지운다.
-# 세션 권한에는 worktree add 만 있고, 체인은 사람이 한 머지를 못 보므로 폴링하는 여기서 한다.
-# --force 를 쓰지 않는다 — 커밋 안 한 변경이 있으면 git 이 거부하고 로그만 남는다. 브랜치는 건드리지 않는다
+# Removes the review and author worktrees (pr-quorum-<N>[-<sha7>] · pr-author-<N>) of merged PRs.
+# Session permissions only include worktree add, and the chain cannot see merges done by a person, so the poller does it.
+# No --force — if there are uncommitted changes, git refuses and only a log line is left. Branches are not touched
 gc_worktrees() {
   local repo path dir wt name merged
   for repo in $(cfg '.repos | keys[]'); do
@@ -46,9 +46,9 @@ gc_worktrees() {
       [[ "$name" =~ ^pr-(quorum|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
       grep -qx "${BASH_REMATCH[2]}" <<<"$merged" || continue
       if git -C "$path" worktree remove "$wt"; then
-        log "워크트리 정리 — $repo $name (머지된 PR)"
+        log "worktree removed — $repo $name (merged PR)"
       else
-        log "워크트리 정리 실패 — $repo $name"
+        log "worktree removal failed — $repo $name"
       fi
     done
     git -C "$path" worktree prune
@@ -57,12 +57,12 @@ gc_worktrees() {
 
 run_once() {
   local prs n
-  gc_worktrees || log "워크트리 정리 단계가 실패했다 — 폴링은 계속한다"
-  # 리뷰 요청을 찾는 질의는 이것 하나뿐이다(위 정리 단계의 머지 목록 조회 말고는). PR 코멘트를 폴링하지 않는다.
+  gc_worktrees || log "worktree cleanup step failed — polling continues"
+  # This is the only query that looks for review requests (apart from the merged-list query in the cleanup step above). PR comments are not polled.
   prs="$(gh search prs --owner "$OWNER" --review-requested="$BOT" --state=open \
           --json number,repository,isDraft,authorAssociation 2>/dev/null || echo '[]')"
   n="$(jq 'length' <<<"$prs")"
-  [ "$n" -gt 0 ] || { log "리뷰 요청 없음"; return 0; }
+  [ "$n" -gt 0 ] || { log "no review requests"; return 0; }
 
   local i
   for (( i=0; i<n; i++ )); do
@@ -72,41 +72,41 @@ run_once() {
     draft="$(jq -r ".[$i].isDraft" <<<"$prs")"
     assoc="$(jq -r ".[$i].authorAssociation" <<<"$prs")"
 
-    # 1) 프로파일을 모르는 저장소 — 질의가 --owner 단위라 밖의 PR 도 걸려 온다.
-    known_profile "$repo" || { log "skip $repo#$pr — 프로파일 없음"; continue; }
+    # 1) Repository with no known profile — the query is per --owner, so PRs from other repositories come back too.
+    known_profile "$repo" || { log "skip $repo#$pr — no profile"; continue; }
     # 2) draft
     [ "$draft" = "false" ] || { log "skip $repo#$pr — draft"; continue; }
-    # 2-1) 저장소 소유자가 연 PR 만 — 저장소가 public 이라, 남의 PR 이면 본문·diff 가 사용자 계정으로 push·머지하는 세션에 그대로 들어간다
-    [ "$assoc" = "OWNER" ] || { log "skip $repo#$pr — 작성자가 소유자가 아니다($assoc)"; continue; }
+    # 2-1) Only PRs opened by the repository owner — the repository is public, so someone else's PR would feed its description and diff straight into a session that pushes and merges under the user's account
+    [ "$assoc" = "OWNER" ] || { log "skip $repo#$pr — author is not the owner ($assoc)"; continue; }
 
     m="$PR_QUORUM_HOME/runs/$repo-pr$pr/meta.json"
     if [ -f "$m" ]; then
-      # 3) 유효한 락
-      lock_valid "$m" && { log "skip $repo#$pr — 락 점유 중"; continue; }
-      # 4) 보류 상태 — 재개는 사람만 한다
+      # 3) Valid lock
+      lock_valid "$m" && { log "skip $repo#$pr — lock held"; continue; }
+      # 4) Held status — only a person resumes it
       case "$(jq -r '.status' "$m")" in
-        보류*) log "skip $repo#$pr — $(jq -r '.status' "$m")"; continue ;;
+        held-*|보류*) log "skip $repo#$pr — $(jq -r '.status' "$m")"; continue ;;
       esac
-      # 5) 이미 Stage 1 리뷰를 게시했다
+      # 5) Stage 1 review already posted
       [ "$(jq -r '[.stage1[]?.review_id | select(. != null)] | length' "$m")" = "0" ] \
-        || { log "skip $repo#$pr — 이미 게시됨"; continue; }
-      # 실패 반복 차단
+        || { log "skip $repo#$pr — already posted"; continue; }
+      # Stop repeated failures
       if [ "$(jq -r '.attempts // 0' "$m")" -ge "$MAX_ATTEMPTS" ]; then
-        log "$repo#$pr — 연속 실패 $MAX_ATTEMPTS 회. 보류(실패) 로 멈춘다"
-        "$PR_QUORUM" status "$repo" "$pr" "보류(실패)" >/dev/null
+        log "$repo#$pr — failed $MAX_ATTEMPTS times in a row. Stopping at held-failed"
+        "$PR_QUORUM" status "$repo" "$pr" "held-failed" >/dev/null
         continue
       fi
     fi
 
-    log "Stage 1 시작 — $repo#$pr"
+    log "Stage 1 start — $repo#$pr"
     "$PR_QUORUM" init "$repo" "$pr" >/dev/null
     "$PR_QUORUM" attempt "$repo" "$pr" inc >/dev/null
 
-    # Stage 1 부터 머지까지 체인 하나가 끝까지 돈다(scripts/chain.sh). 끝날 때까지 기다린다 —
-    # 그래야 launchd 가 StartInterval 회차를 건너뛰어 이중 실행이 이중으로 막힌다.
-    "$HARNESS_DIR/scripts/chain.sh" "$repo" "$pr" || log "체인이 멈췄다 — $repo#$pr (chain.state=$(jq -r '.chain.state // "?"' "$m" 2>/dev/null))"
+    # One chain runs from Stage 1 all the way to merge (scripts/chain.sh). Wait until it finishes —
+    # that way launchd skips StartInterval ticks, adding a second guard against double runs.
+    "$HARNESS_DIR/scripts/chain.sh" "$repo" "$pr" || log "chain stopped — $repo#$pr (chain.state=$(jq -r '.chain.state // "?"' "$m" 2>/dev/null))"
 
-    log "체인 종료 — $repo#$pr (status=$(jq -r '.status' "$m" 2>/dev/null || echo '?'))"
+    log "chain finished — $repo#$pr (status=$(jq -r '.status' "$m" 2>/dev/null || echo '?'))"
   done
 }
 
