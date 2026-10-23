@@ -242,10 +242,11 @@ Create a new worktree for each sha you measure. Do not move an existing worktree
 The author's fix commits are objects in the same repo, so they are there without a fetch.
 
 ```
-git worktree add --detach ../<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
+git worktree add --detach <absolute path of the repo's parent>/<repo>-worktrees/pr-quorum-<PR-number>-<sha7> <sha>
 ```
 
-Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`). If the working folder is not that repo, call `cd <that path>` separately first (one-line `cd … && git` chains are denied).
+Call it from that repo's root (`repos.<repo>.path` in `~/.pr-quorum/config.json`) — chain sessions start there. Give the new worktree as an absolute path, and pass that same path to the build wrapper.
+`cd` and `git -C` are denied by permissions. If the working folder is not that repo, do not create the worktree; write the measurements as `not measured`.
 
 If another tool also uses the `<repo>-worktrees/` parent folder, **the leaf name `pr-quorum-` is the only distinction**,
 so first check that its cleanup does not delete these folders.
@@ -315,10 +316,10 @@ There are two output shapes, so there are two checks.
 JSON (`comments.json`) — are the fields and the body's first line unchanged. If `false`, revert the changed comments from the snapshot.
 
 ```bash
-cd ~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>
+d=~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>
 jq -s 'map(map({code, path, line, side:(.side//"RIGHT"), axis, grade,
                 head:(.body | split("\n")[0])})) | .[0] == .[1]' \
-   pre-polish/comments.json comments.json
+   "$d/pre-polish/comments.json" "$d/comments.json"
 ```
 
 Markdown (`summary.md` · `replies/*.md` · `patches/*.md`) — did anchors and numbers disappear.
@@ -326,8 +327,8 @@ If tokens show up that exist only in the snapshot, the edit removed evidence.
 
 ```bash
 tok() { grep -ohE '[A-Za-z0-9_./-]+\.[a-z]+:[0-9]+|[0-9]+(\.[0-9]+)?' "$@" | sort -u; }
-comm -23 <(tok pre-polish/summary.md pre-polish/replies/*.md pre-polish/patches/*.md) \
-         <(tok summary.md replies/*.md patches/*.md)
+comm -23 <(tok "$d"/pre-polish/summary.md "$d"/pre-polish/replies/*.md "$d"/pre-polish/patches/*.md) \
+         <(tok "$d"/summary.md "$d"/replies/*.md "$d"/patches/*.md)
 ```
 
 Empty output is a pass. Check the printed tokens one by one — **reducing an anchor written twice to once while merging sentences

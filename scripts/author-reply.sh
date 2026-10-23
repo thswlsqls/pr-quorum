@@ -6,6 +6,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
 OWNER="$(cfg .owner)"  # The session calls this script, so read only from config.json, not from environment variables
 RUNS="$(cd "$PR_QUORUM_HOME/runs" && pwd -P)"
 
@@ -21,6 +22,8 @@ body_dir="$(cd "$(dirname "$BODY")" && pwd -P)"
 case "$body_dir/" in "$RUNS"/*) ;; *) die "body file must be under $RUNS: $BODY" ;; esac
 
 FILE="$body_dir/$(basename "$BODY")"
+# A body holding a token is not posted (exit 3, as pr-quorum.sh's gate violation). The matched text is never echoed
+scan_tokens "$FILE" || { echo "author-reply.sh: body holds a token — nothing was posted. Remove it from the file" >&2; exit 3; }
 case "$ID" in
   comment) gh pr comment "$PR" --repo "$OWNER/$REPO" --body-file "$FILE" ;;
   body)    gh pr edit "$PR" --repo "$OWNER/$REPO" --body-file "$FILE" ;;

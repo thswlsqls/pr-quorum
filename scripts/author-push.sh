@@ -5,6 +5,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
 OWNER="$(cfg .owner)"  # The session calls this script, so read only from config.json, not from environment variables
 
 die() { echo "author-push.sh: $1" >&2; exit 1; }
@@ -18,6 +19,7 @@ REPO="$1"; PR="$2"
 cross="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json isCrossRepository --jq .isCrossRepository)"
 [ "$cross" = "false" ] || die "PR comes from a fork"
 head="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json headRefName --jq .headRefName)"
+remote_head="$(gh pr view "$PR" --repo "$OWNER/$REPO" --json headRefOid --jq .headRefOid)"
 default="$(gh repo view "$OWNER/$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
 current="$(git symbolic-ref --short HEAD 2>/dev/null)" || die "HEAD is not a branch (detached)"
 
@@ -29,6 +31,13 @@ current="$(git symbolic-ref --short HEAD 2>/dev/null)" || die "HEAD is not a bra
 urls="$(git remote get-url --push --all origin)"
 [ "$(wc -l <<<"$urls")" -eq 1 ] && [[ "$urls" =~ ^(https://|git@)github\.com[:/]$OWNER/$REPO(\.git)?$ ]] \
   || die "origin push URL is not exactly $OWNER/$REPO"
+
+# What is about to go out — every commit's diff (as text, binary files included) and message since the PR head on GitHub.
+# A commit holding a token is not pushed (exit 3, as pr-quorum.sh's gate violation). The matched text is never echoed
+git cat-file -e "$remote_head^{commit}" 2>/dev/null || die "PR head ${remote_head:0:7} is not in this clone — git fetch origin $head first"
+out="$(mktemp)"; trap 'rm -f "$out"' EXIT
+{ git diff --text "$remote_head..HEAD"; git log --format=%B "$remote_head..HEAD"; } > "$out"
+scan_tokens "$out" || { echo "author-push.sh: the commits to push hold a token — nothing was pushed. Remove it and rewrite the commit" >&2; exit 3; }
 
 # The refspec has no +, so GitHub rejects anything that is not a fast-forward
 git push origin "HEAD:refs/heads/$head"

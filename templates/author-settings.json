@@ -67,11 +67,13 @@
       "Bash(rtk:*)",
       "Read(~/.config/pr-quorum/**)",
       "Read(~/.config/gh/**)",
+      "Read(~/.config/**)",
       "Edit(/__PLUGIN_ROOT__/scripts/**)",
       "Edit(/*.json)",
       "Edit(/*.md)",
       "Edit(/profiles/**)",
-      "Edit(/runs/*/learning-candidates.md)"
+      "Edit(/runs/*/learning-candidates.md)",
+      "Edit(/runs/*/meta.json)"
     ]
   }
 }

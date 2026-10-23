@@ -79,6 +79,9 @@ The order `J1`–`J4` is not a score but **deduplication priority** — if the d
 | `unlock` | `<repo> <pr>` | Releases the lock | Not needed |
 | `status` | `<repo> <pr> <value>` | One of `pending`, `running`, `done`, `held-large`, `held-failed` | Not needed |
 | `attempt` | `<repo> <pr> inc\|reset` | Count of consecutive Stage 1 failures | Not needed |
+| `stage2-begin` | `<repo> <pr> <stage_sha> <last_judged_sha>` | Both SHAs in full (40 hex). Opens this Stage 2 pass's `stage2[]` element (`round`, `stage_sha`, `last_judged_sha`, `at`) before its first `reply` or `post-review`. Appends one if `stage2` is empty, the last element has `verdicts`, or it judged another commit; otherwise reuses the last element | Not needed |
+| `verdicts` | `<repo> <pr> <stage_sha> <verdicts.json>` | Writes a `{code: verdict}` object (file under `runs/`) into `stage2[-1].verdicts`. Values other than `addressed`·`partial`·`not-addressed`·`regressed` exit 1; no open element for `stage_sha` exits 3 | Not needed |
+| `stage3-replies` | `<repo> <pr>` | Moves `stage3_replies` into `stage3.replies`, for a session that ends without `post-review`. Exits 3 if Stage 3 has no post record | Not needed |
 | `post-review` | `<repo> <pr> <sha> <summary.md> <comments.json> [stage1\|stage2\|stage3]` | Posts the summary and inline comments together as one review. **Reruns PG1 and PG5 right before posting** | Needed |
 | `reply` | `<repo> <pr> <comment_id> <body.md>` | Thread reply | Needed |
 | `patch` | `<repo> <pr> <comment_id> <body.md>` | Corrects the body of the bot's own comment | Needed |
@@ -91,10 +94,13 @@ The order `J1`–`J4` is not a score but **deduplication priority** — if the d
 | `build` · `author-build` | `<repo> <pr> <worktree> build\|test\|lint [target]` | Runs `repos.<repo>.commands.<kind>` from `config.json` in the worktree with `bash -c`, `<target>` replaced by the target (letters, digits, `: _ . / -`; no leading `-` or `/`, no `..`). Without `commands`: `gradlew` → `./gradlew <target>:build\|test`; `package.json` → `npm run build`, `npm run lint`, `npx --no -- tsc --noEmit` for `test` (never fetched from the registry) (target = app folder); otherwise it refuses (exit 2) and the measurement is `not measured`. The worktree must be a worktree root under `<parent of repos.<repo>.path>/<repo>-worktrees/` and not under `runs/`; review mode also needs a clean tree whose HEAD is a SHA pinned in `meta.json` or the PR head, and `author-build` allows only `pr-author-<pr>`, edits included. **The command's exit code and output pass through.** It is the only way sessions run build tools — the settings templates allow this subcommand instead of `./gradlew`·`npm`·`npx` (the review template does not allow `author-build`) | Not needed |
 
 Posting subcommands (`post-review`, `reply`, `patch`, `patch-review`, `comment`) accept as body files only regular files under `~/.pr-quorum/runs/`. A link or any other path exits 1.
+Before reading the bot token or calling GitHub, they also scan the body (and `comments.json`) with `scripts/token-scan.sh`: a GitHub token pattern (`ghp_`·`gho_`·`ghu_`·`ghs_`·`ghr_` + 36 or more letters and digits, `github_pat_…`), the bot token value, `GH_TOKEN`/`GITHUB_TOKEN`, or the user's `gh auth token` exits 3 without posting, and the match is never printed. `author-reply.sh` scans its body and `author-push.sh` the diff and messages of the commits it would push (since the PR head on GitHub) the same way, exiting 3.
+
+Sessions cannot edit `meta.json` — both session templates deny `Edit(/runs/*/meta.json)`, and the review template no longer allows `cd` (build and `git worktree add` take absolute paths). The Stage 2 and Stage 3 records the review skill used to write by hand go through `stage2-begin`, `verdicts`, and `stage3-replies`.
 
 `<repo>` must be a name in `repos` of `config.json`, `<pr>` a positive integer, `<comment_id>` and `<review_id>` numeric, and `<sha>` 7–40 hex characters. Otherwise it exits 1 before reading the bot token or calling GitHub.
 
-**Exit codes** — 0 success · 1 usage or argument error · 2 environment (no bot token file, no `meta.json` or no `base_sha` in it) · 3 gate violation (PG1 failure, missing PG5 required item, PG6 comparison failure, large-PR cutoff, **stage order violation**) · 4 GitHub API or risk calculation (`risk.jq`) failure · 5 lock held.
+**Exit codes** — 0 success · 1 usage or argument error · 2 environment (no bot token file, no `meta.json` or no `base_sha` in it) · 3 gate violation (PG1 failure, missing PG5 required item, PG6 comparison failure, large-PR cutoff, **stage order violation**, a token in an outgoing body) · 4 GitHub API or risk calculation (`risk.jq`) failure · 5 lock held.
 
 ## 4. Output spec
 

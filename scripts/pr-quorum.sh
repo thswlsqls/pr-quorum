@@ -5,6 +5,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/token-scan.sh"
 OWNER="$(cfg '.owner // empty')"
 BOT_ENV="${PR_QUORUM_BOT_ENV:-$HOME/.config/pr-quorum/bot.env}"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +46,9 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     unlock     <repo> <pr>
     status     <repo> <pr> <value>
     attempt    <repo> <pr> inc|reset
+    stage2-begin <repo> <pr> <stage_sha> <last_judged_sha>   open this Stage 2 pass's record (merges into an unfinished one)
+    verdicts   <repo> <pr> <stage_sha> <verdicts.json>   write {code: verdict} into that record (addressed|partial|not-addressed|regressed)
+    stage3-replies <repo> <pr>               move stage3_replies into stage3.replies (when finishing without post-review)
 
   Build (no bot token needed)
     build      <repo> <pr> <worktree> build|test|lint [target]
@@ -58,6 +62,7 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     patch       <repo> <pr> <comment_id> <body.md>
     patch-review <repo> <pr> <review_id> <body.md>   edit the summary body of a posted review
     comment     <repo> <pr> <body.md>        one general comment on the PR
+                                             every post refuses a body that holds a token (scripts/token-scan.sh), before any API call
 
   Check (bot token needed, no repo or pr)
     whoami                                   print the bot token's login (doctor.sh compares it with config.json bot)
@@ -88,11 +93,8 @@ meta_update() {
 
 load_bot_token() {
   [ -f "$BOT_ENV" ] || die "$E_ENV" "bot token file is missing: $BOT_ENV (see docs/harness.md §5-2)"
-  # Extract the value instead of sourcing — shell code in the file does not run.
-  # Environment variables are ignored too. A GH_TOKEN from outside is the user's token, so posts would appear under the user instead of the bot
-  local tok
-  tok="$(sed -n 's/^PR_QUORUM_BOT_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
-  [ -n "$tok" ] || tok="$(sed -n 's/^GH_TOKEN=//p' "$BOT_ENV" | tr -d "\"'" | head -1)"
+  # Environment variables are ignored. A GH_TOKEN from outside is the user's token, so posts would appear under the user instead of the bot
+  local tok; tok="$(bot_token_value)"
   [ -n "$tok" ] || die "$E_ENV" "$BOT_ENV has no PR_QUORUM_BOT_TOKEN or GH_TOKEN"
   export GH_TOKEN="$tok"
   unset GITHUB_TOKEN || true
@@ -452,6 +454,41 @@ cmd_snapshot() {
   echo "copy — $real/pre-polish (${copied[*]:-none})"
 }
 
+# Stage 2 records. Sessions cannot edit meta.json (the merge gate reads these), so the writes they need go through here.
+# Opens the record for this pass before the first reply or post-review: a new element when stage2 is empty, the last pass already has
+# verdicts, or it judged another commit; otherwise (a resumed session) the unfinished last element is reused
+cmd_stage2_begin() {
+  local repo="$1" pr="$2" sha="$3" last="$4"; need_meta "$repo" "$pr"
+  meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 or (.[-1].verdicts != null) or ((.[-1].stage_sha // $sha) != $sha)
+                                                       then . + [{}] else . end)
+                             | .stage2[-1] += {round: (.stage2 | length), stage_sha:$sha, last_judged_sha:$lj, at:(.stage2[-1].at // $at)}' \
+    --arg sha "$sha" --arg lj "$last" --arg at "$(now_iso)"
+  echo "stage2 pass $(jq -r '.stage2 | length' "$(meta_path "$repo" "$pr")") open — stage_sha=$sha last_judged_sha=$last"
+}
+
+# The four verdict words of rules/01-stages.md §2 and nothing else. The chain counts a Stage 2 pass as done once its element has verdicts
+cmd_verdicts() {
+  local repo="$1" pr="$2" sha="$3" vfile="$4" m bad; need_meta "$repo" "$pr"
+  m="$(meta_path "$repo" "$pr")"
+  jq -e 'type == "object" and length > 0' "$vfile" >/dev/null 2>&1 \
+    || die "$E_USAGE" "$vfile must be a non-empty JSON object of {code: verdict}"
+  bad="$(jq -r '[to_entries[] | select((.key | test("^[A-Za-z0-9][A-Za-z0-9_-]*$") | not)
+                 or (.value | IN("addressed", "partial", "not-addressed", "regressed") | not)) | "\(.key)=\(.value)"] | join(", ")' "$vfile")"
+  [ -z "$bad" ] || die "$E_USAGE" "verdicts must be addressed|partial|not-addressed|regressed, keyed by comment code: $bad"
+  [ "$(jq -r --arg sha "$sha" '(.stage2[-1]? // null) as $l | $l != null and (($l.stage_sha // $sha) == $sha)' "$m")" = true ] \
+    || die "$E_GATE" "no open Stage 2 record for $sha. Call stage2-begin first"
+  meta_update "$repo" "$pr" '.stage2[-1] += {stage_sha:$sha, verdicts:$v[0]}' --arg sha "$sha" --slurpfile v "$vfile"
+  echo "verdicts recorded — $(jq 'length' "$vfile") in stage2 pass $(jq -r '.stage2 | length' "$m")"
+}
+
+# Replies made under this lock before post-review collect in stage3_replies (see record_reply). A session that ends without posting moves them here
+cmd_stage3_replies() {
+  local repo="$1" pr="$2"; need_meta "$repo" "$pr"
+  [ "$(jq -r '.stage3 != null' "$(meta_path "$repo" "$pr")")" = true ] || die "$E_GATE" "Stage 3 has no post record to move the replies into"
+  meta_update "$repo" "$pr" '.stage3.replies = ((.stage3.replies // {}) + (.stage3_replies // {})) | del(.stage3_replies)'
+  echo "stage3 replies — $(jq -r '.stage3.replies | length' "$(meta_path "$repo" "$pr")") recorded"
+}
+
 # ---------- Build ----------
 
 # The only way sessions run a build, test, or lint. The command comes from repos.<repo>.commands.<kind> in config.json, which sessions cannot edit;
@@ -487,6 +524,7 @@ cmd_build() {
   top="$real"
 
   if [ "$BUILD_AUTHOR" = 0 ]; then
+    # Clean means nothing planted only because review sessions cannot write inside <repo>-worktrees (gitignored files do not show here)
     [ -z "$(cd "$real" && git status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
     head="$(cd "$real" && git rev-parse HEAD)"
     # The SHAs this PR pinned (§6 of rules/01-stages.md), else the current PR head on GitHub
@@ -546,6 +584,9 @@ need_run_file() {
   dir="$(cd "$(dirname "$f")" && pwd -P)"
   case "$dir/" in "$runs"/*) ;; *) die "$E_USAGE" "body file must be under runs/: $f" ;; esac
 }
+
+# Runs before the bot token is loaded and before any API call. Exit 3, and the matched text is never echoed
+need_clean_body() { scan_tokens "$@" || die "$E_GATE" "outgoing body holds a token — nothing was posted. Remove it from the file"; }
 
 cmd_post_review() {
   local repo="$1" pr="$2" sha="$3" sfile="$4" cfile="$5" stage="${6:-stage1}"
@@ -690,6 +731,8 @@ cmd_whoami() { load_bot_token; api user --jq '.login'; }
 need_id() { [[ "$2" =~ ^[0-9]+$ ]] || die "$E_USAGE" "$1 must be numeric: $2"; }
 # The pinned SHA also goes into the compare path. Accept only 7–40 hex characters
 need_sha() { [[ "$1" =~ ^[0-9a-f]{7,40}$ ]] || die "$E_USAGE" "SHA must be 7–40 hex characters: $1"; }
+# Stage 2 records are matched to post-review's stage_sha by string, so a short SHA would split one pass into two elements
+need_full_sha() { [[ "$1" =~ ^[0-9a-f]{40}$ ]] || die "$E_USAGE" "SHA must be the full 40 hex characters: $1"; }
 
 [ $# -ge 1 ] || usage
 sub="$1"; shift
@@ -715,13 +758,16 @@ case "$sub" in
   unlock)      [ $# -eq 2 ] || usage; cmd_unlock "$@" ;;
   status)      [ $# -eq 3 ] || usage; cmd_status "$@" ;;
   attempt)     [ $# -eq 3 ] || usage; cmd_attempt "$@" ;;
+  stage2-begin) [ $# -eq 4 ] || usage; need_full_sha "$3"; need_full_sha "$4"; cmd_stage2_begin "$@" ;;
+  verdicts)    [ $# -eq 4 ] || usage; need_full_sha "$3"; need_run_file "$4"; cmd_verdicts "$@" ;;
+  stage3-replies) [ $# -eq 2 ] || usage; cmd_stage3_replies "$@" ;;
   build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
   author-build) [ $# -ge 4 ] && [ $# -le 5 ] || usage; BUILD_AUTHOR=1; cmd_build "$@" ;;
-  post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; cmd_post_review "$@" ;;
-  reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_reply "$@" ;;
-  patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; cmd_patch "$@" ;;
-  patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; cmd_patch_review "$@" ;;
-  comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; cmd_comment "$@" ;;
+  post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; need_clean_body "$4" "$5"; cmd_post_review "$@" ;;
+  reply)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_reply "$@" ;;
+  patch)       [ $# -eq 4 ] || usage; need_id comment_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch "$@" ;;
+  patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
+  comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; need_clean_body "$3"; cmd_comment "$@" ;;
   whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
   *) usage ;;
 esac
