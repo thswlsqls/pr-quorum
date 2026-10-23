@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `294c1a6`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `941acf1`
 
 <p align="center">
   <picture>
@@ -23,6 +23,9 @@
 | 作者 | 独立的会话(`/pr-quorum:author`)修改代码，用你的 gh 账号推送到 PR 分支。从不强制推送、合并或批准 |
 | Stage 2 · followup | 在每个讨论串中回复 `addressed`(已落实)、`partial`(部分)、`not-addressed`(未落实) 或 `regressed`(倒退，修复引入了新缺陷) |
 | Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
+
+<details>
+<summary>Stage 1、2、3 一览</summary>
 
 ```mermaid
 flowchart TD
@@ -52,6 +55,11 @@ flowchart TD
 
 各阶段的细节画在下方的折叠区块中。
 
+</details>
+
+<details>
+<summary>合并关卡与风险关卡</summary>
+
 ```mermaid
 flowchart TD
   G(["作者循环<br/>结束后"]) --> MG{"合并关卡<br/>blocking 0<br/>regressed 0<br/>无测试失败<br/>已评审 head"}
@@ -63,6 +71,8 @@ flowchart TD
   A -- "false (默认)" --> R["ready<br/>由人合并"]
   RG -- "medium 及以上" --> H["needs-human<br/>由人评审<br/>并合并"]
 ```
+
+</details>
 
 风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
 
