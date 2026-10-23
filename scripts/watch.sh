@@ -16,7 +16,8 @@ PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
 SEARCH_LIMIT=100
 SEARCH_ERR="$(mktemp)"
-trap 'rm -f "$SEARCH_ERR"' EXIT
+GC_CACHE=""   # "<repo> <N> <state>" lines — PR states already asked in this cleanup (bash 3.2 has no associative arrays)
+trap 'rm -f "$SEARCH_ERR" ${GC_CACHE:+"$GC_CACHE"}' EXIT
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
@@ -40,24 +41,45 @@ lock_valid() {
   [ $(( $(date -u +%s) - s_epoch )) -lt 10800 ]
 }
 
-# Removes the review and author worktrees (pr-quorum-<N>[-<sha7>] · pr-author-<N>) of merged PRs.
+# pr_closed_state <repo> <slug> <N> — prints MERGED or CLOSED when GitHub says so; prints nothing for OPEN or a failed lookup.
+# Each PR is asked once per cleanup
+pr_closed_state() {
+  local s; s="$(awk -v r="$1" -v n="$3" '$1 == r && $2 == n {print $3; exit}' "$GC_CACHE")"
+  if [ -z "$s" ]; then
+    s="$(gh pr view "$3" --repo "$2" --json state --jq .state 2>/dev/null || echo ERROR)"
+    echo "$1 $3 ${s:-ERROR}" >> "$GC_CACHE"
+  fi
+  case "$s" in MERGED|CLOSED) echo "$s" ;; esac
+}
+
+# chain_running <repo> <N> — a chain holds runs/<repo>-pr<N>/.chain.lock and its pid is alive
+chain_running() { local p; p="$(cat "$PR_QUORUM_HOME/runs/$1-pr$2/.chain.lock/pid" 2>/dev/null)" && kill -0 "$p" 2>/dev/null; }
+
+# Removes the review and author worktrees (pr-quorum-<N>[-<sha7>] · pr-author-<N>) of merged or closed PRs.
 # Session permissions only include worktree add, and the chain cannot see merges done by a person, so the poller does it.
+# Each worktree's PR state is asked directly, so old PRs are never missed; only a confirmed MERGED or CLOSED removes it, and a failed
+# lookup keeps it. A PR whose chain is running is skipped. Runs at most every 30 minutes ($PR_QUORUM_HOME/.gc-stamp).
 # No --force — if there are uncommitted changes, git refuses and only a log line is left. Branches are not touched
 gc_worktrees() {
-  local repo slug path dir wt name merged
+  local repo slug path dir wt name n st
+  [ -z "$(find "$PR_QUORUM_HOME/.gc-stamp" -mmin -30 2>/dev/null)" ] || return 0
+  touch "$PR_QUORUM_HOME/.gc-stamp"
+  [ -n "$GC_CACHE" ] || GC_CACHE="$(mktemp)"
+  : > "$GC_CACHE"
   for repo in $(cfg '.repos | keys[]'); do
     path="$(cfg --arg r "$repo" '.repos[$r].path')"
     dir="$(dirname "$path")/$repo-worktrees"
     [ -d "$dir" ] || continue
     slug="$(repo_slug "$repo")" || continue
-    merged="$(gh pr list --repo "$slug" --state merged --limit 200 --json number --jq '.[].number')" || continue
     for wt in "$dir"/pr-quorum-* "$dir"/pr-author-*; do
       [ -d "$wt" ] || continue
       name="$(basename "$wt")"
       [[ "$name" =~ ^pr-(quorum|author)-([1-9][0-9]*)(-[0-9a-f]{7})?$ ]] || continue
-      grep -qx "${BASH_REMATCH[2]}" <<<"$merged" || continue
+      n="${BASH_REMATCH[2]}"
+      st="$(pr_closed_state "$repo" "$slug" "$n")"; [ -n "$st" ] || continue
+      chain_running "$repo" "$n" && { log "worktree kept — $repo $name (chain running)"; continue; }
       if git -C "$path" worktree remove "$wt"; then
-        log "worktree removed — $repo $name (merged PR)"
+        log "worktree removed — $repo $name ($st PR)"
       else
         log "worktree removal failed — $repo $name"
       fi
@@ -70,7 +92,7 @@ run_once() {
   local prs="[]" found n own o
   gc_worktrees || log "worktree cleanup step failed — polling continues"
   own="$(owners)" || return 2
-  # This is the only query that looks for review requests (apart from the merged-list query in the cleanup step above), once per owner. PR comments are not polled.
+  # This is the only query that looks for review requests (apart from the PR-state lookups in the cleanup step above), once per owner. PR comments are not polled.
   # A failed search (expired token, rate limit, network) exits 2 — it must not read as "no review requests"
   for o in $own; do
     if ! found="$(gh search prs --owner "$o" --review-requested="$BOT" --state=open --limit "$SEARCH_LIMIT" \
@@ -138,5 +160,7 @@ run_once() {
 
 case "${1:-}" in
   --once|"") run_once ;;
-  *) echo "usage: watch.sh [--once]" >&2; exit 1 ;;
+  # Cleanup only, now — for a manual sweep and for selftest. Clears the stamp so the 30-minute wait does not apply
+  --gc-only) rm -f "$PR_QUORUM_HOME/.gc-stamp"; gc_worktrees ;;
+  *) echo "usage: watch.sh [--once | --gc-only]" >&2; exit 1 ;;
 esac
