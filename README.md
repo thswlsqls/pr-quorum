@@ -162,7 +162,7 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 ## Requirements
 
 - macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the launchd watcher example is macOS-specific. Native Windows (PowerShell, cmd) is not supported
-- [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git`
+- [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git` 2.31 or later
 - On Linux, `bwrap` (bubblewrap) for the build sandbox. macOS ships `sandbox-exec`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
 - Repositories on github.com. GitHub Enterprise Server and ghe.com are not supported
@@ -420,9 +420,10 @@ As of 2026-10:
 - No review has been graded by a person: the author's `human-labels.md` has no filled-in grade, so "a stricter procedure gives better reviews" is untested.
 - One full chain costs $11–30 and takes 19–47 minutes (sum of the sessions' `total_cost_usd` and `wall_ms`; from a 12-line PR, #66, to #61).
 - It has run on one backend repository only (all 14 runs); the [`frontend.md`](examples/profiles/frontend.md) profile has never run.
-- The risk rules' paths (`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`) fit the repository they were written for; check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning on `auto_merge`.
+- The risk rules' paths (`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`) fit the repository they were written for; check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning on `auto_merge`. The signals are path patterns: a file the list does not name (a deploy script, a new CI tool's config) scores as ordinary code.
 - github.com only, and one machine polls for review requests.
-- Real reviews have run only on macOS. On Linux only `selftest.sh` and cron with `flock` were checked, with stub `gh` and `claude`, and the `bwrap` build sandbox has not been measured.
+- PRs from forks are not run: the author pass pushes fixes to the PR branch, which a fork keeps outside the repository. The chain stops such a PR at `held-fork` before Stage 1 and leaves one comment.
+- Real reviews have run only on macOS. On Linux only `selftest.sh` and cron with `flock` were checked, with stub `gh` and `claude`, and the `bwrap` build sandbox has not passed its own selftest checks yet (two fail in a container where `bwrap` runs), so CI's Linux job runs without it.
 - The plugin path must not contain `|` or `&`, and a `repos.*.path` must not contain `*` or `[`: they go into permission rules unescaped.
 - The scorecard and notices the scripts post are in English; only the review text follows the PR's language.
 - The build sandbox leaves the network and `localhost` open, and builds share one cache root, which a build can poison for the next sandboxed build ([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
