@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `67e2516`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `271a302`
 
 <p align="center">
   <picture>
