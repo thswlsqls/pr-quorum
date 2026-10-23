@@ -634,6 +634,15 @@ cmd_post_review() {
   # The draft as posted. When a later call adopts the review, this copy stands in for comments.json — a retrying session may have
   # rewritten that file, and its codes must not land on the earlier review's comments. Removed once the review is recorded
   posting="$(run_dir "$repo" "$pr")/outputs/$stage/posting-${sha:0:7}.json"
+  # Sessions can write under runs/, so the copy gets the same distrust as comments.json: no link, nothing but a regular file,
+  # and a stage folder that resolves inside runs/
+  mkdir -p "$(dirname "$posting")"
+  { [ ! -L "$posting" ] && { [ ! -e "$posting" ] || [ -f "$posting" ]; }; } \
+    || die "$E_USAGE" "posting copy is a link or not a regular file — nothing was posted. Remove it: $posting"
+  case "$(cd "$(dirname "$posting")" && pwd -P)/" in
+    "$(cd "$RUNS_DIR" && pwd -P)"/*) ;;
+    *) die "$E_USAGE" "outputs/$stage resolves outside runs/ — nothing was posted: $(dirname "$posting")" ;;
+  esac
 
   # Adoption — a bot review on this SHA carrying this stage's marker that meta.json does not know was posted by an earlier call
   # that died before recording it, or whose POST response was lost. Record that one instead of posting a second.
@@ -648,6 +657,9 @@ cmd_post_review() {
     || die "$E_API" "could not list the PR's reviews to check for an unrecorded earlier post — nothing was posted"
   if [ -n "$rid" ]; then
     [ -f "$posting" ] || posting="$cfile"
+    # The file whose codes go into meta.json passes the checks comments.json passed at the entry point
+    need_run_file "$posting"; need_clean_body "$posting"; need_clean_json "$posting"
+    jq -e 'type == "array"' "$posting" >/dev/null 2>&1 || die "$E_USAGE" "$posting must be a JSON array — nothing was recorded"
     record_review "$repo" "$pr" "$stage" "$rid" "$sha" "$posting" \
       || die "$E_API" "review_id=$rid is on GitHub but recording it in meta.json failed — rerun the same post-review command"
     [ "$posting" = "$cfile" ] || rm -f "$posting"
@@ -662,7 +674,9 @@ cmd_post_review() {
      comments: ($c[0] | map({path, line, side:(.side // "RIGHT"), body}))}
   ' > "$tmp/payload.json"
 
-  mkdir -p "$(dirname "$posting")"; cp "$cfile" "$posting"
+  # Written to a temp file beside it and renamed over, so the copy is never half-written and never followed through a link
+  local t; t="$(mktemp "$(dirname "$posting")/.posting.XXXXXX")" && cp "$cfile" "$t" && mv -f "$t" "$posting" \
+    || { rm -f "${t:-}"; die "$E_ENV" "could not write the posting copy — nothing was posted: $posting"; }
   local resp; resp="$(gh api "repos/$SLUG/pulls/$pr/reviews" --input "$tmp/payload.json")" \
     || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7). If the review did go up, rerunning the same post-review command records it without posting again"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"

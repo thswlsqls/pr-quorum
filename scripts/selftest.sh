@@ -188,11 +188,23 @@ t5_get_retry() {
   [ "$rc" = 4 ] && [ "$(wc -l < "$STUB/state/calls.log" | tr -d ' ')" = 1 ] \
     || { echo "404: exit $rc, $(wc -l < "$STUB/state/calls.log" | tr -d ' ') gh calls (want 4, 1)"; return 1; }
 }
+# T6 — runs/ is session-writable: a link at the posting copy's path is refused before any GET or POST, even with a review to adopt
+t6_posting_link_refused() {
+  local rc=0
+  stub_home
+  echo '[{"code":"X","path":"src/a.txt","line":2,"axis":"R-A","body":"R-A (Correctness) x"}]' > "$STUB/hostile.json"
+  ln -s "$STUB/hostile.json" "$STUB_RUN/outputs/stage1/posting-${STUB_SHA:0:7}.json"
+  jq -n --arg s "$STUB_SHA" '[{id:99, user:{login:"quorum-bot"}, commit_id:$s, body:"old\n\n<!-- pr-quorum:stage1 -->"}]' > "$STUB/state/reviews.json"
+  stub_post >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 0 ] && [ "$(stub_posts)" = 0 ] && [ "$(stub_meta '.stage1 | length')" = 0 ] \
+    || { echo "exit $rc, POST $(stub_posts), stage1 $(stub_meta -c '[.stage1[].review_id]') (want nonzero, 0, [])"; return 1; }
+}
 check "post T1 record failure, rerun adopts"   t1_record_failure
 check "post T2 lost POST response, rerun adopts" t2_post_response_lost
 check "post T3 recorded review, rerun reposts"  t3_recorded_reposts
 check "post T4 other stage's marker not adopted" t4_other_stage_marker
 check "api T5 GET retries 5xx, not 404"         t5_get_retry
+check "post T6 link at the posting copy refused" t6_posting_link_refused
 
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
