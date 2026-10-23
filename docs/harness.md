@@ -124,6 +124,7 @@ Reads (`gh api` GETs through `api()`) retry up to 3 times, waiting 2 s then 5 s,
   - The host checks the cache root's Gradle init paths for links and then resets them non-atomically; a leftover process from an earlier build could swap a path in between, which matters little while the chain runs one PR at a time.
   - Only the top-level secret entries are resolved: a link nested inside a secret folder (`~/.config/x -> elsewhere`) is not followed, so its target is refused only if it is on the list itself.
   - If a secret's resolved target sits under a writable root (the worktree, `$TMPDIR`, `/private/tmp`, the cache root), a build could rename its parent folder out from under the rule.
+  - On macOS a process a build starts with `setsid` outlives the build and keeps its write access to `$TMPDIR`, `/private/tmp`, the worktree and the cache root; the harness keeps its own temp files under `~/.pr-quorum/tmp` and turns off repository hooks for this reason.
   - The Linux (`bwrap`) side has not been measured on a host yet.
 
 ## 4. Output spec
