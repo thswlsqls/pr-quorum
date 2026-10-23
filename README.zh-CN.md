@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `61a2022`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `874776f`
 
 <p align="center">
   <picture>
@@ -84,7 +84,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 
 ## 环境要求
 
-- macOS(watcher 示例基于 launchd，脚本为 bash)
+- macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 launchd watcher 示例依赖 macOS。不支持原生 Windows(PowerShell、cmd)
 - [Claude Code](https://code.claude.com/docs)、用你自己的账号登录的 `gh`、`jq`、`git`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
 - 你本人拥有的个人仓库。其他人开的 PR 会被跳过
@@ -187,6 +187,16 @@ Watcher 每 60 秒查找发给机器人的评审请求。没有它，请求评�
 
 不经 launchd 试运行一次：`<plugin-dir>/scripts/watch.sh --once`。Watcher 一次处理一个 PR；机器关机期间到达的请求会在开机后处理。
 
+在 Linux(云 VM，或 Windows 上的 WSL2)上，改用 cron 或 systemd timer 每分钟运行一次 `watch.sh`。去掉 macOS 专有的 `caffeinate`。Watcher 还在运行链路时，launchd 不会再次启动它，cron 则会，所以用 `flock -n` 包裹，保证一次只处理一个 PR。与 plist 一样，设置 `PATH`，让 cron 能找到 `claude`、`gh`、`jq` 和 `git`：
+
+```
+# crontab -e
+PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+```
+
+用 systemd timer(`OnUnitActiveSec=60`)启动 `Type=oneshot` 服务时不需要 `flock`：服务仍在运行时，timer 不会再次启动它。在没有浏览器的 VM 上，用令牌登录 `gh` 和 Claude Code(`gh auth login --with-token`、`claude setup-token`)。在 WSL2 上，cron 和 systemd 只在 WSL VM 运行时工作，且需要在 `/etc/wsl.conf` 中启用 systemd。
+
 ## 用法
 
 下文中 `<repo>` 是 `config.json` 中 `repos` 下的仓库名，`<pr>` 是 PR 编号。
@@ -275,6 +285,7 @@ Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@
 - **风险规则贴合最初编写时所用仓库的路径**(`common/security/`、`filter/`、`/api/bff/auth/` …)。开启 `auto_merge` 前，先确认 [`rules/03-risk.md`](rules/03-risk.md) 和 `scripts/risk.jq` 适合你的仓库。
 - **仅限个人仓库。** 在组织仓库中，成员开的 PR 也会被跳过。
 - **仅支持 GitHub，单台机器。** Watcher 采用轮询，机器必须开着。
+- **只在 macOS 上运行过。** Linux 和 WSL2 的 watcher 设置是根据脚本推定的，尚未实际运行。
 - **路径限制。** 插件路径不能含 `|` 或 `&`，`config.json` 中的仓库路径不能含 `*` 或 `[`。
 - 脚本生成的评分表和通知是英文；评审文字跟随 PR 的语言。
 

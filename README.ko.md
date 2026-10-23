@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `61a2022`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `874776f`
 
 <p align="center">
   <picture>
@@ -84,7 +84,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 
 ## 요구사항
 
-- macOS (watcher 예시가 launchd 기준이고, 스크립트는 bash 다)
+- macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 launchd watcher 예시뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
 - [Claude Code](https://code.claude.com/docs), 본인 계정으로 로그인한 `gh`, `jq`, `git`
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
 - 본인 소유의 개인 저장소. 다른 사람이 연 PR 은 건너뛴다
@@ -187,6 +187,16 @@ watcher 는 60초마다 봇에게 온 리뷰 요청을 찾는다. watcher 가 �
 
 launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once` 를 돌린다. watcher 는 PR 을 한 번에 한 건씩 처리하고, 머신이 꺼져 있던 동안 들어온 요청은 다시 켜졌을 때 처리한다.
 
+Linux(클라우드 VM, Windows 의 WSL2)에서는 launchd 대신 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 돌린다. `caffeinate` 는 macOS 전용이니 뺀다. launchd 는 watcher 가 체인을 돌리는 동안 다시 띄우지 않지만 cron 은 띄우므로, `flock -n` 으로 감싸 PR 을 한 번에 한 건씩 처리하게 한다. plist 와 마찬가지로 cron 이 `claude`, `gh`, `jq`, `git` 을 찾도록 `PATH` 를 지정한다.
+
+```
+# crontab -e
+PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+* * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+```
+
+systemd timer(`OnUnitActiveSec=60`)로 `Type=oneshot` 서비스를 띄우면 `flock` 이 필요 없다. 서비스가 아직 돌고 있으면 timer 가 다시 띄우지 않는다. 브라우저가 없는 VM 에서는 `gh` 와 Claude Code 를 토큰으로 로그인한다(`gh auth login --with-token`, `claude setup-token`). WSL2 에서는 WSL VM 이 떠 있는 동안에만 cron 과 systemd 가 돌고, systemd 는 `/etc/wsl.conf` 에서 켜야 한다.
+
 ## 사용법
 
 아래에서 `<repo>` 는 `config.json` 의 `repos` 아래 저장소 이름이고, `<pr>` 은 PR 번호다.
@@ -275,6 +285,7 @@ Claude Code 의 [sandbox](https://code.claude.com/docs/en/sandboxing) 를 켜서
 - **리스크 규칙이 처음 만든 저장소의 경로에 맞춰져 있다**(`common/security/`, `filter/`, `/api/bff/auth/` …). `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 `scripts/risk.jq` 가 자기 저장소에 맞는지 확인한다.
 - **개인 저장소 전용이다.** organization 저장소에서는 구성원이 연 PR 도 건너뛴다.
 - **GitHub 만, 한 머신에서 돈다.** watcher 가 폴링 방식이라 머신이 켜져 있어야 한다.
+- **macOS 에서만 돌려 봤다.** Linux·WSL2 용 watcher 설정은 스크립트를 보고 정한 것이고, 실제로 돌려 보지는 않았다.
 - **경로 제약.** 플러그인 경로에 `|`·`&` 가, `config.json` 의 저장소 경로에 `*`·`[` 가 있으면 안 된다.
 - 스크립트가 만드는 점수표와 알림은 영어다. 리뷰 글은 PR 의 언어를 따른다.
 
