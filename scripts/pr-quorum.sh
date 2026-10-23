@@ -548,7 +548,7 @@ cmd_build() {
 
   if [ "$BUILD_AUTHOR" = 0 ]; then
     # Clean means nothing planted only because review sessions cannot write inside <repo>-worktrees (gitignored files do not show here)
-    [ -z "$(cd "$real" && git status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
+    [ -z "$(cd "$real" && git -c core.hooksPath=/dev/null status --porcelain)" ] || die "$E_GATE" "worktree has changes — review builds run only on a clean tree: $real"
     head="$(cd "$real" && git rev-parse HEAD)"
     # The SHAs this PR pinned (§6 of rules/01-stages.md), else the current PR head on GitHub
     m="$(meta_path "$repo" "$pr")"
