@@ -81,7 +81,7 @@ The order `J1`–`J4` is not a score but **deduplication priority** — if the d
 | `init` | `<repo> <pr> [--reset-eval]` | Creates/updates `~/.pr-quorum/runs/<repo>-pr<N>/` and `meta.json`. **Never overwrites existing records.** If Stage 1 has already posted, it also keeps `base_sha` and `eval_sha` — use `--reset-eval` only when rerunning Stage 1 on a new head | Not needed |
 | `lock` | `<repo> <pr> <stage>` | Acquires the lock. A lock whose pid is dead or that is older than 3 hours is removed and taken | Not needed |
 | `unlock` | `<repo> <pr>` | Releases the lock | Not needed |
-| `status` | `<repo> <pr> <value>` | One of `pending`, `running`, `done`, `held-large`, `held-failed` | Not needed |
+| `status` | `<repo> <pr> <value>` | One of `pending`, `running`, `done`, `held-large`, `held-fork`, `held-failed` | Not needed |
 | `attempt` | `<repo> <pr> inc\|reset` | Count of consecutive Stage 1 failures | Not needed |
 | `stage2-begin` | `<repo> <pr> <stage_sha> <last_judged_sha>` | Both SHAs in full (40 hex). Opens this Stage 2 pass's `stage2[]` element (`round`, `stage_sha`, `last_judged_sha`, `at`) before its first `reply` or `post-review`. Appends one if `stage2` is empty, the last element has `verdicts`, or it judged another commit; otherwise reuses the last element | Not needed |
 | `verdicts` | `<repo> <pr> <stage_sha> <verdicts.json>` | Writes a `{code: verdict}` object (file under `runs/`) into `stage2[-1].verdicts`. Values other than `addressed`·`partial`·`not-addressed`·`regressed` exit 1; no open element for `stage_sha` exits 3 | Not needed |
