@@ -334,7 +334,7 @@ if [ -n "$fork" ]; then
   mkdir -p "$RUN/outputs"
   printf 'This PR comes from %s. The automated chain does not run on fork PRs because its author pass pushes fixes to the PR branch, which is outside this repository. Push the branch to this repository and open a new PR, or ask for a human review.\n' \
     "$fork" > "$RUN/outputs/fork-pr.md"
-  "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/fork-pr.md" >/dev/null || log "failed to post the fork notice comment"
+  "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/fork-pr.md" fork >/dev/null || log "failed to post the fork notice comment"
   NO_NOTICE=1   # The fork comment is this stop's notice
   chain_state "blocked" "PR comes from a fork ($fork) — the author pass cannot push to it"; exit 3
 fi
