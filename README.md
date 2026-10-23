@@ -185,15 +185,22 @@ The watcher polls every 60 seconds for review requests to the bot. Without it, r
 
 To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher handles one PR at a time; requests made while the machine was off are picked up when it comes back.
 
-On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only. launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n` to keep one PR at a time. Without it, the next tick starts the next PR alongside the running one, and also counts another attempt for the running PR, which can stop it at `held-failed` after a single real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`:
+On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer instead. Leave out `caffeinate`, which is macOS-only.
+
+Log in `gh` with `gh auth login --with-token`. For Claude Code, run `claude setup-token` and put the token it prints in the job's environment as `CLAUDE_CODE_OAUTH_TOKEN`: the command does not save it, and cron and systemd do not read your shell profile.
+
+launchd does not start the watcher again while it is still running a chain; cron does, so wrap it in `flock -n`. Without it, the next tick starts the next PR alongside the running one. If the tick lands before the running PR's Stage 1 review is posted and while no session holds its lock, it also starts a second chain on that PR and counts another attempt, which can stop it at `held-failed` after one real try. As with the plist, set `PATH` so cron finds `claude`, `gh`, `jq`, and `git`. cron does not expand `$HOME` or other variables in these lines:
 
 ```
 # crontab -e
 PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
+CLAUDE_CODE_OAUTH_TOKEN=<token from claude setup-token>
 * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
 ```
 
-A systemd timer (`OnUnitActiveSec=60`) starting a `Type=oneshot` service needs no `flock`: the timer does not start the service while it is still active. On a VM without a browser, log in `gh` and Claude Code with tokens (`gh auth login --with-token`, `claude setup-token`). On WSL2, cron and systemd run only while the WSL VM is up, and systemd must be enabled in `/etc/wsl.conf`.
+With systemd, a timer with `OnBootSec=1min` and `OnUnitActiveSec=1min` that starts a `Type=oneshot` service needs no `flock`: the timer does not start the service again while it is still running. `OnUnitActiveSec=` alone never fires, because the service has not run yet. Set `PATH` and `CLAUDE_CODE_OAUTH_TOKEN` with `Environment=` or `EnvironmentFile=` in the service. For a user timer, run `loginctl enable-linger` so it keeps running after you log out.
+
+On WSL2, enable systemd with `systemd=true` under `[boot]` in `/etc/wsl.conf`, then run `wsl --shutdown`, so cron or the timer starts with the distro. WSL shuts down a distro once it has been idle for 15 seconds (`instanceIdleTimeout`), for example after the last WSL terminal closes. Keep a terminal open, or set `instanceIdleTimeout=-1` under `[general]` in `%UserProfile%\.wslconfig`.
 
 ## Usage
 
