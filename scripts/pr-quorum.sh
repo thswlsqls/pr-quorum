@@ -68,6 +68,10 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
 
   Check (bot token needed, no repo or pr)
     whoami                                   print the bot token's login (doctor.sh compares it with config.json bot)
+
+  State files (no bot token needed, no repo or pr)
+    config                                   print config.json
+    learnings                                print learnings.md (nothing if it is missing)
 USAGE
   exit "$E_USAGE"
 }
@@ -818,6 +822,10 @@ cmd_comment() {
 
 # doctor.sh calls this instead of reading the token file itself — the token is read only in this script
 cmd_whoami() { load_bot_token; api user --jq '.login'; }
+# Sessions block reads outside their working folders, and ~/.pr-quorum itself is not opened (that would expose every other PR's runs/).
+# These two print the only state files the skills read there, so a session needs no Read access to ~/.pr-quorum
+cmd_config() { cat "$PR_QUORUM_HOME/config.json"; }
+cmd_learnings() { [ ! -f "$PR_QUORUM_HOME/learnings.md" ] || cat "$PR_QUORUM_HOME/learnings.md"; }
 
 # ---------- Entry point ----------
 
@@ -833,7 +841,7 @@ sub="$1"; shift
 # The repository name and PR number become gh api paths and paths under runs/. Only repository names in config.json repos are accepted.
 # A non-numeric PR number could make init create a folder and frozen.md outside runs/
 case "$sub" in
-  pg5|pg6|snapshot|whoami) ;;
+  pg5|pg6|snapshot|whoami|config|learnings) ;;
   *) profile_of "${1:-}" >/dev/null
      [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || die "$E_USAGE" "PR number must be a positive integer: ${2:-}"
      SLUG="$(repo_slug "$1")" || exit "$E_ENV" ;;
@@ -864,5 +872,7 @@ case "$sub" in
   patch-review) [ $# -eq 4 ] || usage; need_id review_id "$3"; need_run_file "$4"; need_clean_body "$4"; cmd_patch_review "$@" ;;
   comment)     [ $# -eq 3 ] || usage; need_run_file "$3"; need_clean_body "$3"; cmd_comment "$@" ;;
   whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
+  config)      [ $# -eq 0 ] || usage; cmd_config ;;
+  learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;
   *) usage ;;
 esac

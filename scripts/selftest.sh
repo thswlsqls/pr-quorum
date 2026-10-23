@@ -68,6 +68,17 @@ check "risk rename out of auth"      risk_json '[{"filename":"src/main/java/a/Mo
 check "risk rename out of harness"   risk_json '[{"filename":"lib/risk.jq","previous_filename":"scripts/risk.jq","status":"renamed","additions":0,"deletions":0}]' 15
 check "risk doc rename stays 0"      risk_json '[{"filename":"docs/a.md","previous_filename":"docs/b.md","status":"renamed","additions":0,"deletions":0}]' 0
 
+# Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
+cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
+  jq -c '[.permissions.deny[] | select(startswith("Read(")) | select(IN("Read(~/.claude/**)", "Read(/__PLUGIN_ROOT__/docs/**)") | not)] | sort' \
+    "$HARNESS_DIR/templates/$1"
+}
+same_cred_deny() {
+  local s a d; s="$(cred_deny settings.json)"; a="$(cred_deny author-settings.json)"; d="$(cred_deny dream-settings.json)"
+  [ "$s" != "[]" ] && [ "$s" = "$a" ] && [ "$s" = "$d" ] || { printf 'settings: %s\nauthor:   %s\ndream:    %s\n' "$s" "$a" "$d"; return 1; }
+}
+check "templates share the credential Read deny" same_cred_deny
+
 # Translated READMEs record the README.md commit they follow. Warn only — a lagging translation does not change review behavior
 for t in "$HARNESS_DIR"/README.*.md; do
   [ -f "$t" ] || continue
