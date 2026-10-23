@@ -99,6 +99,18 @@ sandbox_gradle_reset() {
   return "$rc"
 }
 if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) resets the shared Gradle init files" sandbox_gradle_reset; fi
+# A secret entry that is a link (a dotfile manager's ~/.npmrc -> ~/dotfiles/npmrc) — its target outside HOME must stay unreadable too
+sandbox_linked_secret() {
+  local h rc=0
+  h="$(cd "$(mktemp -d)" && pwd -P)" || return 1
+  mkdir -p "$h/home/.config/pr-quorum" "$h/dotfiles" "$h/home/wt" && echo canary > "$h/dotfiles/npmrc" && ln -s "$h/dotfiles/npmrc" "$h/home/.npmrc" \
+    && git init -q "$h/home/wt" || return 1
+  HOME="$h/home" sandbox_run "$SB_KIND" "$h/home/wt" "$h/home/wt" "cat '$h/dotfiles/npmrc' || cat \"\$HOME/.npmrc\"" >/dev/null 2>&1 \
+    && { echo "the target of a linked ~/.npmrc was readable"; rc=1; }
+  rm -rf "$h"
+  return "$rc"
+}
+if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) refuses the target of a linked secret" sandbox_linked_secret; fi
 if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git, user caches and env tokens" sandbox_probe
 else echo "warning — no build sandbox on this host (sandbox-exec / bwrap) — skipping its check"; fi
 

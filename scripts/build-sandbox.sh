@@ -81,11 +81,21 @@ sandbox_canon() {
   echo "$d/$(basename "$1")"
 }
 
+# sandbox_realpath <path> — follows links on the last component (readlink loop, at most 20), then resolves the parent. BSD and GNU alike
+sandbox_realpath() {
+  local p="$1" l n=0
+  while [ -L "$p" ]; do
+    n=$((n+1)); [ "$n" -le 20 ] && l="$(readlink "$p")" || return 1
+    case "$l" in /*) p="$l" ;; *) p="$(dirname "$p")/$l" ;; esac
+  done
+  sandbox_canon "$p"
+}
+
 # sandbox_run <seatbelt|bwrap|off> <worktree root> <dir> <command> [passthrough names...]
 # Runs bash -c <command> in <dir>. The exit code is the command's own. off runs it as before this file existed — inherited environment, no sandbox.
 # BOT_ENV, when set, is hidden too (its location can be moved with PR_QUORUM_BOT_ENV)
 sandbox_run() {
-  local mode="$1" wt="$2" dir="$3" cmd="$4" n p home tmp cache bot gitdir no ghdir mvn sec="" rc=0
+  local mode="$1" wt="$2" dir="$3" cmd="$4" n p t home tmp cache bot gitdir no ghdir mvn sec="" rc=0
   shift 4
   [ "$mode" = off ] && { (cd "$dir" && exec bash -c "$cmd"); return; }
   home="$(cd "$HOME" && pwd -P)"
@@ -105,6 +115,16 @@ sandbox_run() {
     || { echo "build-sandbox: cannot reset the Gradle init files under $cache/gradle" >&2; return 2; }
   bot="$(sandbox_canon "${BOT_ENV:-$home/.config/pr-quorum/bot.env}")" \
     || { echo "build-sandbox: cannot resolve the folder of the bot token file ${BOT_ENV:-$home/.config/pr-quorum/bot.env}" >&2; return 2; }
+  # Secret entries that exist, resolved: a dotfile manager's ~/.npmrc -> ~/dotfiles/npmrc would otherwise slip past a rule on the link path,
+  # as Seatbelt matches real paths. "d <path>" or "f <path>", for both the link and its target. Unresolvable or unquotable: fail closed
+  local hide=""
+  while IFS= read -r p; do
+    [ -e "$home/$p" ] || [ -L "$home/$p" ] || continue
+    t="$(sandbox_realpath "$home/$p")" && [[ "$t" != *[\"\\]* ]] \
+      || { echo "build-sandbox: cannot resolve $home/$p to a usable path" >&2; return 2; }
+    [ "$t" = "$home/$p" ] && continue
+    if [ -d "$t" ]; then hide="$hide"$'\n'"d $t"; else hide="$hide"$'\n'"f $t"; fi
+  done <<<"$SANDBOX_SECRETS"
   gitdir="$(cd "$wt" && cd "$(git rev-parse --git-common-dir 2>/dev/null || echo .git)" 2>/dev/null && pwd -P)" || gitdir="$wt/.git"
   no=/usr/bin/false; [ -x "$no" ] || no=/bin/false
   ghdir="$(mktemp -d)"   # gh finds no login in an empty config folder
@@ -125,6 +145,9 @@ sandbox_run() {
   case "$mode" in
     seatbelt)
       while IFS= read -r p; do sec="$sec (home \"/$p\")"; done <<<"$SANDBOX_SECRETS"
+      while IFS= read -r p; do
+        case "$p" in "d "*) sec="$sec (subpath \"${p#d }\")" ;; "f "*) sec="$sec (literal \"${p#f }\")" ;; esac
+      done <<<"$hide"
       (cd "$dir" && exec sandbox-exec -D "WT=$wt" -D "HOME=$home" -D "TMP=$tmp" -D "CACHE=$cache" -D "BOT=$bot" -D "GITDIR=$gitdir" \
         -p "${SANDBOX_SEATBELT/__SECRETS__/$sec}" "${envs[@]}" bash -c "$cmd") || rc=$? ;;
     bwrap)
@@ -141,6 +164,9 @@ sandbox_run() {
       while IFS= read -r p; do
         if [ -d "$home/$p" ]; then args+=(--tmpfs "$home/$p"); elif [ -e "$home/$p" ]; then args+=(--ro-bind /dev/null "$home/$p"); fi
       done <<<"$SANDBOX_SECRETS"
+      while IFS= read -r p; do
+        case "$p" in "d "*) args+=(--tmpfs "${p#d }") ;; "f "*) args+=(--ro-bind /dev/null "${p#f }") ;; esac
+      done <<<"$hide"
       [ -f "$bot" ] && args+=(--ro-bind /dev/null "$bot")
       [ -d "/run/user/$(id -u)" ] && args+=(--tmpfs "/run/user/$(id -u)")   # session D-Bus (keyring) lives here
       args+=(--unshare-all --share-net --die-with-parent --new-session --chdir "$dir")
