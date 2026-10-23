@@ -161,8 +161,10 @@ The first line of an inline comment body has this format.
 **Write the axis name along with the code, not the code alone.** With only `R-B`, the author has to open the profile document to learn which axis it is.
 A comment is read and judged by the author on the spot, so the meaning of the axis must be in the body.
 
-Use the axis name **exactly as written in the profile's §1 axis definition table**. The same code has different names in different profiles
+Take the axis name from **the profile's §1 axis definition table**. The same code has different names in different profiles
 (e.g. `R-C` is `Concurrency & atomicity` in backend and `State races` in frontend).
+Write the name in the PR's language, like the rest of the text. If the profile is in another language, translate the table's name,
+and use one translation per axis for the whole PR — comment headers, the summary axis legend, and later stages. If the bot already posted on this PR, reuse the names it used.
 
 If one comment covers two axes, join them with `·`.
 
