@@ -263,26 +263,62 @@ check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
 
-# Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file, write into
-# ~/.pr-quorum or the git dir, or see a token from the environment, while the worktree stays writable. No network, no gh.
+# Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
+# ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
+# stay writable, and on macOS must not run osascript. No network, no gh.
 # Skipped on a host without a sandbox (doctor.sh reports that as FAIL)
 source "$HARNESS_DIR/scripts/build-sandbox.sh"
 SB_KIND="$(sandbox_kind)"
 sandbox_probe() {
   local h rc=0
   h="$(cd "$(mktemp -d)" && pwd -P)" || return 1
-  mkdir -p "$h/.config/pr-quorum" "$h/.pr-quorum" && echo canary > "$h/.config/pr-quorum/x" && git init -q "$h/wt" || return 1
+  mkdir -p "$h/.config/pr-quorum" "$h/.pr-quorum" "$h/.gradle/wrapper" && echo canary > "$h/.config/pr-quorum/x" && echo canary > "$h/.npmrc" && git init -q "$h/wt" || return 1
   HOME="$h" GH_TOKEN=selftest-not-a-token sandbox_run "$SB_KIND" "$h/wt" "$h/wt" '
     cat "$HOME/.config/pr-quorum/x" && exit 11
     : > "$HOME/.pr-quorum/x" && exit 12
     : > .git/hooks/x && exit 13
     [ -z "${GH_TOKEN:-}" ] || exit 14
+    : > "$HOME/.gradle/wrapper/x" && exit 15
+    : > "$GRADLE_USER_HOME/x" || exit 16
+    cat "$HOME/.npmrc" && exit 17
+    [ "$(uname -s)" = Darwin ] && /usr/bin/osascript -e 1 && exit 18
     : > ok' >/dev/null 2>&1 || rc=$?
   [ "$rc" = 0 ] && [ -f "$h/wt/ok" ] || rc="${rc/#0/no-write}"
   rm -rf "$h"
-  [ "$rc" = 0 ] || { echo "build shell got through (11 read secret · 12 wrote ~/.pr-quorum · 13 wrote .git · 14 saw GH_TOKEN): $rc"; return 1; }
+  [ "$rc" = 0 ] || { echo "build shell got through (11 read secret · 12 wrote ~/.pr-quorum · 13 wrote .git · 14 saw GH_TOKEN · 15 wrote ~/.gradle · 16 cache root not writable · 17 read ~/.npmrc · 18 ran osascript): $rc"; return 1; }
 }
-if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git and env tokens" sandbox_probe
+# The shared cache root's Gradle init files — a file planted there by one build is cleared before the next run, a hard link is unlinked
+# without touching its target, and a symlink is refused
+sandbox_gradle_reset() {
+  local h c rc=0
+  h="$(cd "$(mktemp -d)" && pwd -P)" || return 1; c="$h/.cache/pr-quorum-build/gradle"
+  mkdir -p "$c/init.d" "$h/wt" "$h/.config/pr-quorum" && echo planted > "$c/init.d/x.gradle" && echo planted > "$c/init.gradle" && git init -q "$h/wt" || return 1
+  HOME="$h" sandbox_run "$SB_KIND" "$h/wt" "$h/wt" '[ -z "$(ls "$GRADLE_USER_HOME/init.d")" ] && [ ! -s "$GRADLE_USER_HOME/init.gradle" ]' \
+    >/dev/null 2>&1 || rc=1
+  [ "$rc" = 0 ] && [ ! -e "$c/init.d/x.gradle" ] && [ ! -e "$c/init.gradle" ] || { echo "planted init files survived"; rc=1; }
+  # A hard link at gradle.properties must be unlinked, not truncated through
+  echo keep > "$h/victim" && rm -f "$c/gradle.properties" && ln "$h/victim" "$c/gradle.properties" || return 1
+  HOME="$h" sandbox_run "$SB_KIND" "$h/wt" "$h/wt" true >/dev/null 2>&1
+  [ "$(cat "$h/victim")" = keep ] || { echo "the host reset truncated a hard-linked gradle.properties target"; rc=1; }
+  ln -sf "$h/elsewhere" "$c/gradle.properties"
+  HOME="$h" sandbox_run "$SB_KIND" "$h/wt" "$h/wt" true >/dev/null 2>&1 && { echo "linked gradle.properties was not refused"; rc=1; }
+  rm -rf "$h"
+  return "$rc"
+}
+if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) resets the shared Gradle init files" sandbox_gradle_reset; fi
+# A secret entry that is a link (a dotfile manager's ~/.npmrc -> ~/dotfiles/npmrc) — its target outside HOME must stay unreadable too
+sandbox_linked_secret() {
+  local h rc=0
+  h="$(cd "$(mktemp -d)" && pwd -P)" || return 1
+  mkdir -p "$h/home/.config/pr-quorum" "$h/dotfiles" "$h/home/wt" && echo canary > "$h/dotfiles/npmrc" && ln -s "$h/dotfiles/npmrc" "$h/home/.npmrc" \
+    && git init -q "$h/home/wt" || return 1
+  HOME="$h/home" sandbox_run "$SB_KIND" "$h/home/wt" "$h/home/wt" "cat '$h/dotfiles/npmrc' || cat \"\$HOME/.npmrc\"" >/dev/null 2>&1 \
+    && { echo "the target of a linked ~/.npmrc was readable"; rc=1; }
+  rm -rf "$h"
+  return "$rc"
+}
+if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) refuses the target of a linked secret" sandbox_linked_secret; fi
+if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git, user caches and env tokens" sandbox_probe
 else echo "warning — no build sandbox on this host (sandbox-exec / bwrap) — skipping its check"; fi
 
 [ -d "$RUNS" ] || { echo "no runs/ — skipping PG5/PG6"; echo "selftest — passed $pass · failed $fail"; [ "$fail" = 0 ] || exit 3; exit 0; }
