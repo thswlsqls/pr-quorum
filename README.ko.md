@@ -96,7 +96,7 @@ flowchart TD
 </details>
 
 <details>
-<summary>Stage 3 안에서 (측정한 뒤 결함을 원인별로 나눔)</summary>
+<summary>Stage 3 안에서 (측정한 뒤 결함을 출처별로 나눔)</summary>
 
 ```mermaid
 flowchart TD
@@ -106,15 +106,15 @@ flowchart TD
     J["위원 4인<br/>Stage 1 축"] ~~~ M["worktree 에서<br/>빌드·테스트"]
   end
   S --> C["반박자가<br/>P 와 critical<br/>마다 확인"]
-  C --> O{"결함마다<br/>원인 분류"}
+  C --> O{"결함마다<br/>출처 분류"}
   O -- "P: 리뷰가 놓침" --> NP["새 리뷰<br/>코멘트"]
   O -- "Q: 일부만 고침<br/>N: 수정이 만듦" --> T["Stage 2<br/>스레드에 답함"]
   NP --> G{"critical/major<br/>P 가 있나?"}
   G -- "예" --> H["게이트에서<br/>needs-human"]
-  G -- "아니오" --> OK(["평소대로<br/>게이트"])
+  G -- "아니오" --> OK(["평소대로<br/>게이트 진행"])
 ```
 
-측정할 수 없는 것은 `not measured` 로 적는다. 원인 분류: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
+측정할 수 없는 것은 `not measured` 로 적는다. 출처 분류: [`rules/01-stages.md`](rules/01-stages.md) §2-2.
 
 </details>
 
