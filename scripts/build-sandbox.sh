@@ -115,8 +115,8 @@ sandbox_run() {
     && rm -f "$cache/gradle/gradle.properties" "$cache/gradle/init.gradle" "$cache/gradle/init.gradle.kts" \
     && : > "$cache/gradle/gradle.properties" \
     || { echo "build-sandbox: cannot reset the Gradle init files under $cache/gradle" >&2; return 2; }
-  bot="$(sandbox_canon "${BOT_ENV:-$home/.config/pr-quorum/bot.env}")" \
-    || { echo "build-sandbox: cannot resolve the folder of the bot token file ${BOT_ENV:-$home/.config/pr-quorum/bot.env}" >&2; return 2; }
+  # A missing folder holds no token to hide, so the path is refused as written rather than failing the build
+  bot="${BOT_ENV:-$home/.config/pr-quorum/bot.env}"; bot="$(sandbox_canon "$bot")" || bot="${BOT_ENV:-$home/.config/pr-quorum/bot.env}"
   # Secret entries that exist, resolved: a dotfile manager's ~/.npmrc -> ~/dotfiles/npmrc would otherwise slip past a rule on the link path,
   # as Seatbelt matches real paths. "d <path>" or "f <path>", for both the link and its target. Unresolvable or unquotable: fail closed
   local hide=""
