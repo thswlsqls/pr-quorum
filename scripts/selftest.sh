@@ -67,6 +67,17 @@ check "risk .npmrc token"            risk_json '[{"filename":".npmrc","additions
 check "risk rename out of auth"      risk_json '[{"filename":"src/main/java/a/Moved.java","previous_filename":"src/main/java/a/JwtAuthFilter.java","status":"renamed","additions":0,"deletions":0}]' 15
 check "risk rename out of harness"   risk_json '[{"filename":"lib/risk.jq","previous_filename":"scripts/risk.jq","status":"renamed","additions":0,"deletions":0}]' 15
 check "risk doc rename stays 0"      risk_json '[{"filename":"docs/a.md","previous_filename":"docs/b.md","status":"renamed","additions":0,"deletions":0}]' 0
+for f in .github/actions/setup/action.yml action.yml .husky/pre-commit .pre-commit-config.yaml tox.ini build.rs .mcp.json .github/CODEOWNERS mcp.json; do
+  check "risk build/agent file $f" risk_score "$f" 25   # signal 15 + scope 10 (risk_score is 400 lines)
+done
+check "risk CLAUDE.local.md"      risk_score "CLAUDE.local.md" 15   # .md: no scope lines
+check "risk CODEOWNERS removed"   risk_json '[{"filename":".github/CODEOWNERS","status":"removed","additions":0,"deletions":3}]' 15
+check "risk noxfile with tests"   risk_json '[{"filename":"noxfile.py","additions":30,"deletions":0,"patch":"+x"},{"filename":"tests/test_a.py","additions":1,"deletions":0}]' 15
+check "risk toml secret"          risk_json '[{"filename":"config/settings.toml","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
+check "risk ini secret"           risk_json '[{"filename":"config/app.ini","additions":1,"deletions":0,"patch":"+password = hunter2hunter2"}]' 30
+check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
+check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
+check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
 
 # Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
 cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
