@@ -37,7 +37,7 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
         or ((.filename | conf_file) and (added | test(
           "(?i)(password|passwd|secret([_-]?key)?|api[_-]?key|access[_-]?key|private[_-]?key|token)[\"']?\\s*[:=]\\s*[\"']?[^\\s\"'$<{]{8,}")))))),
       # This gate and the review harness itself. Rule documents (.md) are run-time rules the session follows, so the document exclusion does not apply. At 15 points this signal alone moves a PR out of low
-      sig("Auto-merge gate/harness"; 15; $all | hits(.filename | test("^(skills|agents|rules|templates|\\.claude-plugin)/|^scripts/(pr-quorum|chain|watch|dream|selftest|risk-audit|gh-get|author-push|author-reply|config|doctor|token-scan)\\.sh$|^scripts/risk\\.jq$"))),
+      sig("Auto-merge gate/harness"; 15; $all | hits(.filename | test("^(skills|agents|rules|templates|\\.claude-plugin)/|^scripts/(pr-quorum|chain|watch|dream|selftest|risk-audit|gh-get|author-push|author-reply|config|doctor|token-scan|build-sandbox)\\.sh$|^scripts/risk\\.jq$"))),
       # Instructions and settings agent sessions follow, files CI runs, and build scripts and config files the build or test tool runs (Gradle, Maven, Python packaging, Make, Node). .md files count too, for the same reason as the harness
       sig("Agent instructions/CI/build scripts"; 15; $all | hits(.filename | test(
         "(^|/)(CLAUDE|AGENTS)\\.md$|(^|/)\\.claude/|(^|/)\\.github/workflows/|(^|/)Jenkinsfile[^/]*$|\\.gradle(\\.kts)?$|(^|/)gradle\\.properties$|(^|/)gradle/wrapper/|(^|/)gradlew(\\.bat)?$"
