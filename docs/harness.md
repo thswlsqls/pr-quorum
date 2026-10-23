@@ -118,6 +118,9 @@ Sessions cannot edit `meta.json` — both session templates deny `Edit(/runs/*/m
   - Network and loopback stay open: a build can reach any host, and any service listening on `localhost` (a Gradle daemon the user started is no longer found through the registry, since builds use their own `GRADLE_USER_HOME`, but its port is still reachable), and can send out source code it can read.
   - Dependencies and wrapper or JDK downloads in the shared cache root can be poisoned for later sandboxed builds (not for the user's own builds); only the Gradle init files are reset before each run.
   - On macOS, mach lookups stay open apart from `com.apple.SecurityServer`. The exec denies on `open`, `osascript`, `launchctl`, `security` only stop accidental use, since a build can copy the binary to `$TMPDIR`; the real fix, a broad `mach-lookup` deny with an allow list for the JVM, is deferred because it risks breaking the JVM.
+  - The host checks the cache root's Gradle init paths for links and then resets them non-atomically; a leftover process from an earlier build could swap a path in between, which matters little while the chain runs one PR at a time.
+  - Only the top-level secret entries are resolved: a link nested inside a secret folder (`~/.config/x -> elsewhere`) is not followed, so its target is refused only if it is on the list itself.
+  - If a secret's resolved target sits under a writable root (the worktree, `$TMPDIR`, `/private/tmp`, the cache root), a build could rename its parent folder out from under the rule.
   - The Linux (`bwrap`) side has not been measured on a host yet.
 
 ## 4. Output spec
