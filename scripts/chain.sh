@@ -6,6 +6,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+need_cmds claude gh jq git || exit 2
 require_dotcom
 # The bot login is read from config.json's bot, the same way watch.sh does. The merge gate uses it to find the bot's reviews
 BOT="$(cfg '.bot // empty')"
@@ -24,6 +25,7 @@ REPO="$1"; PR="$2"
 REPO_ROOT="$(cfg --arg r "$REPO" '.repos[$r].path // empty')"
 [ -n "$REPO_ROOT" ] || { echo "repository is not in config.json repos: $REPO" >&2; exit 1; }
 SLUG="$(repo_slug "$REPO")" || exit 2
+export PR_QUORUM_SLUG="$SLUG"   # gh-get.sh reads only this repository in this chain's sessions
 trust_check || exit 2
 # Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json

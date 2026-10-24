@@ -116,7 +116,7 @@ take() {
 }
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
-  search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
+  search) cat "$S/search" 2>/dev/null || echo '[]'; exit 0 ;;    # watch.sh --once: no review requests unless $S/search holds some
   repo) [ -e "$S/push" ] && { echo main; exit 0; }; exit 1 ;;
   pr)
     # author-push.sh test (H2): a same-repository PR on branch pr whose head on GitHub is the SHA in $S/push
@@ -429,6 +429,40 @@ check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alic
 check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
 check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
 
+# P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
+path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>
+  local dir="$STUB/nopath-$1" d IFS=:
+  rm -rf "$dir"; mkdir -p "$dir"
+  for d in $STUB/bin:$PATH; do [ -d "$d" ] && ln -s "$d"/* "$dir"/ 2>/dev/null; done
+  rm -f "$dir/$1"; echo "$dir"
+}
+# P1 — no jq: cfg names jq instead of calling a valid config.json broken
+p1_no_jq() {
+  local rc=0 out
+  stub_home
+  out="$(stub_run env PATH="$(path_without jq)" bash -c 'source "$1/scripts/config.sh"; cfg .bot' _ "$HARNESS_DIR" 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'jq not found on PATH' <<<"$out" && ! grep -q 'not valid JSON' <<<"$out" || { echo "exit $rc (want 2)"; echo "$out"; return 1; }
+}
+# P2 — no claude: the chain stops before any session, so no stop is recorded and nothing is posted
+p2_no_claude_chain() {
+  local rc=0 out
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"
+  out="$(stub_run env PATH="$(path_without claude)" "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'claude not found on PATH' <<<"$out" && [ "$(stub_meta '.chain')" = null ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "exit $rc, chain $(stub_meta -c '.chain'), notices $(stub_notices) (want 2, null, 0)"; echo "$out"; return 1; }
+}
+# P3 — no claude: the watcher stops before its search, so no PR is picked up and no attempt is spent
+p3_no_claude_watch() {
+  local rc=0 out
+  stub_home
+  out="$(stub_run env PATH="$(path_without claude)" "$HARNESS_DIR/scripts/watch.sh" --once 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'claude not found' <<<"$out" && ! grep -q search "$STUB/state/calls.log" \
+    || { echo "exit $rc (want 2), calls: $(paste -sd ' ' - < "$STUB/state/calls.log")"; echo "$out"; return 1; }
+}
+check "preflight P1 no jq → 'jq not found', exit 2"                 p1_no_jq
+check "preflight P2 no claude → chain exit 2, no stop, no notice"   p2_no_claude_chain
+check "preflight P3 no claude → watch exit 2 before its search"    p3_no_claude_watch
+
 # H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
 # a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
 hooked_repo() {  # hooked_repo — $STUB/repo/demo on core.hooksPath=.husky, a bare copy as acme/demo under $STUB/ssh, and HOOKED_WT on branch pr
@@ -521,6 +555,137 @@ check "gc G1 merged and closed removed, open and unknown kept" g1_closed_removed
 check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
+
+# W1–W4 — watch.sh --once on a chain that stopped after Stage 1 (stub_chain_home records, .gc-stamp so cleanup is skipped).
+# A dead pid in .chain.lock with an in-progress chain.state is marked blocked with one notice, and is never resumed
+watch_chain_home() {  # watch_chain_home <chain.state, "" for none> <pid in .chain.lock>
+  stub_chain_home; touch "$STUB/home/.pr-quorum/.gc-stamp"
+  jq --arg s "$1" '.chain = (if $s == "" then {} else {state:$s, reason:"try 1", at:"2026-10-24T00:00:00Z"} end) | .status = "done" | .lock = null' \
+    "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  mkdir -p "$STUB_RUN/.chain.lock"; echo "$2" > "$STUB_RUN/.chain.lock/pid"
+}
+dead_pid() { local p; sh -c 'exit 0' & p=$!; wait "$p"; echo "$p"; }
+watch_tick() { stub_run "$HARNESS_DIR/scripts/watch.sh" --once 2>&1; }
+w1_dead_chain_blocked() {
+  local out; watch_chain_home stage2 "$(dead_pid)"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = blocked ] && grep -q 'during stage2' <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want blocked, 'during stage2', 1)"; echo "$out"; return 1; }
+  jq -e 'last.body | contains("does not resume on its own") and contains("chain.sh demo 1")' "$STUB/state/issues.json" >/dev/null \
+    || { echo "notice body: $(jq -c '[.[].body]' "$STUB/state/issues.json")"; return 1; }
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_notices)" = 1 ] && [ "$(stub_meta '.attempts')" = 0 ] && ! grep -q '^claude' "$STUB/state/calls.log" \
+    || { echo "tick 2: notices $(stub_notices), attempts $(stub_meta '.attempts'), sessions $(grep -c '^claude' "$STUB/state/calls.log") (want 1, 0, 0)"; echo "$out"; return 1; }
+}
+w2_live_chain_skipped() {
+  local out; watch_chain_home stage2 $$
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = stage2 ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "live chain: state $(stub_meta '.chain.state'), notices $(stub_notices) (want stage2, 0)"; echo "$out"; return 1; }
+  # A lock folder with no pid yet is a chain still starting
+  rm "$STUB_RUN/.chain.lock/pid"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = stage2 ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "starting chain: state $(stub_meta '.chain.state'), notices $(stub_notices) (want stage2, 0)"; echo "$out"; return 1; }
+  echo $$ > "$STUB_RUN/.chain.lock/pid"
+  # Before Stage 1 (a person running chain.sh), with the PR back in the search: the watcher leaves it alone
+  jq '.stage1 = []' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  echo '[{"number":1,"repository":{"name":"demo","nameWithOwner":"acme/demo"},"isDraft":false,"authorAssociation":"OWNER","author":{"login":"alice"}}]' > "$STUB/state/search"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.attempts')" = 0 ] && grep -q 'skip demo#1 — chain running' <<<"$out" \
+    || { echo "search hit: attempts $(stub_meta '.attempts') (want 0)"; echo "$out"; return 1; }
+}
+w3_ended_states_kept() {
+  local s out p; p="$(dead_pid)"
+  for s in merged ready needs-human blocked ""; do
+    watch_chain_home "$s" "$p"
+    out="$(watch_tick)" || { echo "$out"; return 1; }
+    [ "$(stub_meta '.chain.state // ""')" = "$s" ] && [ "$(stub_notices)" = 0 ] \
+      || { echo "state '$s' became '$(stub_meta '.chain.state // ""')', notices $(stub_notices) (want unchanged, 0)"; echo "$out"; return 1; }
+  done
+}
+# W4 — only an OPEN PR gets the notice, as with notify_stop: a MERGED (1) or CLOSED (2) PR is marked without one, a failed lookup (5) is left for the next tick
+w4_closed_pr_no_notice() {
+  local out n p; p="$(dead_pid)"
+  watch_chain_home author "$p"; rm "$STUB/state/chain"
+  for n in 2 5; do
+    mkdir -p "$STUB/home/.pr-quorum/runs/demo-pr$n/.chain.lock"; cp "$STUB_RUN/meta.json" "$STUB/home/.pr-quorum/runs/demo-pr$n/"
+    echo "$p" > "$STUB/home/.pr-quorum/runs/demo-pr$n/.chain.lock/pid"
+  done
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = blocked ] && [ "$(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr2/meta.json")" = blocked ] \
+    && [ "$(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr5/meta.json")" = author ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "states $(stub_meta '.chain.state') $(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr2/meta.json") $(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr5/meta.json"), notices $(stub_notices) (want blocked blocked author, 0)"; echo "$out"; return 1; }
+}
+check "watch W1 dead chain after Stage 1 is blocked with one notice" w1_dead_chain_blocked
+check "watch W2 running chain is left alone"                         w2_live_chain_skipped
+check "watch W3 ended or absent chain states are left alone"         w3_ended_states_kept
+check "watch W4 merged or closed PR is marked without a notice"      w4_closed_pr_no_notice
+
+# R1–R4 — sessions read GitHub only through gh-get.sh, and only this run's repository (D7). Text in a PR must not make a session
+# read another repository with the user's gh login. A refused read never reaches gh (no api line in calls.log)
+GH_GET="$HARNESS_DIR/scripts/gh-get.sh"
+gh_refused() {  # gh_refused [env...] -- <gh-get.sh arguments...> — each must exit non-zero with no api call
+  local e=()
+  while [ "$1" != -- ]; do e+=("$1"); shift; done; shift
+  : > "$STUB/state/calls.log"
+  stub_run env ${e[0]+"${e[@]}"} "$GH_GET" "$@" >/dev/null 2>&1 && { echo "accepted: $*"; return 1; }
+  ! grep -q '^api' "$STUB/state/calls.log" || { echo "reached gh: $*"; return 1; }
+}
+r1_other_repos() {
+  stub_home
+  gh_refused -- repos/other-org/private/contents/x && gh_refused -- search/code -f q=x && gh_refused -- search/issues -f q=repo:acme/demo
+}
+r2_this_repo() {
+  local s
+  stub_home
+  jq '.repos.priv = {path:"/nonexistent", owner:"org2"}' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  for s in "" acme/demo; do
+    : > "$STUB/state/calls.log"
+    stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1/comments --paginate --jq '.[] | select(.user.login == "b")' >/dev/null \
+      && stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1/reviews --paginate --jq '.[] | select(.user.login == "b")' >/dev/null \
+      && stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1 --jq '{headRefName: .head.ref, headRefOid: .head.sha, body}' >/dev/null \
+      || { echo "a read of this PR was refused (PR_QUORUM_SLUG=$s)"; return 1; }
+    [ "$(grep -c '^api --method GET repos/acme/demo/' "$STUB/state/calls.log")" = 3 ] || { echo "want 3 GETs (PR_QUORUM_SLUG=$s):"; cat "$STUB/state/calls.log"; return 1; }
+  done
+  gh_refused PR_QUORUM_SLUG=acme/demo -- repos/org2/priv/pulls/1 || { echo "(another repository in config.json)"; return 1; }
+}
+r3_path_tricks() {
+  local a
+  stub_home
+  for a in repos/acme/demo/../../other/x repos/acme/demo/./x repos/acme%2Fdemo/x 'repos/acme/demo/pulls?x=1' repos/ACME/demo/pulls \
+           repos/acme/demo-other/pulls repos/acme/demo/ 'repos/{owner}/{repo}/pulls'; do
+    gh_refused -- "$a" || return 1
+  done
+  gh_refused -- --paginate repos/other/x && gh_refused -- repos/acme/demo/pulls -- repos/other/x \
+    && gh_refused -- repos/acme/demo/pulls -H Accept:x repos/other/x
+}
+r4_no_gh_in_sessions() {
+  local t hits
+  for t in settings.json author-settings.json; do
+    hits="$(jq -r '.permissions.allow[] | select(startswith("Bash(gh "))' "$HARNESS_DIR/templates/$t")"
+    [ -z "$hits" ] || { echo "$t allows: $hits"; return 1; }
+  done
+  hits="$(grep -rnE 'gh (pr (view|diff|list|checks)|search)( |$)' "$HARNESS_DIR/skills" "$HARNESS_DIR/agents" "$HARNESS_DIR/rules")" || true
+  [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
+}
+# R5 — a compare of two commits is read, an owner:branch range (another fork) is refused, a '?' query is refused with the -f hint,
+# and a missing config.json is an environment error (exit 2)
+r5_compare_query_env() {
+  local rc out
+  stub_home; : > "$STUB/state/calls.log"
+  stub_run "$GH_GET" repos/acme/demo/compare/main...topic >/dev/null 2>&1 || { echo "compare range refused"; return 1; }
+  gh_refused -- repos/acme/demo/compare/main...other:topic || return 1
+  rc=0; out="$(stub_run "$GH_GET" 'repos/acme/demo/pulls/1/files?per_page=100' 2>&1)" || rc=$?
+  [ "$rc" = 1 ] && grep -q -- '-f key=value' <<<"$out" || { echo "'?' query: exit $rc, $out (want 1 and the -f hint)"; return 1; }
+  rm "$STUB/home/.pr-quorum/config.json"; rc=0; stub_run "$GH_GET" repos/acme/demo/pulls/1 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || { echo "no config.json: exit $rc (want 2)"; return 1; }
+}
+check "gh-get R1 other repositories and search are refused"    r1_other_repos
+check "gh-get R2 this PR's repository is read"                 r2_this_repo
+check "gh-get R3 path tricks and a second endpoint are refused" r3_path_tricks
+check "gh-get R4 sessions have no direct gh read"               r4_no_gh_in_sessions
+check "gh-get R5 compare range, '?' hint, missing config exit 2" r5_compare_query_env
 
 # D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
 # The stub gh is not logged in, so doctor always exits 2 here; only the lines matter

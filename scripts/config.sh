@@ -2,8 +2,12 @@
 # PR_QUORUM_HOME is fixed so an environment variable cannot change it. This keeps anyone from handing the scripts the session calls (author-push.sh etc.)
 # a different config.json to change owner.
 PR_QUORUM_HOME="$HOME/.pr-quorum"
+# need_cmds <cmd>... — exit 2 naming the first command missing from PATH. launchd and cron start with a short PATH
+need_cmds() { local c; for c; do command -v "$c" >/dev/null 2>&1 \
+  || { echo "$c not found on PATH=$PATH — add its folder to PATH in the launchd plist, crontab, or systemd unit (README Setup §5), or install it (README Requirements)" >&2; return 2; }; done; }
 # cfg [jq options...] <jq filter> — a missing or broken config.json gets a clear message (exit 2) instead of a raw jq error
 cfg() {
+  need_cmds jq || return 2
   local f="$PR_QUORUM_HOME/config.json"
   [ -f "$f" ] || { echo "config.json is missing: $f (README Setup §3)" >&2; return 2; }
   jq empty "$f" 2>/dev/null || { echo "config.json is not valid JSON: $f" >&2; return 2; }
