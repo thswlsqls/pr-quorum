@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `97a3542`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `b74ffbe`
 
 <p align="center">
   <picture>
@@ -235,9 +235,11 @@ chmod 600 ~/.config/pr-quorum/bot.env
 
 ```bash
 mkdir -p ~/.pr-quorum/profiles
-cp <plugin-dir>/templates/config.json ~/.pr-quorum/config.json
 touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
+<plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
+
+`<repo-path>` 是仓库的本地 clone。`config.json` 不存在时，`doctor.sh --init` 用 [`templates/config.json`](templates/config.json) 生成它：`owner` 是 gh 登录，`bot` 是第 2 步令牌的账号，`repos` 里是一个以 clone 的 `origin` 命名的仓库，带上它的路径和所有者。其中任何一项读不到，它就什么也不写，并输出 `FAIL`。已有的 `config.json` 不会被覆盖。之后它继续检查，在完成第 4 步之前 profile 检查会失败。要添加仓库或修改键，直接编辑该文件。
 
 | 键 | 含义 |
 |---|---|
@@ -267,7 +269,7 @@ cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 
 [`generic.md`](examples/profiles/generic.md) 填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改从 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 开始，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
-然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。它只读取，不发布任何内容。
+然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。不带 `--init` 时它只读取，任何时候都不发布内容。
 
 ### 5. Watcher(可选)
 

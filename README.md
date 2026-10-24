@@ -233,9 +233,11 @@ chmod 600 ~/.config/pr-quorum/bot.env
 
 ```bash
 mkdir -p ~/.pr-quorum/profiles
-cp <plugin-dir>/templates/config.json ~/.pr-quorum/config.json
 touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
+<plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
+
+`<repo-path>` is your repository's local clone. `doctor.sh --init` writes `config.json` from [`templates/config.json`](templates/config.json) when there is none: `owner` is your gh login, `bot` the token's account from step 2, and `repos` has one repository named after the clone's `origin`, with its path and owner. If it cannot read one of these it writes nothing and prints `FAIL`; an existing `config.json` is never overwritten. It then runs the checks, and the profile check fails until step 4. To add a repository or change a key, edit the file.
 
 | Key | Meaning |
 |---|---|
@@ -265,7 +267,7 @@ cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 
 [`generic.md`](examples/profiles/generic.md) fits any stack once its `<fill in>` lines are filled in; the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, start from [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
-Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation) and exits 2 if any line is `FAIL`. It reads only and posts nothing.
+Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
 
 ### 5. Watcher (optional)
 
