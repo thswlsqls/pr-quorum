@@ -821,8 +821,8 @@ stub_doctor() { stub_run bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true; }
 d1_template_values() {
   local out; doctor_home || return 1
   cp "$HARNESS_DIR/templates/config.json" "$STUB/home/.pr-quorum/config.json"; out="$(stub_doctor)"
-  grep -qF 'FAIL — config.json still has template values: your-github-login, your-bot-login, your-repo, /absolute/path/to/your-repo' <<<"$out" \
-    && ! grep -q 'config owner = your-github-login' <<<"$out" || { echo "$out"; return 1; }
+  grep -qF 'FAIL — config.json still has template values: __OWNER__, __BOT__, your-repo, __REPO_PATH__' <<<"$out" \
+    && ! grep -q 'config owner = __OWNER__' <<<"$out" || { echo "$out"; return 1; }
 }
 d2_repo_404() {
   local out; doctor_home || return 1
@@ -879,7 +879,7 @@ case "$*" in
 esac
 exec "${0%/gh-in/gh}/bin/gh" "$@"
 GH
-  chmod +x "$STUB/gh-in/gh"; stub_run env PATH="$STUB/gh-in:$STUB/bin:$PATH" bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true
+  chmod +x "$STUB/gh-in/gh"; stub_run env PATH="$STUB/gh-in:$STUB/bin:$PATH" bash "$HARNESS_DIR/scripts/doctor.sh" "$@" 2>&1 || true
 }
 d5_bot_owner_relative_path() {
   local out; doctor_home '.bot = "ACME" | .repos.demo.path = "repo/demo"' || return 1; out="$(cd "$STUB" && stub_doctor_gh)"
@@ -904,9 +904,33 @@ d7_first_run_text() {  # the template starts from the generic profile with auto-
     head -40 "$f" | grep -q '\$[0-9]' && head -40 "$f" | grep -qF "$w" || { echo "${f##*/}: no cost or '$w' in the first 40 lines"; return 1; }
   done
 }
+# I1–I3 — doctor.sh --init: fills config.json from the gh login, the bot token's login and origin; keeps an existing file; a hand copy of the template fails
+i1_init_writes() {
+  local out; doctor_home || return 1; rm "$STUB/home/.pr-quorum/config.json"
+  out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ ! -e "$STUB/home/.pr-quorum/config.json" ] && grep -q 'FAIL — --init wrote nothing — could not get origin URL' <<<"$out" || { echo "no origin: $out"; return 1; }
+  git -C "$STUB/repo/demo" remote add origin git@github.com:acme/demo.git; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ "$(jq -r '"\(.owner) \(.bot) \(.repos | keys | join(",")) \(.repos.demo.owner) \(.repos.demo.profile)"' "$STUB/home/.pr-quorum/config.json")" = "alice quorum-bot demo acme generic" ] \
+    && [ "$(jq -r .repos.demo.path "$STUB/home/.pr-quorum/config.json")" = "$(git -C "$STUB/repo/demo" rev-parse --show-toplevel)" ] \
+    && grep -q 'ok   — config.json written' <<<"$out" && ! grep -q 'template values' <<<"$out" || { echo "written: $out"; return 1; }
+}
+i2_init_keeps() {
+  local out a; doctor_home || return 1; git -C "$STUB/repo/demo" remote add origin git@github.com:acme/demo.git
+  a="$(cksum < "$STUB/home/.pr-quorum/config.json")"; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ "$(cksum < "$STUB/home/.pr-quorum/config.json")" = "$a" ] && grep -q 'warn — config.json exists, left as is' <<<"$out" \
+    && ! grep -q -- '--init wrote' <<<"$out" || { echo "$out"; return 1; }
+}
+i3_hand_copy() {
+  local out; doctor_home || return 1; cp "$HARNESS_DIR/templates/config.json" "$STUB/home/.pr-quorum/config.json"; out="$(stub_doctor_gh)"
+  grep -q 'FAIL — config.json still has template values: __OWNER__, __BOT__, your-repo, __REPO_PATH__' <<<"$out" \
+    && ! grep -q 'config owner = \|config bot = ' <<<"$out" || { echo "$out"; return 1; }
+}
 check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
 check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
 check "first run D7 generic template, cost line in each README" d7_first_run_text
+check "doctor I1 --init fills config.json, or writes nothing"  i1_init_writes
+check "doctor I2 --init keeps an existing config.json"        i2_init_keeps
+check "doctor I3 a hand copy of the template fails"           i3_hand_copy
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root

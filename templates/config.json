@@ -1,11 +1,11 @@
 {
-  "owner": "your-github-login",
-  "bot": "your-bot-login",
+  "owner": "__OWNER__",
+  "bot": "__BOT__",
   "auto_merge": false,
   "trust": { "authors": [], "associations": ["OWNER"] },
   "build": { "sandbox": "require", "env_passthrough": [] },
   "repos": {
-    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "generic", "owner": "your-github-login" }
+    "your-repo": { "path": "__REPO_PATH__", "profile": "generic", "owner": "__OWNER__" }
   },
   "limits": {
     "stage1": { "max_rounds": 3, "budget_usd": 25, "timeout_min": 120 },

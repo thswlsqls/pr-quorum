@@ -17,6 +17,27 @@ warn() { echo "warn — $*"; }
 bad()  { echo "FAIL — $*"; fails=$((fails+1)); }
 finish() { [ "$fails" = 0 ] && { echo "doctor — all checks passed"; exit 0; }; echo "doctor — $fails check(s) failed"; exit 2; }
 
+# --init <repo path> — writes config.json from templates/config.json when there is none, then runs the checks: owner = the gh login,
+# bot = the token's login (pr-quorum.sh whoami), one repository named after origin with its path and origin's owner. Nothing is written unless all are found
+if [ "${1:-}" = --init ]; then
+  [ -n "${2:-}" ] || { echo "usage: doctor.sh [--init <repo path>]" >&2; exit 2; }
+  if [ -e "$PR_QUORUM_HOME/config.json" ]; then warn "config.json exists, left as is: $PR_QUORUM_HOME/config.json"
+  else
+    u="$(git -C "$2" remote get-url origin 2>/dev/null)"; u="${u%/}"; u="${u%.git}"; n="${u##*/}"; o="${u%/*}"; o="${o##*[/:]}"
+    p="$(git -C "$2" rev-parse --show-toplevel 2>/dev/null)"
+    me="$(gh api user --jq '.login' 2>/dev/null)"; b="$("$PR_QUORUM" whoami 2>/dev/null)"
+    miss=""
+    [[ "$o/$n" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || miss="$miss, origin URL in $2"
+    [ -n "$p" ] || miss="$miss, git repository at $2"
+    [ -n "$me" ] || miss="$miss, gh login (gh auth login)"
+    [ -n "$b" ] || miss="$miss, bot login (pr-quorum.sh whoami, README Setup §2)"
+    [ -z "$miss" ] && j="$(jq --arg me "$me" --arg b "$b" --arg n "$n" --arg o "$o" --arg p "$p" \
+      '.owner = $me | .bot = $b | .repos = {($n): (.repos["your-repo"] | .path = $p | .owner = $o)}' "$HARNESS_DIR/templates/config.json")" \
+      && mkdir -p "$PR_QUORUM_HOME" && (set -C; printf '%s\n' "$j" > "$PR_QUORUM_HOME/config.json") 2>/dev/null \
+      && ok "config.json written: owner $me, bot $b, repos.$n $p" || { bad "--init wrote nothing — could not get ${miss#, }"; finish; }
+  fi
+fi
+
 # 1) Commands
 for c in claude gh jq git; do
   if command -v "$c" >/dev/null; then ok "command $c ($(dirname "$(command -v "$c")"))"; else bad "command $c not found — install it (README Requirements)"; fi
@@ -41,13 +62,13 @@ for k in owner bot; do
   v="$(cfg ".$k // empty | strings")"
   case "$v" in
     "") bad "config.json has no $k — set it (README Setup §3)" ;;
-    your-github-login|your-bot-login) ;;   # reported with the other template values below
+    your-github-login|your-bot-login|__OWNER__|__BOT__) ;;   # reported with the other template values below
     *) ok "config $k = $v" ;;
   esac
 done
 # Values copied from templates/config.json and never replaced — listed once, keys first, in the order they appear
 tv="$(cfg '[(.owner, .bot | strings), (.repos | objects | keys[]), (.. | strings)]
-  | map(select(test("^your-(github|bot)-login$|^your-repo$|^/absolute/path/to/")))
+  | map(select(test("^your-(github|bot)-login$|^your-repo$|^/absolute/path/to/|^__(OWNER|BOT|REPO_PATH)__$")))
   | reduce .[] as $v ([]; if index([$v]) then . else . + [$v] end) | join(", ")')"
 [ -z "$tv" ] || bad "config.json still has template values: $tv — replace them (README Setup §3)"
 if [ "$(cfg '.repos | type == "object" and length > 0')" = true ]; then ok "config repos ($(cfg '.repos | length'))"
