@@ -242,7 +242,7 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
-    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT
+    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT CLAUDE_CODE_SUBAGENT_MODEL
     "$@" )
 }
 stub_post() {  # stub_post [stage] — post-review of that stage's draft
@@ -458,6 +458,7 @@ cat > "$STUB/sbin/claude" <<'CLAUDE'
 # Plays $STUB_STATE/<step>-<n>.sh (M is meta.json, H the PR head; author <pushed> [blocking] writes round-0<n>.json, review posts a bot
 # review on H), then prints a result whose subtype is $STUB_STATE/<step>.subtype (default success)
 S="$STUB_STATE"; p="${!#}"; echo "claude $p" >> "$S/calls.log"
+m=""; for a; do [ "${prev:-}" = --model ] && m="$a"; prev="$a"; done; echo "model=$m sub=${CLAUDE_CODE_SUBAGENT_MODEL:-}" >> "$S/models.log"
 read -r -a w <<<"$p"; case "${w[0]}" in *:author) st=author ;; *) st="${w[1]}" ;; esac
 n=$(( $(cat "$S/count-$st" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/count-$st"
 R="$HOME/.pr-quorum/runs/demo-pr1"; M="$R/meta.json"; H="$(cat "$S/head" 2>/dev/null || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
@@ -512,6 +513,18 @@ n5_third_reply_posts() {
   out="$(stub_reply 2>&1 && stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
   [ "$(stub_replies)" = 3 ] && ! grep -q adopted <<<"$out" || { echo "third reply: POST $(stub_replies) (want 3): $out"; return 1; }
 }
+# M1 — models: missing is Sonnet for the session and its subagents, "" is Claude Code's default (no --model, no subagent variable), a value is passed as is
+m1_models() {
+  local f want
+  for f in 'del(.models)|model=claude-sonnet-5-5 sub=claude-sonnet-5-5' '.models = {session: "", subagent: ""}|model= sub=' \
+           '.models = {session: "opus", subagent: "haiku"}|model=opus sub=haiku'; do
+    want="${f#*|}"; stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo error_max_budget_usd > "$STUB/state/stage1.subtype"
+    jq "${f%%|*}" "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+    stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1
+    [ "$(cat "$STUB/state/models.log" 2>/dev/null)" = "$want" ] || { echo "${f%%|*}: '$(cat "$STUB/state/models.log" 2>/dev/null)' (want '$want')"; return 1; }
+  done
+}
+check "chain M1 models default to Sonnet, \"\" is Claude Code's default" m1_models
 check "chain N1 notice posts though its state read fails"        n1_state_read_fails
 check "chain N2 scorecard not posted → blocked, rerun posts it"  n2_scorecard_fails
 check "chain N3 Stage 1 cap → held-failed, watcher does not rerun" n3_stage1_cap
@@ -583,6 +596,18 @@ p3_no_claude_watch() {
 check "preflight P1 no jq → 'jq not found', exit 2"                 p1_no_jq
 check "preflight P2 no claude → chain exit 2, no stop, no notice"   p2_no_claude_chain
 check "preflight P3 no claude → watch exit 2 before its search"    p3_no_claude_watch
+# P4 — watch.sh --plist, with no config.json: the plugin folder, $HOME and a PATH of the folders claude, gh, jq and git were found in
+p4_plist() {
+  local out want; stub_home; rm "$STUB/home/.pr-quorum/config.json"
+  want="$STUB/bin:$(for c in jq git; do dirname "$(command -v "$c")"; done | awk '!s[$0]++' | paste -sd: -)"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --plist 2>&1)" || { echo "$out"; return 1; }
+  grep -qF "<string>$HARNESS_DIR/scripts/watch.sh</string>" <<<"$out" && grep -qF "<key>WorkingDirectory</key><string>$HARNESS_DIR</string>" <<<"$out" \
+    && grep -qF "<key>PATH</key><string>$want" <<<"$out" && grep -qF "<string>$STUB/home/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" \
+    && ! grep -q '<plugin-dir>\|<home-dir>\|<dirs-' <<<"$out" || { echo "PATH want $want: $out"; return 1; }
+  out="$(stub_run env HOME="$STUB/a&b<c" "$HARNESS_DIR/scripts/watch.sh" --plist 2>&1)" || { echo "$out"; return 1; }   # XML-escaped
+  grep -qF "<string>$STUB/a&amp;b&lt;c/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" || { echo "not escaped: $out"; return 1; }
+}
+check "preflight P4 watch --plist fills the folder, PATH and HOME" p4_plist
 
 # H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
 # a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
@@ -927,12 +952,22 @@ i3_hand_copy() {
   grep -q 'FAIL — config.json still has template values: __OWNER__, __BOT__, your-repo, __REPO_PATH__' <<<"$out" \
     && ! grep -q 'config owner = \|config bot = ' <<<"$out" || { echo "$out"; return 1; }
 }
+# I4 — --init adds profiles/generic.md (a copy of the sample), learnings.md and human-labels.md, and leaves an edited profile as is
+i4_init_state_files() {
+  local out a h="$STUB/home/.pr-quorum"; doctor_home || return 1; rm -rf "$h/profiles"; git -C "$STUB/repo/demo" remote add origin git@github.com:acme/demo.git
+  out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  cmp -s "$HARNESS_DIR/examples/profiles/generic.md" "$h/profiles/generic.md" && [ -f "$h/learnings.md" ] && [ -f "$h/human-labels.md" ] \
+    && grep -q 'ok   — profiles/generic.md copied' <<<"$out" || { echo "first: $out"; ls -R "$h"; return 1; }
+  echo edited >> "$h/profiles/generic.md"; a="$(cksum < "$h/profiles/generic.md")"; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ "$(cksum < "$h/profiles/generic.md")" = "$a" ] && ! grep -q 'copied' <<<"$out" || { echo "second: $out"; return 1; }
+}
 check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
 check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
 check "first run D7 generic template, cost line in each README" d7_first_run_text
 check "doctor I1 --init fills config.json, or writes nothing"  i1_init_writes
 check "doctor I2 --init keeps an existing config.json"        i2_init_keeps
 check "doctor I3 a hand copy of the template fails"           i3_hand_copy
+check "doctor I4 --init adds the profile and state files, keeps an edited one" i4_init_state_files
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root

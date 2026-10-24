@@ -17,7 +17,7 @@ warn() { echo "warn — $*"; }
 bad()  { echo "FAIL — $*"; fails=$((fails+1)); }
 finish() { [ "$fails" = 0 ] && { echo "doctor — all checks passed"; exit 0; }; echo "doctor — $fails check(s) failed"; exit 2; }
 
-# --init <repo path> — writes config.json from templates/config.json when there is none, then runs the checks: owner = the gh login,
+# --init <repo path> — writes config.json from templates/config.json when there is none, adds the missing state files, then runs the checks: owner = the gh login,
 # bot = the token's login (pr-quorum.sh whoami), one repository named after origin with its path and origin's owner. Nothing is written unless all are found
 if [ "${1:-}" = --init ]; then
   [ -n "${2:-}" ] || { echo "usage: doctor.sh [--init <repo path>]" >&2; exit 2; }
@@ -40,6 +40,11 @@ if [ "${1:-}" = --init ]; then
       && ok "config.json written: owner $me, bot $b, repos.$n $p" || { [ -n "$miss" ] && miss="could not get ${miss#, }" || miss="could not write $PR_QUORUM_HOME/config.json"
            bad "--init wrote nothing — $miss"; finish; }
   fi
+  # The rest of ~/.pr-quorum: profiles/ with the generic sample (the template's profile), learnings.md, human-labels.md. Nothing is overwritten
+  if mkdir -p "$PR_QUORUM_HOME/profiles" && touch "$PR_QUORUM_HOME/learnings.md" "$PR_QUORUM_HOME/human-labels.md"; then
+    [ -e "$PR_QUORUM_HOME/profiles/generic.md" ] || { cp "$HARNESS_DIR/examples/profiles/generic.md" "$PR_QUORUM_HOME/profiles/generic.md" \
+      && ok "profiles/generic.md copied from examples — fill in its <fill in> lines" || bad "could not copy profiles/generic.md"; }
+  else bad "could not create profiles/, learnings.md or human-labels.md in $PR_QUORUM_HOME"; fi
 fi
 
 # 1) Commands
@@ -180,7 +185,7 @@ if [ -n "$BOT" ]; then
     elif gh api "repos/$slug/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
       bad "$r bot invitation is pending — sign in as $BOT and accept it"
     else
-      bad "$r bot is not a collaborator — invite $BOT with read (README Setup §1)"
+      bad "$r bot is not a collaborator — invite $BOT (README Setup §1)"
     fi
   done
 fi
