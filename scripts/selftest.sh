@@ -743,6 +743,48 @@ check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborat
 check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
 check "doctor D4 commands that cannot start"           d4_commands
 
+# D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
+# repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh
+stub_doctor_gh() {
+  mkdir -p "$STUB/gh-in"
+  cat > "$STUB/gh-in/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  "auth status"|"api repos/acme/demo/collaborators/quorum-bot") exit 0 ;;
+  "api user --jq .login") [ "${GH_TOKEN:-}" = test-token ] && echo quorum-bot || echo alice; exit 0 ;;
+  "api repos/acme/demo --silent") [ "${GH_TOKEN:-}" = test-token ] && [ -e "$STUB_STATE/bot-404" ] && { echo "HTTP 404: Not Found" >&2; exit 1; }; exit 0 ;;
+esac
+exec "${0%/gh-in/gh}/bin/gh" "$@"
+GH
+  chmod +x "$STUB/gh-in/gh"; stub_run env PATH="$STUB/gh-in:$STUB/bin:$PATH" bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true
+}
+d5_bot_owner_relative_path() {
+  local out; doctor_home '.bot = "ACME" | .repos.demo.path = "repo/demo"' || return 1; out="$(cd "$STUB" && stub_doctor_gh)"
+  grep -q 'FAIL — config bot is the owner (ACME)' <<<"$out" && grep -q 'FAIL — demo path is not absolute: repo/demo' <<<"$out" || { echo "$out"; return 1; }
+}
+d6_trust_limits_bot_read_commands() {
+  local out; doctor_home || return 1; out="$(stub_doctor_gh)"
+  grep -q 'warn — demo belongs to acme, .* add "alice" to trust.authors' <<<"$out" && grep -q 'warn — no limits: a session has no cost cap' <<<"$out" \
+    && grep -q 'warn — demo has no commands and no gradlew or package.json' <<<"$out" && grep -q 'ok   — demo bot is a collaborator' <<<"$out" \
+    && ! grep -q 'bot token cannot\|config bot is the owner\|not absolute' <<<"$out" || { echo "first: $out"; return 1; }
+  doctor_home '.trust.authors = ["alice"] | .limits = {stage1: {budget_usd: "25"}, stage2: {budget_usd: 25}, author: {budget_usd: "abc"}}' || return 1
+  touch "$STUB/repo/demo/gradlew" "$STUB/state/bot-404"; out="$(stub_doctor_gh)"
+  grep -q 'FAIL — demo bot token cannot read acme/demo (a private repository needs scope repo' <<<"$out" \
+    && grep -q 'FAIL — limits.author.budget_usd is not a number' <<<"$out" && [ "$(grep -c 'budget_usd\|no limits\|trust.authors\|no commands' <<<"$out")" = 1 ] \
+    || { echo "second: $out"; return 1; }
+}
+d7_first_run_text() {  # the template starts from the generic profile with auto-detected commands; each README states the cost and the always-on machine up front
+  local f w
+  [ "$(jq -r '.repos[] | "\(.profile) \(has("commands"))"' "$HARNESS_DIR/templates/config.json")" = "generic false" ] || { echo "template repos: not generic without commands"; return 1; }
+  for f in README.md:always-on README.ko.md:상시 README.zh-CN.md:常开; do
+    w="${f#*:}"; f="$HARNESS_DIR/${f%%:*}"
+    head -40 "$f" | grep -q '\$[0-9]' && head -40 "$f" | grep -qF "$w" || { echo "${f##*/}: no cost or '$w' in the first 40 lines"; return 1; }
+  done
+}
+check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
+check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
+check "first run D7 generic template, cost line in each README" d7_first_run_text
+
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
 # stay writable, and on macOS must not run osascript. No network, no gh.
