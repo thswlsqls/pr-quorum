@@ -608,6 +608,24 @@ p4_plist() {
   grep -qF "<string>$STUB/a&amp;b&lt;c/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" || { echo "not escaped: $out"; return 1; }
 }
 check "preflight P4 watch --plist fills the folder, PATH and HOME" p4_plist
+# P5 — watch.sh --cron, with no config.json: the PATH line and the job line with the plugin folder and the lock and log under $HOME.
+# Under a HOME with a space and a ', the job line run by sh (cd and flock stubbed as functions) gets the paths back and writes the log there
+p5_cron() {
+  local out want job h
+  stub_home; rm "$STUB/home/.pr-quorum/config.json"
+  want="$STUB/bin:$(for c in jq git; do dirname "$(command -v "$c")"; done | awk '!s[$0]++' | paste -sd: -)"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --cron 2>&1)" || { echo "$out"; return 1; }
+  job="* * * * * cd '$HARNESS_DIR' && flock -n '$STUB/home/.pr-quorum/watch.lock' scripts/watch.sh >> '$STUB/home/.pr-quorum/watch.log' 2>&1"
+  case "$(sed -n 1p <<<"$out")" in "PATH=$want"*) ;; *) echo "PATH want $want: $out"; return 1 ;; esac
+  [ "$(sed -n 2p <<<"$out")" = "$job" ] && [ "$(wc -l <<<"$out")" -eq 2 ] || { echo "PATH want $want: $out"; return 1; }
+  h="$STUB/a b'c"; mkdir -p "$h/.pr-quorum"
+  out="$(stub_run env HOME="$h" "$HARNESS_DIR/scripts/watch.sh" --cron 2>&1)" || { echo "$out"; return 1; }
+  job="$(sed -n 2p <<<"$out")"
+  out="$(sh -c 'cd() { echo "$1"; }; flock() { echo "$2"; }; eval "$1"' _ "${job#'* * * * * '}" 2>&1)" || { echo "$job: $out"; return 1; }
+  [ "$out" = "$HARNESS_DIR" ] && [ -f "$h/.pr-quorum/watch.log" ] && grep -qxF "$h/.pr-quorum/watch.lock" "$h/.pr-quorum/watch.log" \
+    || { echo "quoted paths not read back: $job → $out"; return 1; }
+}
+check "preflight P5 watch --cron fills the folder, PATH and HOME, quoted for sh" p5_cron
 
 # H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
 # a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
