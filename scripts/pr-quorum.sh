@@ -917,7 +917,8 @@ case "$sub" in
                # The key goes inside an HTML comment marker, so it may not hold "-->" or anything else outside this set
                [ $# -eq 3 ] || [[ "$4" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || die "$E_USAGE" "comment key must be 1–64 of a-z 0-9 . _ - (starting with a letter or digit): $4"
                cmd_comment "$@" ;;
-  whoami)      [ $# -le 1 ] || usage; [ $# -eq 0 ] || [ "$(cfg --arg r "$1" '.repos | has($r)')" = true ] || die "$E_USAGE" "not in config.json repos: $1"
+  whoami)      [ $# -le 1 ] || usage; [ $# -eq 0 ] || { h="$(cfg --arg r "$1" '.repos | has($r)')" || exit "$E_ENV"
+                 [ "$h" = true ] || die "$E_USAGE" "not in config.json repos: $1"; }
                cmd_whoami "$@" ;;
   config)      [ $# -eq 0 ] || usage; cmd_config ;;
   learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;

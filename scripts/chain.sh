@@ -342,7 +342,8 @@ esac
 # Posts outputs/<fork|large>-pr.md under its key. Called again on a rerun: the key adopts a notice already on the PR, or posts one that failed
 hold_notice() {
   local key="$1"
-  [ "$1" = fork ] || { key="$(head_sha)" && key="large-${key:0:7}" || key=""; }
+  # A fixed key when the head cannot be read, so a rerun still adopts the notice instead of posting it again
+  [ "$1" = fork ] || { key="$(head_sha)" && key="large-${key:0:7}" || key=large; }
   [ ! -f "$RUN/outputs/$1-pr.md" ] || "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/$1-pr.md" ${key:+"$key"} >/dev/null \
     || log "failed to post the $1 notice comment"
 }

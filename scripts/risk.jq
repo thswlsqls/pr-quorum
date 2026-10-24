@@ -44,7 +44,7 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
         + "|(^|/)pom\\.xml$|(^|/)mvnw(\\.cmd)?$|(^|/)\\.mvn/wrapper/|(^|/)pyproject\\.toml$|(^|/)setup\\.py$"
         + "|(^|/)buildSrc/|(^|/)Makefile$|(^|/)\\.npmrc$|(^|/)\\.yarnrc(\\.yml)?$|(^|/)conftest\\.py$|(^|/)[^/]+\\.config\\.[mc]?[jt]s$"
         + "|(^|/)\\.github/actions/|^action\\.ya?ml$|(^|/)\\.github/(.*/)?action\\.ya?ml$|(^|/)\\.husky/|(^|/)\\.pre-commit-config\\.ya?ml$|(^|/)tox\\.ini$|(^|/)noxfile\\.py$|(^|/)build\\.rs$|(^|/)\\.mcp\\.json$|(^|/)CODEOWNERS$"
-        + "|(^|/)([^/]*\\.)?(Dockerfile|Containerfile)$|(^|/)(docker-)?compose[^/]*\\.ya?ml$"))),
+        + "|(^|/)([^/]*\\.)?([Dd]ockerfile|[Cc]ontainerfile)(\\.[^/]*)?$|(^|/)(docker-)?compose[^/]*\\.ya?ml$"))),
       sig("Dependencies"; 15; $nd | hits(.filename | test(
         "\\.gradle(\\.kts)?$|libs\\.versions\\.toml$|gradle-wrapper\\.properties$|(^|/)package(-lock)?\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$"
         + "|(^|/)pom\\.xml$|(^|/)pyproject\\.toml$|(^|/)setup\\.py$|(^|/)requirements[^/]*\\.txt$|(^|/)(poetry|uv|Cargo)\\.lock$|(^|/)go\\.(mod|sum)$|(^|/)Cargo\\.toml$"))),

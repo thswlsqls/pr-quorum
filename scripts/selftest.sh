@@ -85,6 +85,8 @@ while read -r f score; do
 done <<'EOF'
 Dockerfile 25
 docker/app.Dockerfile 15
+Dockerfile.prod 25
+docker/Dockerfile.dev 25
 Containerfile 15
 docker-compose.yml 25
 docker-compose.prod.yaml 25
@@ -789,7 +791,7 @@ r4_no_gh_in_sessions() {
   [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
 }
 # R5 — a compare of two commits is read, an owner:branch range (another fork) is refused, a '?' query is refused with the -f hint,
-# and a missing config.json is an environment error (exit 2)
+# and a missing config.json is an environment error (exit 2), for gh-get and whoami <repo>
 r5_compare_query_env() {
   local rc out
   stub_home; : > "$STUB/state/calls.log"
@@ -799,6 +801,8 @@ r5_compare_query_env() {
   [ "$rc" = 1 ] && grep -q -- '-f key=value' <<<"$out" || { echo "'?' query: exit $rc, $out (want 1 and the -f hint)"; return 1; }
   rm "$STUB/home/.pr-quorum/config.json"; rc=0; stub_run "$GH_GET" repos/acme/demo/pulls/1 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || { echo "no config.json: exit $rc (want 2)"; return 1; }
+  rc=0; stub_run bash "$HARNESS_DIR/scripts/pr-quorum.sh" whoami demo >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || { echo "whoami <repo> with no config.json: exit $rc (want 2)"; return 1; }
 }
 check "gh-get R1 other repositories and search are refused"    r1_other_repos
 check "gh-get R2 this PR's repository is read"                 r2_this_repo
