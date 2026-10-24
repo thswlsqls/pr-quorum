@@ -11,7 +11,7 @@
 
 A Claude Code plugin that reviews your GitHub PRs with several Claude sessions, has an author session apply the review, checks the fixes, re-runs the build and tests, and uses a risk score to decide whether to merge.
 
-Each PR costs about $11–30 in Claude usage and takes 19–47 minutes (as of 2026-10). It needs a second GitHub account for the bot and an always-on machine (Requirements).
+Each PR costs about $11–30 in Claude usage on Claude Code's default model and takes 19–47 minutes (as of 2026-10). Sessions now run on Sonnet by default: in a 3-PR benchmark it found the same planted defects for about $2 per PR, against $15.5 on the default model. It needs a second GitHub account for the bot and an always-on machine (Requirements).
 
 Request a review from your bot account on a PR and the rest runs unattended. The review is posted like a human reviewer's: one summary plus inline comments on lines of code.
 
@@ -211,9 +211,9 @@ Where pr-quorum keeps its files:
 
 Create your own GitHub bot account; there is no shared bot.
 
-- Invite it to each repository as a **collaborator with read**, then accept the invitation (sign in as the bot). That is enough to receive review requests.
+- Invite it to each repository as a **collaborator**, then accept the invitation (sign in as the bot). That is enough to receive review requests. In an organization's repository, give it **read**. A repository under a personal account cannot give a collaborator read (GitHub answers `Cannot assign permission of read`), so there the bot has write.
 - Create a PAT for it: a classic token with scope `public_repo` for public repositories. For a private repository the bot is a collaborator on, use scope `repo`; outside collaborators can only use classic tokens.
-- Keep it at read. Both scopes can write to repositories the bot has write access to, so raising the bot to write lets this token push.
+- Both scopes can write to repositories the bot has write access to. In an organization's repository, keep the bot at read so this token cannot push. Under a personal account the bot has write, so the token can push to that repository: keep it in the token file only (step 2).
 
 The bot only posts reviews and comments. It never approves or requests changes.
 
@@ -232,12 +232,10 @@ chmod 600 ~/.config/pr-quorum/bot.env
 ### 3. `~/.pr-quorum/config.json`
 
 ```bash
-mkdir -p ~/.pr-quorum/profiles
-touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 <plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
 
-`<repo-path>` is your repository's local clone. `doctor.sh --init` writes `config.json` from [`templates/config.json`](templates/config.json) when there is none: `owner` is your gh login, `bot` the token's account from step 2, and `repos` has one repository named after the clone's `origin`, with its path and owner. If it cannot read one of these it writes nothing and prints `FAIL`; an existing `config.json` is never overwritten. It then runs the checks, and the profile check fails until step 4. To add a repository or change a key, edit the file.
+`<repo-path>` is your repository's local clone. `doctor.sh --init` writes `config.json` from [`templates/config.json`](templates/config.json) when there is none: `owner` is your gh login, `bot` the token's account from step 2, and `repos` has one repository named after the clone's `origin`, with its path and owner. If it cannot read one of these it writes nothing and prints `FAIL`; an existing `config.json` is never overwritten. It also creates `profiles/` with a copy of the `generic` sample profile, `learnings.md` and `human-labels.md` when they are missing, replacing nothing. It then runs the checks, and the profile check warns until step 4. To add a repository or change a key, edit the file.
 
 | Key | Meaning |
 |---|---|
@@ -251,7 +249,7 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `build.sandbox` | `"require"` (default): builds and tests run in the OS sandbox, and a host where it does not start records them as `not measured`. `"off"`: no sandbox, for builds that need Docker, the keychain, or private-registry credentials in `~/.npmrc` or `~/.m2/settings.xml`, which the sandbox hides |
 | `build.env_passthrough` | Extra environment variable names a build keeps (default `[]`; the build otherwise starts with an emptied environment). Names that look like credentials (`*TOKEN*`, `*SECRET*`, `*KEY*`) are refused, so registry credentials cannot come in this way |
 | `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
-| `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: Claude Code's default |
+| `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: `claude-sonnet-5-5`; `""`: Claude Code's default |
 
 All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox. The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
@@ -259,42 +257,19 @@ All keys and sample values are in [`templates/config.json`](templates/config.jso
 
 ### 4. Profile
 
-A profile defines the review axes and what each judge does and does not look at. Copy a sample and adapt it to your repository; the file name is the `profile` value.
+A profile defines the review axes and what each judge does and does not look at. Adapt one to your repository; the file name under `~/.pr-quorum/profiles/` is the `profile` value.
 
-```bash
-cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
-```
-
-[`generic.md`](examples/profiles/generic.md) fits any stack once its `<fill in>` lines are filled in; the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, start from [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
+`doctor.sh --init` copied [`generic.md`](examples/profiles/generic.md) to `~/.pr-quorum/profiles/generic.md`; it fits any stack once its `<fill in>` lines are filled in, and the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, copy [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) there instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
 Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
 
 ### 5. Watcher (optional)
 
-The watcher polls every 60 seconds for review requests to the bot. Without it, requesting a review does nothing and you run the chain by hand ([Usage](#usage)). On macOS, save the following as `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` and run `launchctl load` on it. `caffeinate -i` keeps the machine awake.
+The watcher polls every 60 seconds for review requests to the bot. Without it, requesting a review does nothing and you run the chain by hand ([Usage](#usage)). On macOS, write the LaunchAgent with `watch.sh --plist` and load it. It fills in the plugin folder, your home folder, and a `PATH` of the folders `claude`, `gh`, `jq` and `git` are found in, so run it from the shell you use them in. `caffeinate -i` in it keeps the machine awake.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>io.github.thswlsqls.pr-quorum</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/caffeinate</string>
-    <string>-i</string>
-    <string><plugin-dir>/scripts/watch.sh</string>
-  </array>
-  <key>StartInterval</key><integer>60</integer>
-  <key>WorkingDirectory</key><string><plugin-dir></string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key><string><dirs-containing-claude-gh-jq-git></string>
-  </dict>
-  <key>StandardOutPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-  <key>StandardErrorPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-</dict>
-</plist>
+```bash
+<plugin-dir>/scripts/watch.sh --plist > ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
+launchctl load ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
 ```
 
 To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The watcher takes one PR at a time and picks up requests that arrived while the machine was off.
@@ -423,7 +398,7 @@ Other safeguards:
 As of 2026-10:
 
 - No review has been graded by a person: the author's `human-labels.md` has no filled-in grade, so "a stricter procedure gives better reviews" is untested.
-- One full chain costs $11–30 and takes 19–47 minutes (sum of the sessions' `total_cost_usd` and `wall_ms`; from a 12-line PR, #66, to #61).
+- One full chain costs $11–30 on Claude Code's default model and takes 19–47 minutes (sum of the sessions' `total_cost_usd` and `wall_ms`; from a 12-line PR, #66, to #61).
 - It has run on one backend repository only (all 14 runs); the [`frontend.md`](examples/profiles/frontend.md) profile has never run.
 - The risk rules' paths (`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`) fit the repository they were written for; check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning on `auto_merge`. The signals are path patterns: a file the list does not name (a deploy script, a new CI tool's config) scores as ordinary code.
 - github.com only, and one machine polls for review requests.
