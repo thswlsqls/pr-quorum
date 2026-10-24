@@ -185,7 +185,7 @@ if [ -n "$BOT" ]; then
     elif gh api "repos/$slug/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
       bad "$r bot invitation is pending — sign in as $BOT and accept it"
     else
-      bad "$r bot is not a collaborator — invite $BOT with read (README Setup §1)"
+      bad "$r bot is not a collaborator — invite $BOT (README Setup §1)"
     fi
   done
 fi
