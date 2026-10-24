@@ -940,12 +940,22 @@ i3_hand_copy() {
   grep -q 'FAIL — config.json still has template values: __OWNER__, __BOT__, your-repo, __REPO_PATH__' <<<"$out" \
     && ! grep -q 'config owner = \|config bot = ' <<<"$out" || { echo "$out"; return 1; }
 }
+# I4 — --init adds profiles/generic.md (a copy of the sample), learnings.md and human-labels.md, and leaves an edited profile as is
+i4_init_state_files() {
+  local out a h="$STUB/home/.pr-quorum"; doctor_home || return 1; rm -rf "$h/profiles"; git -C "$STUB/repo/demo" remote add origin git@github.com:acme/demo.git
+  out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  cmp -s "$HARNESS_DIR/examples/profiles/generic.md" "$h/profiles/generic.md" && [ -f "$h/learnings.md" ] && [ -f "$h/human-labels.md" ] \
+    && grep -q 'ok   — profiles/generic.md copied' <<<"$out" || { echo "first: $out"; ls -R "$h"; return 1; }
+  echo edited >> "$h/profiles/generic.md"; a="$(cksum < "$h/profiles/generic.md")"; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ "$(cksum < "$h/profiles/generic.md")" = "$a" ] && ! grep -q 'copied' <<<"$out" || { echo "second: $out"; return 1; }
+}
 check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
 check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
 check "first run D7 generic template, cost line in each README" d7_first_run_text
 check "doctor I1 --init fills config.json, or writes nothing"  i1_init_writes
 check "doctor I2 --init keeps an existing config.json"        i2_init_keeps
 check "doctor I3 a hand copy of the template fails"           i3_hand_copy
+check "doctor I4 --init adds the profile and state files, keeps an edited one" i4_init_state_files
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
