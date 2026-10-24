@@ -32,9 +32,6 @@
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh comment:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh build:*)",
       "Bash(__PLUGIN_ROOT__/scripts/gh-get.sh:*)",
-      "Bash(gh pr view:*)",
-      "Bash(gh pr diff:*)",
-      "Bash(gh search:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "__REVIEW_WORKTREE_ADD__",
@@ -54,9 +51,7 @@
       "Bash(date:*)",
       "Bash(mkdir:*)",
       "Bash(git show:*)",
-      "Bash(git status:*)",
-      "Bash(gh pr list:*)",
-      "Bash(gh pr checks:*)"
+      "Bash(git status:*)"
     ],
     "deny": [
       "Bash(git worktree add *..*)",
