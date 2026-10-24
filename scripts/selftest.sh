@@ -908,8 +908,10 @@ d7_first_run_text() {  # the template starts from the generic profile with auto-
 i1_init_writes() {
   local out; doctor_home || return 1; rm "$STUB/home/.pr-quorum/config.json"
   out="$(stub_doctor_gh --init "$STUB/repo/demo")"
-  [ ! -e "$STUB/home/.pr-quorum/config.json" ] && grep -q 'FAIL — --init wrote nothing — could not get origin URL' <<<"$out" || { echo "no origin: $out"; return 1; }
-  git -C "$STUB/repo/demo" remote add origin git@github.com:acme/demo.git; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ ! -e "$STUB/home/.pr-quorum/config.json" ] && grep -q 'FAIL — --init wrote nothing — could not get a github.com origin URL' <<<"$out" || { echo "no origin: $out"; return 1; }
+  git -C "$STUB/repo/demo" remote add origin git@gitlab.com:acme/demo.git; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
+  [ ! -e "$STUB/home/.pr-quorum/config.json" ] || { echo "gitlab origin written: $out"; return 1; }
+  git -C "$STUB/repo/demo" remote set-url origin git@github.com:acme/demo.git; out="$(stub_doctor_gh --init "$STUB/repo/demo")"
   [ "$(jq -r '"\(.owner) \(.bot) \(.repos | keys | join(",")) \(.repos.demo.owner) \(.repos.demo.profile)"' "$STUB/home/.pr-quorum/config.json")" = "alice quorum-bot demo acme generic" ] \
     && [ "$(jq -r .repos.demo.path "$STUB/home/.pr-quorum/config.json")" = "$(git -C "$STUB/repo/demo" rev-parse --show-toplevel)" ] \
     && grep -q 'ok   — config.json written' <<<"$out" && ! grep -q 'template values' <<<"$out" || { echo "written: $out"; return 1; }

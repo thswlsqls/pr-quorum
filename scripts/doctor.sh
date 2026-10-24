@@ -23,18 +23,22 @@ if [ "${1:-}" = --init ]; then
   [ -n "${2:-}" ] || { echo "usage: doctor.sh [--init <repo path>]" >&2; exit 2; }
   if [ -e "$PR_QUORUM_HOME/config.json" ]; then warn "config.json exists, left as is: $PR_QUORUM_HOME/config.json"
   else
-    u="$(git -C "$2" remote get-url origin 2>/dev/null)"; u="${u%/}"; u="${u%.git}"; n="${u##*/}"; o="${u%/*}"; o="${o##*[/:]}"
+    # Only a github.com origin, with the owner pattern repo_slug accepts — another host would write a config no check can pass
+    u="$(git -C "$2" remote get-url origin 2>/dev/null)"; u="${u%/}"; u="${u%.git}"; o="" n=""
+    re='^(https://([^@/]*@)?|ssh://git@|git@)github\.com[:/]([A-Za-z0-9-]+)/([A-Za-z0-9._-]+)$'
+    [[ "$u" =~ $re ]] && { o="${BASH_REMATCH[3]}"; n="${BASH_REMATCH[4]}"; }
     p="$(git -C "$2" rev-parse --show-toplevel 2>/dev/null)"
     me="$(gh api user --jq '.login' 2>/dev/null)"; b="$("$PR_QUORUM" whoami 2>/dev/null)"
     miss=""
-    [[ "$o/$n" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || miss="$miss, origin URL in $2"
+    [ -n "$n" ] || miss="$miss, a github.com origin URL in $2"
     [ -n "$p" ] || miss="$miss, git repository at $2"
     [ -n "$me" ] || miss="$miss, gh login (gh auth login)"
     [ -n "$b" ] || miss="$miss, bot login (pr-quorum.sh whoami, README Setup §2)"
     [ -z "$miss" ] && j="$(jq --arg me "$me" --arg b "$b" --arg n "$n" --arg o "$o" --arg p "$p" \
       '.owner = $me | .bot = $b | .repos = {($n): (.repos["your-repo"] | .path = $p | .owner = $o)}' "$HARNESS_DIR/templates/config.json")" \
       && mkdir -p "$PR_QUORUM_HOME" && (set -C; printf '%s\n' "$j" > "$PR_QUORUM_HOME/config.json") 2>/dev/null \
-      && ok "config.json written: owner $me, bot $b, repos.$n $p" || { bad "--init wrote nothing — could not get ${miss#, }"; finish; }
+      && ok "config.json written: owner $me, bot $b, repos.$n $p" || { [ -n "$miss" ] && miss="could not get ${miss#, }" || miss="could not write $PR_QUORUM_HOME/config.json"
+           bad "--init wrote nothing — $miss"; finish; }
   fi
 fi
 

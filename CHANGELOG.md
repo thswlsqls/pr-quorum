@@ -4,7 +4,7 @@
 
 No new `config.json` keys. `templates/config.json` holds `__OWNER__`, `__BOT__` and `__REPO_PATH__` where it had sample logins and a sample path.
 
-- `doctor.sh --init <repo-path>` writes `~/.pr-quorum/config.json` from the template when there is none: `owner` from the gh login, `bot` from the bot token's account (`pr-quorum.sh whoami`, still the only reader of `bot.env`), and one repository named after the clone's `origin`, with its absolute path and owner. It writes nothing if any of these cannot be read, never overwrites an existing file, and then runs the usual checks. README Setup §3 uses it instead of copying and editing the template.
+- `doctor.sh --init <repo-path>` writes `~/.pr-quorum/config.json` from the template when there is none: `owner` from the gh login, `bot` from the bot token's account (`pr-quorum.sh whoami`, still the only reader of `bot.env`), and one repository named after the clone's github.com `origin`, with its absolute path and owner. It writes nothing if any of these cannot be read, never overwrites an existing file, and then runs the usual checks. README Setup §3 uses it instead of copying and editing the template.
 - `doctor.sh` reports the new template tokens as template values, so a hand-copied template still fails.
 
 ## 0.8.0
