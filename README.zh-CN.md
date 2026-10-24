@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `2852f1f`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `47a0ac8`
 
 <p align="center">
   <picture>
@@ -279,12 +279,10 @@ launchctl load ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
 在 Linux(云 VM，或 Windows 上的 WSL2)上，改用 cron 或 systemd timer 每分钟运行一次 `watch.sh`，并去掉 macOS 专有的 `caffeinate`。
 
 - **登录**：在没有浏览器的机器上，`gh` 用它给出的 device code 或 `gh auth login --with-token` 登录，Claude Code 运行一次 `claude` 即可登录。Claude Code 把登录信息保存在 `~/.claude/.credentials.json`，cron 和 systemd 任务可以直接使用。
-- **cron**：与 launchd 不同，cron 会在链路仍在运行时再次启动 watcher，所以要用 `flock -n` 包裹。否则同一个 PR 可能再起一条链路，实际只试过一次就停在 `held-failed`。cron 不会展开 `$HOME` 等变量，`PATH` 要写成完整路径。
+- **cron**：与 launchd 不同，cron 会在链路仍在运行时再次启动 watcher，所以任务用 `flock -n` 包裹 watcher 运行。否则同一个 PR 可能再起一条链路，实际只试过一次就停在 `held-failed`。`watch.sh --cron` 会输出两行 crontab，填入与 `--plist` 相同的目录和 `PATH`，所以请在你平时使用 `claude`、`gh`、`jq`、`git` 的 shell 中运行，并用 `crontab -e` 加入它的输出。
 
-  ```
-  # crontab -e
-  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```bash
+  <plugin-dir>/scripts/watch.sh --cron
   ```
 
 - **systemd**：用同时设置了 `OnBootSec=1min` 和 `OnUnitActiveSec=1min` 的 timer 启动 `Type=oneshot` 服务；只设 `OnUnitActiveSec=` 的话 timer 永远不会触发。服务仍在运行时 timer 不会再次启动它，因此不需要 `flock`。在服务中用 `Environment=` 设置 `PATH`；如果是用户级 timer，运行 `loginctl enable-linger`，让它在注销后继续运行。

@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `2852f1f`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `47a0ac8`
 
 <p align="center">
   <picture>
@@ -279,12 +279,10 @@ launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once`
 Linux(클라우드 VM, Windows 의 WSL2)에서는 cron 이나 systemd timer 로 `watch.sh` 를 1분마다 실행한다. macOS 전용인 `caffeinate` 는 뺀다.
 
 - **로그인**: 브라우저가 없는 머신에서 `gh` 는 화면에 뜨는 device code 나 `gh auth login --with-token` 으로, Claude Code 는 `claude` 를 한 번 실행해 로그인한다. Claude Code 는 로그인 정보를 `~/.claude/.credentials.json` 에 저장하므로 cron 과 systemd 작업도 이를 그대로 쓴다.
-- **cron**: launchd 와 달리 cron 은 체인이 도는 중에도 watcher 를 또 띄우므로 `flock -n` 으로 감싼다. 감싸지 않으면 같은 PR 에 체인이 하나 더 붙어, 한 번만 시도한 PR 이 `held-failed` 로 멈출 수 있다. cron 은 `$HOME` 같은 변수를 펼치지 않으니 `PATH` 는 경로를 모두 풀어 적는다.
+- **cron**: launchd 와 달리 cron 은 체인이 도는 중에도 watcher 를 또 띄우므로 작업은 watcher 를 `flock -n` 으로 감싸 실행한다. 감싸지 않으면 같은 PR 에 체인이 하나 더 붙어, 한 번만 시도한 PR 이 `held-failed` 로 멈출 수 있다. `watch.sh --cron` 은 `--plist` 와 같은 폴더와 `PATH` 를 채운 crontab 두 줄을 출력하므로, `claude`·`gh`·`jq`·`git` 을 쓰는 셸에서 실행하고 그 출력을 `crontab -e` 로 넣는다.
 
-  ```
-  # crontab -e
-  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```bash
+  <plugin-dir>/scripts/watch.sh --cron
   ```
 
 - **systemd**: `OnBootSec=1min` 과 `OnUnitActiveSec=1min` 을 함께 둔 timer 로 `Type=oneshot` 서비스를 띄운다. `OnUnitActiveSec=` 만 두면 timer 가 한 번도 동작하지 않는다. timer 는 서비스가 도는 동안 다시 띄우지 않으니 `flock` 은 필요 없다. `PATH` 는 서비스의 `Environment=` 로 지정하고, 사용자 timer 라면 로그아웃한 뒤에도 돌도록 `loginctl enable-linger` 를 실행한다.

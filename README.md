@@ -277,12 +277,10 @@ To test it once without launchd, run `<plugin-dir>/scripts/watch.sh --once`. The
 On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron or a systemd timer, without the macOS-only `caffeinate`.
 
 - **Login**: on a machine without a browser, log in to `gh` with the device code it offers or with `gh auth login --with-token`, and to Claude Code by running `claude` once. Claude Code stores the login in `~/.claude/.credentials.json`, so cron and systemd jobs can use it.
-- **cron**: unlike launchd, cron starts the watcher again while a chain is still running, so wrap it in `flock -n`. Otherwise a second chain can start on the same PR and stop it at `held-failed` after one real try. cron does not expand variables such as `$HOME`, so write `PATH` out in full.
+- **cron**: unlike launchd, cron starts the watcher again while a chain is still running, so the job runs it under `flock -n`. Otherwise a second chain can start on the same PR and stop it at `held-failed` after one real try. `watch.sh --cron` prints the two crontab lines with the same folders and `PATH` as `--plist`, so run it from the shell you use `claude`, `gh`, `jq` and `git` in, and add its output with `crontab -e`.
 
-  ```
-  # crontab -e
-  PATH=<dirs-containing-claude-gh-jq-git>:/usr/bin:/bin
-  * * * * * cd <plugin-dir> && flock -n <home-dir>/.pr-quorum/watch.lock scripts/watch.sh >> <home-dir>/.pr-quorum/watch.log 2>&1
+  ```bash
+  <plugin-dir>/scripts/watch.sh --cron
   ```
 
 - **systemd**: start a `Type=oneshot` service from a timer with both `OnBootSec=1min` and `OnUnitActiveSec=1min`; `OnUnitActiveSec=` alone never fires. The timer does not start the service while it is still running, so `flock` is not needed. Set `PATH` with `Environment=` in the service, and for a user timer run `loginctl enable-linger` so it keeps running after you log out.

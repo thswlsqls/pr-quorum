@@ -6,12 +6,19 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 need_cmds claude gh jq git || exit 2
-# --plist prints the macOS LaunchAgent (README Setup §5) for this plugin folder and $HOME. Its PATH is the folders of claude, gh, jq and git
-# found now, then /usr/bin and /bin — launchd starts with a short PATH. Needs no config.json
-if [ "${1:-}" = --plist ]; then
+# --plist prints the macOS LaunchAgent and --cron the two crontab lines (README Setup §5) for this plugin folder and $HOME. Their PATH is the
+# folders of claude, gh, jq and git found now, then /usr/bin and /bin — launchd and cron start with a short PATH. Needs no config.json
+if [ "${1:-}" = --plist ] || [ "${1:-}" = --cron ]; then
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" path=""
   for c in claude gh jq git; do d="$(dirname "$(command -v "$c")")"; case ":$path:" in *":$d:"*) ;; *) path="${path:+$path:}$d" ;; esac; done
   for d in /usr/bin /bin; do case ":$path:" in *":$d:"*) ;; *) path="$path:$d" ;; esac; done
+  if [ "$1" = --cron ]; then
+    # Single-quoted for cron's /bin/sh, so a folder with a space or ' still works; cron turns a bare % into a newline, so \%
+    sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g; s/%/\\\\%/g")"; }
+    printf 'PATH=%s\n' "$path"
+    printf '* * * * * cd %s && flock -n %s scripts/watch.sh >> %s 2>&1\n' "$(sq "$dir")" "$(sq "$HOME/.pr-quorum/watch.lock")" "$(sq "$HOME/.pr-quorum/watch.log")"
+    exit 0
+  fi
   xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }   # a folder name with & or < breaks the plist; sed, as bash 5.2 reads & in ${//}
   dir="$(xml "$dir")" path="$(xml "$path")" home="$(xml "$HOME")"
   cat <<PLIST
@@ -246,5 +253,5 @@ case "${1:-}" in
   --once|"") run_once ;;
   # Cleanup only, now — for a manual sweep and for selftest. Clears the stamp so the 30-minute wait does not apply
   --gc-only) rm -f "$PR_QUORUM_HOME/.gc-stamp"; gc_worktrees ;;
-  *) echo "usage: watch.sh [--once | --gc-only | --plist]" >&2; exit 1 ;;
+  *) echo "usage: watch.sh [--once | --gc-only | --plist | --cron]" >&2; exit 1 ;;
 esac
