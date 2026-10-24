@@ -53,9 +53,10 @@ check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
 check "risk Python test file"        risk_score "tests/test_api.py" 0
 check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
 # Dependency-only PRs, files run at build or test time, and renames out of a sensitive path (rules/03-risk.md)
-risk_json() {  # risk_json <files JSON> <expected score> — for multi-file and rename cases
-  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r .score)" || return 1
-  [ "$got" = "$2" ] || { echo "expected $2, got $got"; return 1; }
+risk_json() {  # risk_json <files JSON> <expected score> [expected level] — for multi-file and rename cases
+  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r '"\(.score) \(.level)"')" || return 1
+  [ "${got%% *}" = "$2" ] || { echo "expected $2, got ${got%% *}"; return 1; }
+  [ -z "${3:-}" ] || [ "${got#* }" = "$3" ] || { echo "expected level $3, got ${got#* }"; return 1; }
 }
 check "risk lock file only"          risk_score "package-lock.json" 15
 check "risk small manifest bump"     risk_json '[{"filename":"go.mod","additions":1,"deletions":1,"patch":"+x"}]' 15
@@ -78,6 +79,20 @@ check "risk ini secret"           risk_json '[{"filename":"config/app.ini","addi
 check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
 check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
 check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
+# Level table — files that get executed stay medium or above even with a test file alongside (a test file alone would make the PR low)
+while read -r f score; do
+  check "risk level $f with tests" risk_json "[{\"filename\":\"$f\",\"additions\":3,\"deletions\":0,\"patch\":\"+RUN x\"},{\"filename\":\"src/test/a/ATest.java\",\"additions\":1,\"deletions\":0}]" "$score" medium
+done <<'EOF'
+Dockerfile 25
+docker/app.Dockerfile 15
+Containerfile 15
+docker-compose.yml 25
+docker-compose.prod.yaml 25
+compose.yaml 15
+.github/workflows/x.yml 25
+action.yml 15
+Makefile 15
+EOF
 
 # Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
 cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
