@@ -522,6 +522,58 @@ check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
 
+# R1–R4 — sessions read GitHub only through gh-get.sh, and only this run's repository (D7). Text in a PR must not make a session
+# read another repository with the user's gh login. A refused read never reaches gh (no api line in calls.log)
+GH_GET="$HARNESS_DIR/scripts/gh-get.sh"
+gh_refused() {  # gh_refused [env...] -- <gh-get.sh arguments...> — each must exit non-zero with no api call
+  local e=()
+  while [ "$1" != -- ]; do e+=("$1"); shift; done; shift
+  : > "$STUB/state/calls.log"
+  stub_run env ${e[0]+"${e[@]}"} "$GH_GET" "$@" >/dev/null 2>&1 && { echo "accepted: $*"; return 1; }
+  ! grep -q '^api' "$STUB/state/calls.log" || { echo "reached gh: $*"; return 1; }
+}
+r1_other_repos() {
+  stub_home
+  gh_refused -- repos/other-org/private/contents/x && gh_refused -- search/code -f q=x && gh_refused -- search/issues -f q=repo:acme/demo
+}
+r2_this_repo() {
+  local s
+  stub_home
+  jq '.repos.priv = {path:"/nonexistent", owner:"org2"}' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  for s in "" acme/demo; do
+    : > "$STUB/state/calls.log"
+    stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1/comments --paginate --jq '.[] | select(.user.login == "b")' >/dev/null \
+      && stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1/reviews --paginate --jq '.[] | select(.user.login == "b")' >/dev/null \
+      && stub_run env ${s:+PR_QUORUM_SLUG=$s} "$GH_GET" repos/acme/demo/pulls/1 --jq '{headRefName: .head.ref, headRefOid: .head.sha, body}' >/dev/null \
+      || { echo "a read of this PR was refused (PR_QUORUM_SLUG=$s)"; return 1; }
+    [ "$(grep -c '^api --method GET repos/acme/demo/' "$STUB/state/calls.log")" = 3 ] || { echo "want 3 GETs (PR_QUORUM_SLUG=$s):"; cat "$STUB/state/calls.log"; return 1; }
+  done
+  gh_refused PR_QUORUM_SLUG=acme/demo -- repos/org2/priv/pulls/1 || { echo "(another repository in config.json)"; return 1; }
+}
+r3_path_tricks() {
+  local a
+  stub_home
+  for a in repos/acme/demo/../../other/x repos/acme/demo/./x repos/acme%2Fdemo/x 'repos/acme/demo/pulls?x=1' repos/ACME/demo/pulls \
+           repos/acme/demo-other/pulls repos/acme/demo/ 'repos/{owner}/{repo}/pulls'; do
+    gh_refused -- "$a" || return 1
+  done
+  gh_refused -- --paginate repos/other/x && gh_refused -- repos/acme/demo/pulls -- repos/other/x \
+    && gh_refused -- repos/acme/demo/pulls -H Accept:x repos/other/x
+}
+r4_no_gh_in_sessions() {
+  local t hits
+  for t in settings.json author-settings.json; do
+    hits="$(jq -r '.permissions.allow[] | select(startswith("Bash(gh "))' "$HARNESS_DIR/templates/$t")"
+    [ -z "$hits" ] || { echo "$t allows: $hits"; return 1; }
+  done
+  hits="$(grep -rnE 'gh (pr (view|diff|list|checks)|search)( |$)' "$HARNESS_DIR/skills" "$HARNESS_DIR/agents" "$HARNESS_DIR/rules")" || true
+  [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
+}
+check "gh-get R1 other repositories and search are refused"    r1_other_repos
+check "gh-get R2 this PR's repository is read"                 r2_this_repo
+check "gh-get R3 path tricks and a second endpoint are refused" r3_path_tricks
+check "gh-get R4 sessions have no direct gh read"               r4_no_gh_in_sessions
+
 # D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
 # The stub gh is not logged in, so doctor always exits 2 here; only the lines matter
 doctor_home() {  # doctor_home [jq filter on config.json] — stub_home, path a git repository, profiles/backend.md edited from the sample
