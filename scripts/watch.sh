@@ -81,6 +81,8 @@ mark_dead_chains() {
     lock_valid "$m" && continue
     st="$(gh pr view "$pr" --repo "$(repo_slug "$repo")" --json state --jq .state 2>/dev/null)" \
       || { log "dead chain check skipped — could not read the state of $repo#$pr"; continue; }
+    # gh took a moment: a person may have rerun chain.sh in the meantime
+    chain_running "$repo" "$pr" && continue
     reason="the chain process ended during $state without recording a stop (killed, or the machine restarted)"
     at="$(jq -r '.chain.at // ""' "$m")"
     if [ "$st" = OPEN ]; then
@@ -91,7 +93,9 @@ mark_dead_chains() {
       "$PR_QUORUM" comment "$repo" "$pr" "$body" "died-$(printf '%s' "$at" | cksum | cut -d' ' -f1)" >/dev/null \
         || log "failed to post the stop notice — $repo#$pr"
     fi
-    jq '.chain += {state:"blocked", reason:$r, at:$at, pid:null}' --arg r "$reason" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    # Only if the state is still the dead one, so a chain that started since is not overwritten
+    jq 'if .chain.state == $s then .chain += {state:"blocked", reason:$r, at:$at, pid:null} else . end' \
+      --arg s "$state" --arg r "$reason" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       "$m" > "$m.tmp.$$" && mv "$m.tmp.$$" "$m" || { log "could not mark $repo#$pr blocked in meta.json"; continue; }
     log "chain.state=blocked — $repo#$pr ($reason; PR $st)"
   done
