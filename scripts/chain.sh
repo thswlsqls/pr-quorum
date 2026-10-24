@@ -392,7 +392,18 @@ PR_JSON="$(pr_state)" || { chain_state "blocked" "could not read the PR state fr
   || { chain_state "blocked" "conflicts with main — a person resolves the conflict, then runs the chain again"; exit 3; }
 
 [ "$(author_count)" -ge 1 ] || run_author
-[ "$(stage2_count)" -ge 1 ] || run_stage2
+# Stage 2 judges what the author pushed. A first pass that pushed nothing onto the head Stage 1 judged leaves it nothing to judge, so the
+# chain records an empty pass instead of a session — Stage 3's order check and the merge gate read that record (rules/01-stages.md §1)
+if [ "$(stage2_count)" -lt 1 ]; then
+  HEAD_NOW="$(head_sha)" || { chain_state "blocked" "could not read the PR head from GitHub after the author pass — run the chain again"; exit 4; }
+  if ! author_pushed && [ "$HEAD_NOW" = "$(jq -r '.eval_sha // empty' "$M")" ]; then
+    meta_set '.stage2 += [{round:((.stage2 | length) + 1), stage_sha:$h, last_judged_sha:$h, at:$at, verdicts:{}, skipped:"no author push"}]' \
+      --arg h "$HEAD_NOW" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    log "Stage 2 skipped — the author pass pushed nothing onto ${HEAD_NOW:0:7}"
+  else
+    run_stage2
+  fi
+fi
 stage3_done || run_stage3
 
 # After Stage 3: loop (author → Stage 2) until the author says nothing more needs fixing
