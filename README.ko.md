@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `97a3542`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `b74ffbe`
 
 <p align="center">
   <picture>
@@ -235,9 +235,11 @@ chmod 600 ~/.config/pr-quorum/bot.env
 
 ```bash
 mkdir -p ~/.pr-quorum/profiles
-cp <plugin-dir>/templates/config.json ~/.pr-quorum/config.json
 touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
+<plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
+
+`<repo-path>` 는 저장소의 로컬 clone 이다. `doctor.sh --init` 은 `config.json` 이 없을 때 [`templates/config.json`](templates/config.json) 으로 만든다. `owner` 는 gh 로그인, `bot` 은 2단계 토큰의 계정이고, `repos` 에는 clone 의 `origin` 이름을 딴 저장소 하나가 그 경로와 소유자로 들어간다. 이 가운데 하나라도 읽지 못하면 아무것도 쓰지 않고 `FAIL` 을 출력한다. 이미 있는 `config.json` 은 덮어쓰지 않는다. 그다음 점검을 이어 가며, 프로파일 점검은 4단계를 마칠 때까지 실패한다. 저장소를 더하거나 키를 바꾸려면 파일을 고친다.
 
 | 키 | 뜻 |
 |---|---|
@@ -267,7 +269,7 @@ cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 
 [`generic.md`](examples/profiles/generic.md)는 `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)에서 시작하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
 
-그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. 읽기만 하고 아무것도 올리지 않는다.
+그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. `--init` 이 없으면 읽기만 하고, 아무것도 올리지 않는다.
 
 ### 5. watcher (선택)
 
