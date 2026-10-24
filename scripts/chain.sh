@@ -58,7 +58,7 @@ last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 # Starts one headless session. Why tool permissions and MCP are isolated from this machine's settings is explained in the comments before the claude -p call below.
 run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() caps=() r p d out rc=0 started
-  local budget timeout_min sub_model secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
+  local budget timeout_min model sub_model secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
   SESSION_CAP=""   # Set when the session was cut by a cap — step() then stops instead of retrying
   # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each
   for r in $(cfg '.repos | keys[]'); do
@@ -76,12 +76,14 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   # config.json and learnings.md come from pr-quorum.sh config|learnings instead
   [ -d "$PR_QUORUM_HOME/profiles" ] && add_dirs+=("$PR_QUORUM_HOME/profiles")
   add_dirs+=("$HARNESS_DIR")
-  # Caps from config.json limits.<step> and models. A missing key adds nothing, so the session runs as before
+  # Caps from config.json limits.<step> and models. A missing limits key adds nothing, so the session runs as before
   budget="$(cfg --arg s "$name" '.limits[$s].budget_usd // empty')"
   timeout_min="$(cfg --arg s "$name" '.limits[$s].timeout_min // empty')"
   [ -n "$budget" ] && caps+=(--max-budget-usd "$budget")
-  [ -n "$(cfg '.models.session // empty')" ] && caps+=(--model "$(cfg '.models.session')")
-  sub_model="$(cfg '.models.subagent // empty')"
+  # A null or missing model is Sonnet (a 3-PR benchmark found the same defects at about 1/8 the cost); "" leaves Claude Code's default
+  model="$(cfg '.models.session // "claude-sonnet-5-5"')"
+  [ -n "$model" ] && caps+=(--model "$model")
+  sub_model="$(cfg '.models.subagent // "claude-sonnet-5-5"')"
   # --setting-sources "": do not read the target repository's .claude/settings*.json or ~/.claude/settings.json. --settings is read regardless of this value.
   # Skills and agents are loaded via --plugin-dir and run regardless of this value (measured). The repository CLAUDE.md is not loaded either, so the skill reads it directly
   # dontAsk: anything not in allow is denied without asking. acceptEdits approved edits inside the working folder and mkdir/rm/mv etc. regardless of allow (measured)

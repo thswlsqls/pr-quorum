@@ -458,6 +458,7 @@ cat > "$STUB/sbin/claude" <<'CLAUDE'
 # Plays $STUB_STATE/<step>-<n>.sh (M is meta.json, H the PR head; author <pushed> [blocking] writes round-0<n>.json, review posts a bot
 # review on H), then prints a result whose subtype is $STUB_STATE/<step>.subtype (default success)
 S="$STUB_STATE"; p="${!#}"; echo "claude $p" >> "$S/calls.log"
+m=""; for a; do [ "${prev:-}" = --model ] && m="$a"; prev="$a"; done; echo "model=$m sub=${CLAUDE_CODE_SUBAGENT_MODEL:-}" >> "$S/models.log"
 read -r -a w <<<"$p"; case "${w[0]}" in *:author) st=author ;; *) st="${w[1]}" ;; esac
 n=$(( $(cat "$S/count-$st" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/count-$st"
 R="$HOME/.pr-quorum/runs/demo-pr1"; M="$R/meta.json"; H="$(cat "$S/head" 2>/dev/null || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
@@ -512,6 +513,18 @@ n5_third_reply_posts() {
   out="$(stub_reply 2>&1 && stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
   [ "$(stub_replies)" = 3 ] && ! grep -q adopted <<<"$out" || { echo "third reply: POST $(stub_replies) (want 3): $out"; return 1; }
 }
+# M1 — models: missing is Sonnet for the session and its subagents, "" is Claude Code's default (no --model, no subagent variable), a value is passed as is
+m1_models() {
+  local f want
+  for f in 'del(.models)|model=claude-sonnet-5-5 sub=claude-sonnet-5-5' '.models = {session: "", subagent: ""}|model= sub=' \
+           '.models = {session: "opus", subagent: "haiku"}|model=opus sub=haiku'; do
+    want="${f#*|}"; stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo error_max_budget_usd > "$STUB/state/stage1.subtype"
+    jq "${f%%|*}" "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+    stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1
+    [ "$(cat "$STUB/state/models.log" 2>/dev/null)" = "$want" ] || { echo "${f%%|*}: '$(cat "$STUB/state/models.log" 2>/dev/null)' (want '$want')"; return 1; }
+  done
+}
+check "chain M1 models default to Sonnet, \"\" is Claude Code's default" m1_models
 check "chain N1 notice posts though its state read fails"        n1_state_read_fails
 check "chain N2 scorecard not posted → blocked, rerun posts it"  n2_scorecard_fails
 check "chain N3 Stage 1 cap → held-failed, watcher does not rerun" n3_stage1_cap
