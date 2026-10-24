@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `b74ffbe`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `2852f1f`
 
 <p align="center">
   <picture>
@@ -13,7 +13,7 @@
 
 GitHub PR 리뷰를 여러 Claude 세션에 나눠 맡기는 Claude Code 플러그인이다. 저자 세션이 리뷰를 반영하면 반영 여부를 확인하고 빌드·테스트를 다시 돌린 뒤, 리스크 점수로 머지 여부를 정한다.
 
-PR 하나에 Claude 사용료가 약 $11~30 들고 19~47분이 걸린다(2026-10 기준). 봇용 GitHub 계정이 하나 더 필요하고, 상시 켜 둔 머신이 있어야 한다(Requirements).
+Claude Code 기본 모델로는 PR 하나에 Claude 사용료가 약 $11~30 들고 19~47분이 걸린다(2026-10 기준). 이제 세션은 기본으로 Sonnet 으로 돈다. PR 3건 벤치마크에서 Sonnet 은 같은 심어 둔 결함을 PR 당 약 $2 로 찾았고, 기본 모델은 $15.5 가 들었다. 봇용 GitHub 계정이 하나 더 필요하고, 상시 켜 둔 머신이 있어야 한다(Requirements).
 
 PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다. 리뷰는 사람 리뷰어처럼 요약 한 건과 코드 줄에 붙는 인라인 코멘트로 올라간다.
 
@@ -213,9 +213,9 @@ pr-quorum 이 파일을 두는 곳:
 
 자기 GitHub 봇 계정을 따로 만든다. 공용 봇은 없다.
 
-- 리뷰할 저장소마다 **collaborator read** 로 초대하고, 봇으로 로그인해 초대를 수락한다. 리뷰 요청을 받는 데는 이걸로 충분하다.
+- 리뷰할 저장소마다 **collaborator** 로 초대하고, 봇으로 로그인해 초대를 수락한다. 리뷰 요청을 받는 데는 이걸로 충분하다. 조직 저장소라면 **read** 를 준다. 개인 계정의 저장소는 collaborator 에게 read 를 줄 수 없으므로(GitHub 가 `Cannot assign permission of read` 로 거절한다) 봇이 write 를 갖는다.
 - 봇 계정으로 PAT 를 만든다. public 저장소는 scope `public_repo` 인 classic 토큰이면 된다. 봇이 collaborator 로 들어간 private 저장소는 scope `repo` 를 쓴다. 외부 collaborator 는 classic 토큰만 쓸 수 있다.
-- 권한은 read 로 둔다. 두 scope 모두 봇이 write 권한을 가진 저장소에 쓸 수 있으므로, 봇을 write 로 올리면 이 토큰으로 push 할 수 있게 된다.
+- 두 scope 모두 봇이 write 권한을 가진 저장소에 쓸 수 있다. 조직 저장소에서는 봇을 read 로 두어 이 토큰으로 push 할 수 없게 한다. 개인 계정에서는 봇이 write 를 가지므로 이 토큰으로 그 저장소에 push 할 수 있다. 토큰은 토큰 파일(2단계)에만 둔다.
 
 봇은 리뷰와 코멘트만 올린다. 승인이나 변경 요청은 하지 않는다.
 
@@ -234,12 +234,10 @@ chmod 600 ~/.config/pr-quorum/bot.env
 ### 3. `~/.pr-quorum/config.json`
 
 ```bash
-mkdir -p ~/.pr-quorum/profiles
-touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 <plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
 
-`<repo-path>` 는 저장소의 로컬 clone 이다. `doctor.sh --init` 은 `config.json` 이 없을 때 [`templates/config.json`](templates/config.json) 으로 만든다. `owner` 는 gh 로그인, `bot` 은 2단계 토큰의 계정이고, `repos` 에는 clone 의 `origin` 이름을 딴 저장소 하나가 그 경로와 소유자로 들어간다. 이 가운데 하나라도 읽지 못하면 아무것도 쓰지 않고 `FAIL` 을 출력한다. 이미 있는 `config.json` 은 덮어쓰지 않는다. 그다음 점검을 이어 가며, 프로파일 점검은 4단계를 마칠 때까지 실패한다. 저장소를 더하거나 키를 바꾸려면 파일을 고친다.
+`<repo-path>` 는 저장소의 로컬 clone 이다. `doctor.sh --init` 은 `config.json` 이 없을 때 [`templates/config.json`](templates/config.json) 으로 만든다. `owner` 는 gh 로그인, `bot` 은 2단계 토큰의 계정이고, `repos` 에는 clone 의 `origin` 이름을 딴 저장소 하나가 그 경로와 소유자로 들어간다. 이 가운데 하나라도 읽지 못하면 아무것도 쓰지 않고 `FAIL` 을 출력한다. 이미 있는 `config.json` 은 덮어쓰지 않는다. `profiles/` 와 그 안의 `generic` 견본 프로파일 사본, `learnings.md`, `human-labels.md` 도 없으면 만들고, 있는 것은 바꾸지 않는다. 그다음 점검을 이어 가며, 프로파일 점검은 4단계를 마칠 때까지 경고한다. 저장소를 더하거나 키를 바꾸려면 파일을 고친다.
 
 | 키 | 뜻 |
 |---|---|
@@ -253,7 +251,7 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `build.sandbox` | `"require"`(기본): 빌드와 테스트를 OS 샌드박스 안에서 돌리고, 샌드박스가 뜨지 않는 머신에서는 `not measured` 로 기록한다. `"off"`: 샌드박스 없이 돌린다. Docker, 키체인, 또는 샌드박스가 가리는 `~/.npmrc`·`~/.m2/settings.xml` 의 사설 레지스트리 자격 증명이 필요한 빌드용이다 |
 | `build.env_passthrough` | 빌드가 추가로 넘겨받을 환경 변수 이름(기본 `[]`. 이 밖에는 비운 환경으로 시작한다). 자격 증명처럼 보이는 이름(`*TOKEN*`, `*SECRET*`, `*KEY*`)은 거부하므로, 레지스트리 자격 증명은 이 길로 넘길 수 없다 |
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
-| `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 Claude Code 기본값 |
+| `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 `claude-sonnet-5-5`, `""` 이면 Claude Code 기본값 |
 
 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돈다. 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
@@ -261,42 +259,19 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 ### 4. 프로파일
 
-프로파일은 리뷰 축과 위원마다 볼 것·보지 않을 것을 정한다. 견본을 복사해 자기 저장소에 맞게 고친다. 파일 이름이 `profile` 값이 된다.
+프로파일은 리뷰 축과 위원마다 볼 것·보지 않을 것을 정한다. 프로파일 하나를 자기 저장소에 맞게 고친다. `~/.pr-quorum/profiles/` 아래 파일 이름이 `profile` 값이 된다.
 
-```bash
-cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
-```
-
-[`generic.md`](examples/profiles/generic.md)는 `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)에서 시작하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
+`doctor.sh --init` 이 [`generic.md`](examples/profiles/generic.md)를 `~/.pr-quorum/profiles/generic.md` 로 복사해 두었다. `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)를 대신 그곳에 복사하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
 
 그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. `--init` 이 없으면 읽기만 하고, 아무것도 올리지 않는다.
 
 ### 5. watcher (선택)
 
-watcher 는 60초마다 봇에게 온 리뷰 요청을 찾는다. watcher 가 없으면 리뷰를 요청해도 아무 일도 없고, 체인을 손으로 돌려야 한다([사용법](#사용법)). macOS 에서는 아래 내용을 `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist` 로 저장하고 `launchctl load` 한다. `caffeinate -i` 가 머신이 잠들지 않게 한다.
+watcher 는 60초마다 봇에게 온 리뷰 요청을 찾는다. watcher 가 없으면 리뷰를 요청해도 아무 일도 없고, 체인을 손으로 돌려야 한다([사용법](#사용법)). macOS 에서는 `watch.sh --plist` 로 LaunchAgent 를 써서 load 한다. 플러그인 폴더, 홈 폴더, 그리고 `claude`·`gh`·`jq`·`git` 이 있는 폴더로 만든 `PATH` 를 채워 주므로, 이 명령들을 쓰는 셸에서 실행한다. 그 안의 `caffeinate -i` 가 머신이 잠들지 않게 한다.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>io.github.thswlsqls.pr-quorum</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/caffeinate</string>
-    <string>-i</string>
-    <string><plugin-dir>/scripts/watch.sh</string>
-  </array>
-  <key>StartInterval</key><integer>60</integer>
-  <key>WorkingDirectory</key><string><plugin-dir></string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key><string><dirs-containing-claude-gh-jq-git></string>
-  </dict>
-  <key>StandardOutPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-  <key>StandardErrorPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-</dict>
-</plist>
+```bash
+<plugin-dir>/scripts/watch.sh --plist > ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
+launchctl load ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
 ```
 
 launchd 없이 한 번만 시험하려면 `<plugin-dir>/scripts/watch.sh --once` 를 실행한다. watcher 는 PR 을 한 건씩 처리하고, 머신이 꺼져 있던 동안 들어온 요청은 다시 켜지면 처리한다.
@@ -425,7 +400,7 @@ flowchart LR
 2026-10 기준:
 
 - 사람이 채점한 리뷰가 없다. 작성자의 `human-labels.md` 에 채워진 판정이 하나도 없어서, "절차가 엄격하면 리뷰가 낫다"는 아직 검증되지 않았다.
-- 체인 한 번에 $11~30, 19~47분이 든다(세션별 `total_cost_usd` 와 `wall_ms` 의 합. 12줄 PR #66 부터 #61 까지).
+- Claude Code 기본 모델로 체인 한 번에 $11~30, 19~47분이 든다(세션별 `total_cost_usd` 와 `wall_ms` 의 합. 12줄 PR #66 부터 #61 까지).
 - 백엔드 저장소 하나에서만 돌려 봤다(실행 14건 모두). [`frontend.md`](examples/profiles/frontend.md) 프로파일은 한 번도 돈 적이 없다.
 - 리스크 규칙의 경로(`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`)는 처음 만든 저장소에 맞춰져 있다. `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 를 자기 저장소에 맞는지 확인한다. 신호는 경로 패턴이라, 목록에 없는 파일(배포 스크립트, 새 CI 도구의 설정)은 보통 코드로 점수가 매겨진다.
 - github.com 전용이고, 머신 한 대가 리뷰 요청을 폴링한다.

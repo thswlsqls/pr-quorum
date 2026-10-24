@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `b74ffbe`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `2852f1f`
 
 <p align="center">
   <picture>
@@ -13,7 +13,7 @@
 
 一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
 
-每个 PR 约消耗 $11–30 的 Claude 用量，耗时 19–47 分钟（截至 2026-10）。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
+使用 Claude Code 默认模型时，每个 PR 约消耗 $11–30 的 Claude 用量，耗时 19–47 分钟（截至 2026-10）。现在会话默认使用 Sonnet：在 3 个 PR 的基准测试中，它以每个 PR 约 $2 找出了相同的预埋缺陷，默认模型则为 $15.5。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
 
 在 PR 上把机器人账号设为评审人，其余流程无人值守地完成。评审像人类评审一样发布：一条总结，加上挂在代码行上的行内评论。
 
@@ -213,9 +213,9 @@ pr-quorum 存放文件的位置：
 
 创建你自己的 GitHub 机器人账号；没有共享的机器人。
 
-- 以 **collaborator read** 邀请它加入每个要评审的仓库，然后以机器人身份登录并接受邀请。这足以接收评审请求。
+- 以 **collaborator** 邀请它加入每个要评审的仓库，然后以机器人身份登录并接受邀请。这足以接收评审请求。组织的仓库请给它 **read**。个人账号下的仓库无法给 collaborator read 权限(GitHub 会返回 `Cannot assign permission of read`)，所以在那里机器人拥有 write。
 - 为它创建 PAT：公开仓库用 scope 为 `public_repo` 的 classic 令牌。机器人作为 collaborator 加入的私有仓库用 scope `repo`；外部 collaborator 只能使用 classic 令牌。
-- 保持 read 权限。两个 scope 都能写入机器人有 write 权限的仓库，一旦把机器人提升为 write，这个令牌就能推送。
+- 两个 scope 都能写入机器人有 write 权限的仓库。在组织的仓库中，让机器人保持 read，这个令牌就无法推送。在个人账号下机器人拥有 write，这个令牌可以推送到该仓库：只把它放在令牌文件中(第 2 步)。
 
 机器人只发布评审和评论，从不批准或请求修改。
 
@@ -234,12 +234,10 @@ chmod 600 ~/.config/pr-quorum/bot.env
 ### 3. `~/.pr-quorum/config.json`
 
 ```bash
-mkdir -p ~/.pr-quorum/profiles
-touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 <plugin-dir>/scripts/doctor.sh --init <repo-path>
 ```
 
-`<repo-path>` 是仓库的本地 clone。`config.json` 不存在时，`doctor.sh --init` 用 [`templates/config.json`](templates/config.json) 生成它：`owner` 是 gh 登录，`bot` 是第 2 步令牌的账号，`repos` 里是一个以 clone 的 `origin` 命名的仓库，带上它的路径和所有者。其中任何一项读不到，它就什么也不写，并输出 `FAIL`。已有的 `config.json` 不会被覆盖。之后它继续检查，在完成第 4 步之前 profile 检查会失败。要添加仓库或修改键，直接编辑该文件。
+`<repo-path>` 是仓库的本地 clone。`config.json` 不存在时，`doctor.sh --init` 用 [`templates/config.json`](templates/config.json) 生成它：`owner` 是 gh 登录，`bot` 是第 2 步令牌的账号，`repos` 里是一个以 clone 的 `origin` 命名的仓库，带上它的路径和所有者。其中任何一项读不到，它就什么也不写，并输出 `FAIL`。已有的 `config.json` 不会被覆盖。缺少时，它还会创建 `profiles/` 及其中 `generic` 样例 profile 的副本、`learnings.md` 和 `human-labels.md`，已有的不做替换。之后它继续检查，在完成第 4 步之前 profile 检查会给出警告。要添加仓库或修改键，直接编辑该文件。
 
 | 键 | 含义 |
 |---|---|
@@ -253,7 +251,7 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 | `build.sandbox` | `"require"`(默认)：构建和测试在操作系统沙箱中运行，沙箱无法启动的机器上记为 `not measured`。`"off"`：不用沙箱，适用于需要 Docker、钥匙串，或需要沙箱屏蔽的 `~/.npmrc`、`~/.m2/settings.xml` 中私有仓库凭据的构建 |
 | `build.env_passthrough` | 构建额外保留的环境变量名(默认 `[]`；除此之外构建从清空的环境启动)。看起来像凭据的名字(`*TOKEN*`、`*SECRET*`、`*KEY*`)会被拒绝，所以私有仓库凭据不能从这里传入 |
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
-| `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 Claude Code 的默认值 |
+| `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值 |
 
 所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
@@ -261,42 +259,19 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 
 ### 4. Profile
 
-Profile 定义评审维度，以及每名评审员看什么、不看什么。复制一个样例并按你的仓库调整；文件名就是 `profile` 的值。
+Profile 定义评审维度，以及每名评审员看什么、不看什么。按你的仓库调整一个 profile；`~/.pr-quorum/profiles/` 下的文件名就是 `profile` 的值。
 
-```bash
-cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
-```
-
-[`generic.md`](examples/profiles/generic.md) 填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改从 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 开始，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
+`doctor.sh --init` 已把 [`generic.md`](examples/profiles/generic.md) 复制到 `~/.pr-quorum/profiles/generic.md`，填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改为把 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 复制到那里，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
 然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。不带 `--init` 时它只读取，任何时候都不发布内容。
 
 ### 5. Watcher(可选)
 
-Watcher 每 60 秒查找发给机器人的评审请求。没有它，请求评审不会触发任何事，需要手动运行链路([用法](#用法))。在 macOS 上，把下面的内容保存为 `~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist`，然后对它执行 `launchctl load`。`caffeinate -i` 让机器保持唤醒。
+Watcher 每 60 秒查找发给机器人的评审请求。没有它，请求评审不会触发任何事，需要手动运行链路([用法](#用法))。在 macOS 上，用 `watch.sh --plist` 写出 LaunchAgent 并加载它。它会填入插件目录、你的主目录，以及由 `claude`、`gh`、`jq`、`git` 所在目录组成的 `PATH`，所以请在你平时使用这些命令的 shell 中运行。其中的 `caffeinate -i` 让机器保持唤醒。
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>io.github.thswlsqls.pr-quorum</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/usr/bin/caffeinate</string>
-    <string>-i</string>
-    <string><plugin-dir>/scripts/watch.sh</string>
-  </array>
-  <key>StartInterval</key><integer>60</integer>
-  <key>WorkingDirectory</key><string><plugin-dir></string>
-  <key>EnvironmentVariables</key>
-  <dict>
-    <key>PATH</key><string><dirs-containing-claude-gh-jq-git></string>
-  </dict>
-  <key>StandardOutPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-  <key>StandardErrorPath</key><string><home-dir>/Library/Logs/pr-quorum-watch.log</string>
-</dict>
-</plist>
+```bash
+<plugin-dir>/scripts/watch.sh --plist > ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
+launchctl load ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
 ```
 
 不经 launchd 试运行一次：`<plugin-dir>/scripts/watch.sh --once`。Watcher 一次处理一个 PR，机器关机期间到达的请求会在开机后补上。
@@ -425,7 +400,7 @@ flowchart LR
 截至 2026-10：
 
 - 没有经过人工评分的评审：作者的 `human-labels.md` 中没有任何已填写的评分，所以“流程越严格评审越好”尚未验证。
-- 一次完整链路花费 $11–30、耗时 19–47 分钟(各会话 `total_cost_usd` 与 `wall_ms` 之和；从 12 行的 PR #66 到 #61)。
+- 使用 Claude Code 默认模型时，一次完整链路花费 $11–30、耗时 19–47 分钟(各会话 `total_cost_usd` 与 `wall_ms` 之和；从 12 行的 PR #66 到 #61)。
 - 只在一个后端仓库上运行过(全部 14 次运行)；[`frontend.md`](examples/profiles/frontend.md) profile 从未运行过。
 - 风险规则中的路径(`common/security/`、`api/gateway/.*/filter/`、`/api/bff/auth/`)是按最初编写它的仓库定的；开启 `auto_merge` 之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq)。这些信号是路径模式：列表里没有的文件(部署脚本、新 CI 工具的配置)会按普通代码计分。
 - 仅支持 github.com，并由一台机器轮询评审请求。
