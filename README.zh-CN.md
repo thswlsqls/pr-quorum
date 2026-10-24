@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `ae00d24`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `97a3542`
 
 <p align="center">
   <picture>
@@ -12,6 +12,8 @@
 </p>
 
 一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
+
+每个 PR 约消耗 $11–30 的 Claude 用量，耗时 19–47 分钟（截至 2026-10）。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
 
 在 PR 上把机器人账号设为评审人，其余流程无人值守地完成。评审像人类评审一样发布：一条总结，加上挂在代码行上的行内评论。
 
@@ -167,6 +169,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 - [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git` 2.31 或更高版本
 - Linux 上需要构建沙箱用的 `bwrap`(bubblewrap)。macOS 自带 `sandbox-exec`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
+- 一台常开的机器：watcher 在其上轮询，每条链也在其上无人值守地运行 19–47 分钟
 - github.com 上的仓库。不支持 GitHub Enterprise Server 和 ghe.com
 - 默认只运行仓库所有者开的 PR，其余跳过。要运行队友的 PR，把他们加入 `trust.authors` 或 `trust.associations`；组织的仓库需设置 `repos.<name>.owner`([配置 §3](#3-pr-quorumconfigjson))。受信任作者的 PR 描述和 diff 会直接进入以你的 gh 账号推送和合并的会话，所以只信任你愿意让其这样做的人
 
@@ -259,12 +262,12 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 Profile 定义评审维度，以及每名评审员看什么、不看什么。复制一个样例并按你的仓库调整；文件名就是 `profile` 的值。
 
 ```bash
-cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
+cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 ```
 
-样例([`backend.md`](examples/profiles/backend.md)、[`frontend.md`](examples/profiles/frontend.md))是为 Spring Boot 后端和 Next.js 前端写的。其他技术栈请从 [`generic.md`](examples/profiles/generic.md) 开始，填好其中的 `<fill in>` 行；只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
+[`generic.md`](examples/profiles/generic.md) 填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改从 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 开始，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
-然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json`、每个仓库的路径和 profile、gh 登录、令牌文件的权限和账号、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。它只读取，不发布任何内容。
+然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。它只读取，不发布任何内容。
 
 ### 5. Watcher(可选)
 
