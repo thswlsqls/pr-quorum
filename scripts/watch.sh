@@ -6,6 +6,37 @@ set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
 need_cmds claude gh jq git || exit 2
+# --plist prints the macOS LaunchAgent (README Setup §5) for this plugin folder and $HOME. Its PATH is the folders of claude, gh, jq and git
+# found now, then /usr/bin and /bin — launchd starts with a short PATH. Needs no config.json
+if [ "${1:-}" = --plist ]; then
+  dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" path=""
+  for c in claude gh jq git; do d="$(dirname "$(command -v "$c")")"; case ":$path:" in *":$d:"*) ;; *) path="${path:+$path:}$d" ;; esac; done
+  for d in /usr/bin /bin; do case ":$path:" in *":$d:"*) ;; *) path="$path:$d" ;; esac; done
+  cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>io.github.thswlsqls.pr-quorum</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/caffeinate</string>
+    <string>-i</string>
+    <string>$dir/scripts/watch.sh</string>
+  </array>
+  <key>StartInterval</key><integer>60</integer>
+  <key>WorkingDirectory</key><string>$dir</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$path</string>
+  </dict>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/pr-quorum-watch.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/pr-quorum-watch.log</string>
+</dict>
+</plist>
+PLIST
+  exit 0
+fi
 require_dotcom
 trust_check || exit 2
 # The bot login is read only from config.json's bot — if this value and the token file's account disagree,
@@ -213,5 +244,5 @@ case "${1:-}" in
   --once|"") run_once ;;
   # Cleanup only, now — for a manual sweep and for selftest. Clears the stamp so the 30-minute wait does not apply
   --gc-only) rm -f "$PR_QUORUM_HOME/.gc-stamp"; gc_worktrees ;;
-  *) echo "usage: watch.sh [--once | --gc-only]" >&2; exit 1 ;;
+  *) echo "usage: watch.sh [--once | --gc-only | --plist]" >&2; exit 1 ;;
 esac

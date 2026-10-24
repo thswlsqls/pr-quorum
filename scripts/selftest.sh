@@ -596,6 +596,16 @@ p3_no_claude_watch() {
 check "preflight P1 no jq → 'jq not found', exit 2"                 p1_no_jq
 check "preflight P2 no claude → chain exit 2, no stop, no notice"   p2_no_claude_chain
 check "preflight P3 no claude → watch exit 2 before its search"    p3_no_claude_watch
+# P4 — watch.sh --plist, with no config.json: the plugin folder, $HOME and a PATH of the folders claude, gh, jq and git were found in
+p4_plist() {
+  local out want; stub_home; rm "$STUB/home/.pr-quorum/config.json"
+  want="$STUB/bin:$(for c in jq git; do dirname "$(command -v "$c")"; done | awk '!s[$0]++' | paste -sd: -)"
+  out="$(stub_run "$HARNESS_DIR/scripts/watch.sh" --plist 2>&1)" || { echo "$out"; return 1; }
+  grep -qF "<string>$HARNESS_DIR/scripts/watch.sh</string>" <<<"$out" && grep -qF "<key>WorkingDirectory</key><string>$HARNESS_DIR</string>" <<<"$out" \
+    && grep -qF "<key>PATH</key><string>$want" <<<"$out" && grep -qF "<string>$STUB/home/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" \
+    && ! grep -q '<plugin-dir>\|<home-dir>\|<dirs-' <<<"$out" || { echo "PATH want $want: $out"; return 1; }
+}
+check "preflight P4 watch --plist fills the folder, PATH and HOME" p4_plist
 
 # H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
 # a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
