@@ -148,15 +148,18 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
 # Runs one step and judges success by whether the expected record was left. If both tries fail, the chain stops.
 # A session cut by a budget or wall-clock cap is not retried — a second try would only double the cost.
 step() {  # step <name> <completion check function> <settings> <prompt>
-  local name="$1" check="$2" settings="$3" prompt="$4" t
+  local name="$1" check="$2" settings="$3" prompt="$4" t reason
+  reason="$name left no record $MAX_STEP_TRIES times in a row"
   for (( t=1; t<=MAX_STEP_TRIES; t++ )); do
     chain_state "$name" "try $t"
     run_session "$settings" "$prompt" "$name" "$t"
     "$check" && return 0
-    [ -z "$SESSION_CAP" ] || { CAP_STEP="$name"; chain_state "blocked" "$name: $SESSION_CAP — not retried"; exit 4; }
+    [ -z "$SESSION_CAP" ] || { CAP_STEP="$name"; reason="$name: $SESSION_CAP — not retried"; break; }
     log "$name left no record (try $t)"
   done
-  chain_state "blocked" "$name left no record $MAX_STEP_TRIES times in a row"
+  # A stopped Stage 1 has no review, so watch.sh would run it again with the same budget — held-failed keeps it for a person
+  [ "$name" != stage1 ] || "$PR_QUORUM" status "$REPO" "$PR" held-failed >/dev/null || log "could not set status=held-failed"
+  chain_state "blocked" "$reason"
   exit 4
 }
 
@@ -248,9 +251,10 @@ risk_gate() {
     || { chain_state "blocked" "head changed after the merge gate (${GATE_SHA:0:7}) — run the chain again"; exit 3; }
   if [ "$(jq -r '.risk.commented_sha // empty' "$M")" != "$(jq -r '.risk.sha' "$M")" ]; then
     # The key keeps a rerun from posting the same scorecard again when the post went up but commented_sha was not recorded
+    # Without it, a needs-human or ready stop would leave nothing on the PR
     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" "risk-$(jq -r '.risk.sha' "$M" | cut -c1-7)" >/dev/null \
-      && meta_set '.risk.commented_sha = .risk.sha' \
-      || log "failed to post the risk comment — the result is recorded in meta.json"
+      || { chain_state "blocked" "risk scorecard was not posted — run the chain again"; exit 4; }
+    meta_set '.risk.commented_sha = .risk.sha' || log "posted the risk comment but could not record it in meta.json"
   fi
   if [ "$rc" = 3 ]; then
     chain_state "needs-human" "risk $(jq -r '.risk.level' "$M") $(jq -r '.risk.score' "$M") points — merges only with human approval"
@@ -269,14 +273,18 @@ notify_stop() {
   [ "$state" = "blocked" ] || return 0
   reason="$(jq -r '.chain.reason // ""' "$M")"; key="$state|$reason"
   [ "$key" != "$(jq -r '.chain.notified.key // empty' "$M")" ] || return 0
-  [ "$(gh pr view "$PR" --repo "$SLUG" --json state --jq '.state' 2>/dev/null)" = "OPEN" ] \
-    || { log "stop notice not posted — the PR is not open or its state could not be read"; return 0; }
+  # Skipped only when GitHub says the PR is gone — a failed read posts anyway, since the stop may be that very read failing
+  case "$(gh pr view "$PR" --repo "$SLUG" --json state --jq '.state' 2>/dev/null)" in
+    MERGED|CLOSED) log "stop notice not posted — the PR is not open"; return 0 ;;
+  esac
   mkdir -p "$RUN/outputs"
   { printf 'The automated review chain stopped at `%s`: %s\n\n' "$state" "$reason"
     printf 'It does not resume on its own. Once the cause is dealt with, run `<plugin-dir>/scripts/chain.sh %s %s` to continue from where it stopped.\n' "$REPO" "$PR"
     case "$CAP_STEP" in stage1|stage2|stage3)
       printf '\nThe %s session was cut off and may have left its review lock in place. The next run takes that lock over because its process has exited (a lock also expires after 3 hours); if it still reports `lock held`, release it with `<plugin-dir>/scripts/pr-quorum.sh unlock %s %s`.\n' "$CAP_STEP" "$REPO" "$PR" ;;
-    esac; } > "$body"
+    esac
+    [ "$(jq -r '.status' "$M")" != held-failed ] \
+      || printf '\nStage 1 is held at `held-failed`: run `<plugin-dir>/scripts/pr-quorum.sh status %s %s pending` first, then the chain.\n' "$REPO" "$PR"; } > "$body"
   # Keyed by state|reason and the count of recorded notices, so a notice that went up without being recorded is not posted again,
   # while the same stop coming back after a different one gets a new key
   if "$PR_QUORUM" comment "$REPO" "$PR" "$body" "stop-$(printf '%s' "$key" | cksum | cut -d' ' -f1)-$(jq -r '.chain.notified.n // 0' "$M")" >/dev/null; then
@@ -331,10 +339,19 @@ trap '[ -z "$SESSION_PID" ] || kill -TERM -- "-$SESSION_PID" 2>/dev/null; notify
 case "$(jq -r '.chain.state // empty' "$M")" in
   merged) log "already merged"; exit 0 ;;
 esac
-case "$(jq -r '.status' "$M")" in
+# Posts outputs/<fork|large>-pr.md under its key. Called again on a rerun: the key adopts a notice already on the PR, or posts one that failed
+hold_notice() {
+  local key="$1"
+  [ "$1" = fork ] || { key="$(head_sha)" && key="large-${key:0:7}" || key=""; }
+  [ ! -f "$RUN/outputs/$1-pr.md" ] || "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/$1-pr.md" ${key:+"$key"} >/dev/null \
+    || log "failed to post the $1 notice comment"
+}
+st="$(jq -r '.status' "$M")"
+case "$st" in
   # held-large and held-fork already have their notice — the large-PR or fork comment, or the one posted when Stage 1 held it
-  held-large|held-fork|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
-  held-*|보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
+  held-large|held-fork|"보류(대형PR)") NO_NOTICE=1; [ "${st#held-}" = "$st" ] || hold_notice "${st#held-}"
+     chain_state "blocked" "status=$st — a stage ended on hold"; exit 3 ;;
+  held-*|보류*) chain_state "blocked" "status=$st — a stage ended on hold"; exit 3 ;;
 esac
 
 # A fork PR stops before any session runs. The notice comment is posted once — a later call stops at the hold check above first
@@ -343,7 +360,7 @@ if [ -n "$fork" ]; then
   mkdir -p "$RUN/outputs"
   printf 'This PR comes from %s. The automated chain does not run on fork PRs because its author pass pushes fixes to the PR branch, which is outside this repository. Push the branch to this repository and open a new PR, or ask for a human review.\n' \
     "$fork" > "$RUN/outputs/fork-pr.md"
-  "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/fork-pr.md" fork >/dev/null || log "failed to post the fork notice comment"
+  hold_notice fork
   NO_NOTICE=1   # The fork comment is this stop's notice
   chain_state "blocked" "PR comes from a fork ($fork) — the author pass cannot push to it"; exit 3
 fi
@@ -357,8 +374,7 @@ case "$pre_rc" in
      mkdir -p "$RUN/outputs"
      printf 'This change is too large for automated review (%s; cutoff: more than 50 files or 3,000 lines). Please split the PR or have a person review it.\n' \
        "$(head -1 <<<"$pre_out" | sed 's/ (cut.*//')" > "$RUN/outputs/large-pr.md"
-     lk="$(head_sha)" && lk="large-${lk:0:7}" || lk=""
-     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" ${lk:+"$lk"} >/dev/null || log "failed to post the large-PR notice comment"
+     hold_notice large
      NO_NOTICE=1   # The large-PR comment is this stop's notice
      chain_state "blocked" "hit the large-PR cutoff"; exit 3 ;;
   *) chain_state "blocked" "large-PR check failed (exit $pre_rc)"; exit 4 ;;
@@ -376,7 +392,18 @@ PR_JSON="$(pr_state)" || { chain_state "blocked" "could not read the PR state fr
   || { chain_state "blocked" "conflicts with main — a person resolves the conflict, then runs the chain again"; exit 3; }
 
 [ "$(author_count)" -ge 1 ] || run_author
-[ "$(stage2_count)" -ge 1 ] || run_stage2
+# Stage 2 judges what the author pushed. A first pass that pushed nothing onto the head Stage 1 judged leaves it nothing to judge, so the
+# chain records an empty pass instead of a session — Stage 3's order check and the merge gate read that record (rules/01-stages.md §1)
+if [ "$(stage2_count)" -lt 1 ]; then
+  HEAD_NOW="$(head_sha)" || { chain_state "blocked" "could not read the PR head from GitHub after the author pass — run the chain again"; exit 4; }
+  if ! author_pushed && [ "$HEAD_NOW" = "$(jq -r '.eval_sha // empty' "$M")" ]; then
+    meta_set '.stage2 += [{round:((.stage2 | length) + 1), stage_sha:$h, last_judged_sha:$h, at:$at, verdicts:{}, skipped:"no author push"}]' \
+      --arg h "$HEAD_NOW" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    log "Stage 2 skipped — the author pass pushed nothing onto ${HEAD_NOW:0:7}"
+  else
+    run_stage2
+  fi
+fi
 stage3_done || run_stage3
 
 # After Stage 3: loop (author → Stage 2) until the author says nothing more needs fixing
