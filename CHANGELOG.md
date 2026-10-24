@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- `watch.sh --cron` prints the two crontab lines with the plugin folder, `$HOME` and the same `PATH` as `--plist`, quoting the folder, lock and log for cron's `/bin/sh`. README Setup §5 uses it instead of a crontab with placeholders.
+
 ## 0.10.0
 
 No new `config.json` keys. `models` changes meaning: a `null` or missing `session` or `subagent` now runs `claude-sonnet-5-5`; set it to `""` to keep Claude Code's default, as before.
