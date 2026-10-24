@@ -117,7 +117,13 @@ take() {
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
   search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
+  repo) [ -e "$S/push" ] && { echo main; exit 0; }; exit 1 ;;
   pr)
+    # author-push.sh test (H2): a same-repository PR on branch pr whose head on GitHub is the SHA in $S/push
+    if [ -e "$S/push" ]; then
+      case "$*" in *isCrossRepository*) echo false ;; *headRefName*) echo pr ;; *headRefOid*) cat "$S/push" ;; esac
+      exit 0
+    fi
     # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup
     if [ -e "$S/chain" ]; then
       case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) echo OPEN ;; esac
@@ -135,7 +141,10 @@ out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
     take fail-pr
-    echo '{"head":{"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' | out ;;
+    # fork (F1–F3): its content (alice/demo, or null for a deleted fork) replaces head.repo
+    h=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; [ ! -s "$S/head" ] || h="$(cat "$S/head")"
+    echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' \
+      | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -150,7 +159,20 @@ case "$path" in
   */pulls/1/comments)
     [ ! -e "$S/fail-comments" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     cat "$S/comments.json" ;;
-  */issues/1/comments) cat > /dev/null; echo '{"id":5}' | out ;;
+  */pulls/1/comments/*/replies)
+    # Like a review, the reply exists on the server before fail-reply loses the response
+    b="$(cat)"; n=$(( $(cat "$S/replies") + 1 )); echo "$n" > "$S/replies"
+    c="${path%/replies}"; c="${c##*/}"
+    jq --argjson id $((900 + n)) --argjson c "$c" --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, in_reply_to_id:$c, body:$p.body}]' \
+      "$S/comments.json" > "$S/t" && mv "$S/t" "$S/comments.json"
+    [ ! -e "$S/fail-reply" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "{\"id\":$((900 + n))}" | out ;;
+  */issues/1/comments)
+    [ -n "$input" ] || { cat "$S/issues.json"; exit 0; }
+    b="$(cat)"; n=$(( $(cat "$S/icomments") + 1 )); echo "$n" > "$S/icomments"
+    jq --argjson id $((500 + n)) --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, body:$p.body}]' "$S/issues.json" > "$S/t" && mv "$S/t" "$S/issues.json"
+    [ ! -e "$S/fail-icomment" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    echo "{\"id\":$((500 + n))}" | out ;;
   repos/acme/demo)
     [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     [ -e "$S/repo-ok" ] && exit 0
@@ -162,9 +184,25 @@ case "$path" in
 esac
 GH
 chmod +x "$STUB/bin/gh"
-# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH
-printf '#!/usr/bin/env bash\necho "claude $*" >> "$STUB_STATE/calls.log"; exit 1\n' > "$STUB/bin/claude"
-chmod +x "$STUB/bin/claude"
+# No test may start a session — a claude call is logged and fails instead of reaching the real one further down PATH.
+# When $STUB_STATE/session-git names a worktree (H1), it first commits there the way an author session does
+cat > "$STUB/bin/claude" <<'CLAUDE'
+#!/usr/bin/env bash
+echo "claude $*" >> "$STUB_STATE/calls.log"
+[ ! -f "$STUB_STATE/session-git" ] \
+  || ( cd "$(cat "$STUB_STATE/session-git")" && echo x >> a && git add a && git commit -qm s ) >> "$STUB_STATE/calls.log" 2>&1
+exit 1
+CLAUDE
+# git's ssh transport for H2: the last argument is the remote command (git-receive-pack 'acme/demo.git'), run against $STUB/ssh
+cat > "$STUB/bin/stub-ssh" <<'SSH'
+#!/usr/bin/env bash
+c="${!#}"; cd "$(dirname "$0")/../ssh" && eval "git ${c#git-}"
+SSH
+# H2·H3: a mktemp with no template lands in $TMPDIR (BSD mktemp falls back to the user temp folder when TMPDIR is missing) — refuse it
+mkdir -p "$STUB/tmpbin"
+printf '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in -*) ;; *) exec %s "$@" ;; esac; done\necho "mktemp with no template" >&2; exit 1\n' \
+  "$(command -v mktemp)" > "$STUB/tmpbin/mktemp"
+chmod +x "$STUB/bin/claude" "$STUB/bin/stub-ssh" "$STUB/tmpbin/mktemp"
 
 stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/demo-pr1 with a stage1 draft that passes PG1 and PG5
   rm -rf "$STUB/home" "$STUB/state"
@@ -172,16 +210,18 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
   jq -n --arg p "$STUB/repo/demo" '{owner:"acme", bot:"quorum-bot", repos:{demo:{path:$p, profile:"backend"}}}' > "$STUB/home/.pr-quorum/config.json"
   echo PR_QUORUM_BOT_TOKEN=test-token > "$STUB/home/.config/pr-quorum/bot.env"
   jq -n --arg h "$STUB_SHA" '{owner:"acme", repo:"demo", pr:1, base_sha:"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", eval_sha:$h, profile:"backend",
-                             lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"pending"}' > "$STUB_RUN/meta.json"
+                             lock:{stage:2}, attempts:0, stage1:[], stage2:[{stage_sha:$h}], stage3:null, status:"pending"}' > "$STUB_RUN/meta.json"
   printf '## Summary\n\npraise — the names read well.\n\nAxes: `R-A` Correctness\n' > "$STUB_RUN/outputs/stage1/summary.md"
   echo '[{"code":"S1-1","path":"src/a.txt","line":2,"side":"RIGHT","axis":"R-A","grade":"minor","body":"R-A (Correctness) — b looks off."}]' \
     > "$STUB_RUN/outputs/stage1/comments.json"
   cp "$STUB_RUN/outputs/stage1/"* "$STUB_RUN/outputs/stage3/"
   echo 0 > "$STUB/state/posts"; echo '[]' > "$STUB/state/reviews.json"; echo '[]' > "$STUB/state/comments.json"; : > "$STUB/state/calls.log"
+  echo 0 > "$STUB/state/replies"; echo 0 > "$STUB/state/icomments"; echo '[]' > "$STUB/state/issues.json"
+  printf 'Fixed in the latest push.\n' > "$STUB_RUN/outputs/stage3/reply.md"
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
-    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID
+    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT
     "$@" )
 }
 stub_post() {  # stub_post [stage] — post-review of that stage's draft
@@ -189,6 +229,7 @@ stub_post() {  # stub_post [stage] — post-review of that stage's draft
   stub_run "$PR_QUORUM" post-review demo 1 "$STUB_SHA" "$STUB_RUN/outputs/$s/summary.md" "$STUB_RUN/outputs/$s/comments.json" "$s"
 }
 stub_posts() { cat "$STUB/state/posts"; }
+stub_notices() { cat "$STUB/state/icomments"; }   # PR comments posted (GETs not counted)
 stub_meta() { jq -r "$@" "$STUB_RUN/meta.json"; }
 
 # T1 — posted, then the comment-id GET fails: exit 4 with nothing recorded; the rerun adopts the review instead of posting again
@@ -273,6 +314,53 @@ check "api T5 GET retries 5xx, not 404"         t5_get_retry
 check "post T6 link at the posting copy refused" t6_posting_link_refused
 check "post T7 stage3 reposts keep earlier ids known" t7_repost_keeps_known
 
+# R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
+stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
+stub_comment() { stub_run "$PR_QUORUM" comment demo 1 "$STUB_RUN/outputs/stage3/reply.md" "$1"; }
+stub_replies() { cat "$STUB/state/replies"; }
+# R1 — the reply went up but its response was lost: exit 4, then the rerun records it without a second POST
+r1_reply_lost() {
+  local rc=0 out
+  stub_home; touch "$STUB/state/fail-reply"
+  stub_reply >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_replies)" = 1 ] || { echo "lost response: exit $rc, POST $(stub_replies) (want 4, 1)"; return 1; }
+  rm "$STUB/state/fail-reply"
+  out="$(stub_reply 2>&1)" || { echo "rerun failed: $out"; return 1; }
+  grep -q adopted <<<"$out" && [ "$(stub_replies)" = 1 ] && [ "$(stub_meta -c '[.stage2[-1].replies[]]')" = '[901]' ] \
+    || { echo "rerun: POST $(stub_replies), stage2[-1].replies $(stub_meta -c '.stage2[-1].replies') (want 1, [901]): $out"; return 1; }
+}
+# R2 — a keyed comment whose response was lost: the rerun prints the first comment's id and posts nothing
+r2_comment_same_key() {
+  local rc=0 out
+  stub_home; touch "$STUB/state/fail-icomment"
+  stub_comment risk-aaaaaaa >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] || { echo "lost response: expected exit 4, got $rc"; return 1; }
+  rm "$STUB/state/fail-icomment"
+  out="$(stub_comment risk-aaaaaaa 2>/dev/null)" || { echo "rerun failed"; return 1; }
+  [ "$out" = 501 ] && [ "$(stub_notices)" = 1 ] || { echo "rerun printed '$out', POST $(stub_notices) (want 501, 1)"; return 1; }
+}
+# R3 — posts that are meant to go up: another key, a new head, a reply already recorded; each body carries its marker
+r3_deliberate_reposts() {
+  local out
+  r2_comment_same_key >/dev/null || return 1
+  out="$(stub_comment risk-bbbbbbb 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_notices)" = 2 ] || { echo "other key: POST $(stub_notices) (want 2)"; return 1; }
+  jq -e 'all(.[]; .body | contains("<!-- pr-quorum:comment:risk-"))' "$STUB/state/issues.json" >/dev/null \
+    || { echo "comment marker missing: $(jq -c '[.[].body]' "$STUB/state/issues.json")"; return 1; }
+  r1_reply_lost >/dev/null || return 1
+  echo cccccccccccccccccccccccccccccccccccccccc > "$STUB/state/head"
+  out="$(stub_reply 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_replies)" = 2 ] || { echo "new head: POST $(stub_replies) (want 2)"; return 1; }
+  jq -e '[.[] | select(.id > 900) | .body | contains("<!-- pr-quorum:reply:111000:2:")] | length == 2 and all' "$STUB/state/comments.json" >/dev/null \
+    || { echo "reply marker missing: $(jq -c '[.[].body]' "$STUB/state/comments.json")"; return 1; }
+  stub_home
+  out="$(stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_replies)" = 2 ] && ! grep -q adopted <<<"$out" || { echo "recorded reply: POST $(stub_replies) (want 2): $out"; return 1; }
+}
+check "reply R1 lost response, rerun adopts"         r1_reply_lost
+check "comment R2 same key, rerun posts nothing"     r2_comment_same_key
+check "reply/comment R3 deliberate reposts still post" r3_deliberate_reposts
+
 # C1–C3 — chain.sh on a PR whose records already reach the merge gate (Stage 1 posted, Stage 2 and 3 done, two author passes,
 # the last one pushing nothing), so no session runs. A GitHub read failing at the gate must stop at blocked (exit 4) with one stop notice
 stub_chain_home() {
@@ -282,7 +370,6 @@ stub_chain_home() {
   jq -n --arg h "$STUB_SHA" '{pushed:true, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-01.json"
   jq -n --arg h "$STUB_SHA" '{pushed:false, to_sha:$h, tests:{result:"pass"}, blocking_open:0}' > "$STUB_RUN/outputs/author/round-02.json"
 }
-stub_notices() { grep -c 'issues/1/comments' "$STUB/state/calls.log"; }
 chain_stop() {  # chain_stop <reason fragment> — runs the chain, expects exit 4, blocked with that reason, one notice in total, no session
   local rc=0 out
   out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
@@ -299,12 +386,99 @@ c3_same_stop_once() {
   c1_gate_state_fails || return 1
   printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'PR state'
 }
+# C5 — stop A, then a different stop B, then A again: A comes back, so it gets a notice again (three in total)
+c5_stop_returns() {
+  local rc
+  c1_gate_state_fails || return 1
+  printf 'ok\nok\nHTTP 404: Not Found\n' > "$STUB/state/fail-pr"; rc=0; stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_notices)" = 2 ] || { echo "B: exit $rc, notices $(stub_notices) (want 4, 2)"; return 1; }
+  rm -f "$STUB/state/fail-pr"; printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; rc=0
+  stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_notices)" = 3 ] || { echo "A again: exit $rc, notices $(stub_notices) (want 4, 3)"; return 1; }
+}
+# C6 — a GIT_CONFIG_COUNT that is not a number stops the chain before any session instead of breaking every git call
+c6_bad_git_config_count() {
+  local rc=0 out
+  stub_chain_home; out="$(stub_run env GIT_CONFIG_COUNT=x "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'GIT_CONFIG_COUNT' <<<"$out" && ! grep -q '^claude' "$STUB/state/calls.log" || { echo "exit $rc (want 2)"; echo "$out"; return 1; }
+}
 check "chain C1 gate PR-state read fails → blocked, one notice" c1_gate_state_fails
 check "chain C2 gate head read fails → blocked, one notice"     c2_gate_head_fails
 # C4 — the conflict check before the author pass gets a 502
 c4_conflict_check_fails() { stub_chain_home; printf 'HTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; chain_stop 'before the author pass'; }
 check "chain C3 same stop again posts no second notice"        c3_same_stop_once
+check "chain C5 a stop that comes back gets a notice again"    c5_stop_returns
+check "chain C6 non-numeric GIT_CONFIG_COUNT → exit 2"           c6_bad_git_config_count
 check "chain C4 conflict-check read fails → blocked, one notice" c4_conflict_check_fails
+
+# F1–F3 — chain.sh on a fork PR with no Stage 1 record: it stops at held-fork (exit 3) with one fork notice and no session
+fork_stop() {  # fork_stop <head.repo> — runs the chain on a fresh fake HOME with that head repository
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo "$1" > "$STUB/state/fork"
+  fork_again
+}
+fork_again() {  # runs the chain again on the same records, with the same expectations
+  local rc=0 out
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  ! grep -q '^claude' "$STUB/state/calls.log" || { echo "a session was started"; echo "$out"; return 1; }
+  [ "$rc" = 3 ] && [ "$(stub_meta '.status')" = held-fork ] && [ "$(stub_meta '.chain.state')" = blocked ] \
+    && grep -q fork <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "exit $rc, status $(stub_meta '.status'), state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want 3, held-fork, blocked, 'fork', 1)"; echo "$out"; return 1; }
+}
+f3_fork_again_once() { fork_stop alice/demo || return 1; fork_again; }
+check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alice/demo
+check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
+check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
+
+# H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
+# a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
+hooked_repo() {  # hooked_repo — $STUB/repo/demo on core.hooksPath=.husky, a bare copy as acme/demo under $STUB/ssh, and HOOKED_WT on branch pr
+  local r="$STUB/repo/demo" h
+  HOOKED_WT="$STUB/repo/demo-worktrees/pr-author-1"
+  rm -rf "$STUB/repo" "$STUB/ssh"; mkdir -p "$r/.husky" "$STUB/ssh/acme"
+  for h in pre-commit post-index-change reference-transaction pre-push; do
+    printf '#!/bin/sh\necho %s >> "%s"\n' "$h" "$STUB/state/hooks-ran" > "$r/.husky/$h"; chmod +x "$r/.husky/$h"
+  done
+  git -C "$r" init -q && git -C "$r" config user.name t && git -C "$r" config user.email t@t && git -C "$r" config core.hooksPath .husky \
+    && echo a > "$r/a" && git -C "$r" add -A && git -C "$r" commit -qm init || return 1
+  [ -s "$STUB/state/hooks-ran" ] || { echo "the test hooks do not run at all"; return 1; }
+  git -C "$r" branch pr && git clone -q --bare "$r" "$STUB/ssh/acme/demo.git" && git -C "$r" remote add origin git@github.com:acme/demo.git \
+    && git -C "$r" worktree add -q "$HOOKED_WT" pr && rm -f "$STUB/state/hooks-ran"
+}
+# H1 — the author step's session commits in the worktree twice (two tries, no record, blocked): two commits, no hook ran
+h1_session_hooks_off() {
+  local rc=0 out
+  stub_chain_home; rm "$STUB_RUN/outputs/author/round-02.json"; hooked_repo || return 1
+  echo "$HOOKED_WT" > "$STUB/state/session-git"
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(git -C "$HOOKED_WT" rev-list --count HEAD)" = 3 ] \
+    || { echo "exit $rc, $(git -C "$HOOKED_WT" rev-list --count HEAD) commits (want 4, 3)"; echo "$out"; return 1; }
+  [ ! -e "$STUB/state/hooks-ran" ] || { echo "hooks ran in the session: $(paste -sd ' ' - < "$STUB/state/hooks-ran")"; return 1; }
+}
+# H2 — author-push.sh, called with no chain environment and no usable $TMPDIR: the push lands, no hook ran, its temp file is gone
+h2_push_hooks_off() {
+  local rc=0 out
+  stub_home; hooked_repo || return 1
+  git -C "$HOOKED_WT" rev-parse HEAD > "$STUB/state/push"
+  echo x >> "$HOOKED_WT/a" && git -C "$HOOKED_WT" -c core.hooksPath=/dev/null commit -qam fix || return 1
+  out="$(cd "$HOOKED_WT" && stub_run env PATH="$STUB/tmpbin:$STUB/bin:$PATH" TMPDIR="$STUB/no-such-dir" GIT_SSH_VARIANT=simple GIT_SSH_COMMAND="$STUB/bin/stub-ssh" \
+         "$HARNESS_DIR/scripts/author-push.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 0 ] && [ "$(git -C "$STUB/ssh/acme/demo.git" rev-parse refs/heads/pr)" = "$(git -C "$HOOKED_WT" rev-parse HEAD)" ] \
+    || { echo "exit $rc, remote pr $(git -C "$STUB/ssh/acme/demo.git" rev-parse --short refs/heads/pr) (want 0, $(git -C "$HOOKED_WT" rev-parse --short HEAD))"; echo "$out"; return 1; }
+  [ ! -e "$STUB/state/hooks-ran" ] || { echo "hooks ran in the push: $(paste -sd ' ' - < "$STUB/state/hooks-ran")"; return 1; }
+  [ -d "$STUB/home/.pr-quorum/tmp" ] && [ -z "$(ls -A "$STUB/home/.pr-quorum/tmp")" ] || { echo "~/.pr-quorum/tmp missing or not emptied"; return 1; }
+}
+# H3 — pr-quorum.sh keeps its temp files under ~/.pr-quorum/tmp, not $TMPDIR, which a build's leftover process can write
+h3_harness_tmp() {
+  local out
+  stub_home
+  out="$(stub_run env PATH="$STUB/tmpbin:$STUB/bin:$PATH" TMPDIR="$STUB/no-such-dir" "$PR_QUORUM" ranges demo 1 "$STUB_SHA" 2>&1)" || { echo "$out"; return 1; }
+  [ -d "$STUB/home/.pr-quorum/tmp" ] && [ -z "$(ls -A "$STUB/home/.pr-quorum/tmp")" ] || { echo "~/.pr-quorum/tmp missing or not emptied"; return 1; }
+}
+if [ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ]; then
+  check "hooks H1 chain sessions run no repository hook"      h1_session_hooks_off
+else echo "warning — git does not read GIT_CONFIG_COUNT (2.31+) — skipping H1"; fi
+check "hooks H2 author-push runs no repository hook"          h2_push_hooks_off
+check "tmp H3 harness temp files under ~/.pr-quorum/tmp"      h3_harness_tmp
 
 # G1–G4 — watch.sh worktree cleanup on a temp repository with worktrees for PR 1 (MERGED), 2 (CLOSED), 3 (OPEN), 4 (lookup fails)
 stub_worktrees() {
@@ -367,7 +541,7 @@ d2_repo_404() {
   out="$(stub_doctor)"
   grep -q 'FAIL — demo repository acme/demo not found' <<<"$out" && ! grep -q 'not a collaborator' <<<"$out" || { echo "404: $out"; return 1; }
   touch "$STUB/state/fail-repo"; out="$(stub_doctor)"
-  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'not found\|not a collaborator' <<<"$out" \
+  grep -q 'FAIL — demo cannot reach GitHub for acme/demo: HTTP 502' <<<"$out" && ! grep -q 'repository acme/demo not found\|not a collaborator' <<<"$out" \
     || { echo "502: $out"; return 1; }
 }
 d2b_collaborator_error() {

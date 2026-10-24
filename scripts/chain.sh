@@ -28,6 +28,12 @@ trust_check || exit 2
 # Session permissions are rendered from templates on every run — the absolute script paths point at this plugin folder
 render_settings "$HARNESS_DIR" settings.json
 render_settings "$HARNESS_DIR" author-settings.json
+# Hooks under a relative core.hooksPath (husky) live in the worktree, which PRs and builds write — no git call below runs them (harness.md §3-1)
+[ "$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=pq.probe GIT_CONFIG_VALUE_0=1 git config --get pq.probe 2>/dev/null)" = 1 ] \
+  || { echo "git 2.31+ is needed (GIT_CONFIG_COUNT) to turn off repository hooks in sessions" >&2; exit 2; }
+n="${GIT_CONFIG_COUNT:-0}"
+[[ "$n" =~ ^[0-9]+$ ]] || { echo "GIT_CONFIG_COUNT in the environment is not a number ($n) — unset it or fix it" >&2; exit 2; }
+export "GIT_CONFIG_KEY_$n=core.hooksPath" "GIT_CONFIG_VALUE_$n=/dev/null" GIT_CONFIG_COUNT=$((n+1))
 RUN="$PR_QUORUM_HOME/runs/$REPO-pr$PR"
 M="$RUN/meta.json"
 AUTHOR_DIR="$RUN/outputs/author"
@@ -239,7 +245,8 @@ risk_gate() {
   [ "$(jq -r '.risk.sha' "$M")" = "$GATE_SHA" ] \
     || { chain_state "blocked" "head changed after the merge gate (${GATE_SHA:0:7}) — run the chain again"; exit 3; }
   if [ "$(jq -r '.risk.commented_sha // empty' "$M")" != "$(jq -r '.risk.sha' "$M")" ]; then
-    "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" >/dev/null \
+    # The key keeps a rerun from posting the same scorecard again when the post went up but commented_sha was not recorded
+    "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" "risk-$(jq -r '.risk.sha' "$M" | cut -c1-7)" >/dev/null \
       && meta_set '.risk.commented_sha = .risk.sha' \
       || log "failed to post the risk comment — the result is recorded in meta.json"
   fi
@@ -268,8 +275,10 @@ notify_stop() {
     case "$CAP_STEP" in stage1|stage2|stage3)
       printf '\nThe %s session was cut off and may have left its review lock in place. The next run takes that lock over because its process has exited (a lock also expires after 3 hours); if it still reports `lock held`, release it with `<plugin-dir>/scripts/pr-quorum.sh unlock %s %s`.\n' "$CAP_STEP" "$REPO" "$PR" ;;
     esac; } > "$body"
-  if "$PR_QUORUM" comment "$REPO" "$PR" "$body" >/dev/null; then
-    meta_set '.chain.notified = {key:$k, at:$at}' --arg k "$key" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  # Keyed by state|reason and the count of recorded notices, so a notice that went up without being recorded is not posted again,
+  # while the same stop coming back after a different one gets a new key
+  if "$PR_QUORUM" comment "$REPO" "$PR" "$body" "stop-$(printf '%s' "$key" | cksum | cut -d' ' -f1)-$(jq -r '.chain.notified.n // 0' "$M")" >/dev/null; then
+    meta_set '.chain.notified = {key:$k, at:$at, n:((.chain.notified.n // 0) + 1)}' --arg k "$key" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
       || log "posted the stop notice but could not record it in meta.json"
   else
     log "failed to post the stop notice — chain.state is recorded in meta.json"
@@ -286,7 +295,10 @@ do_merge() {
 
 # ---------- Main ----------
 # Same check as watch.sh, read again from the API — even if a person calls chain.sh directly, a PR from an untrusted author never reaches a session
-author="$(gh api "repos/$SLUG/pulls/$PR" --jq '"\(.user.login) \(.author_association)"')" || die "could not check the PR author" 4
+pj="$(gh api "repos/$SLUG/pulls/$PR")" || die "could not check the PR author" 4
+author="$(jq -r '"\(.user.login) \(.author_association)"' <<<"$pj")"
+# A fork keeps the head branch outside this repository, so the author pass could not push to it. A null head.repo is a deleted fork
+fork="$(jq -r 'if .head.repo == null then "a deleted fork" elif (.head.repo.full_name|ascii_downcase) != (.base.repo.full_name|ascii_downcase) then .head.repo.full_name else empty end' <<<"$pj")"
 trust_rc=0; is_trusted "${author% *}" "${author#* }" || trust_rc=$?
 [ "$trust_rc" != 2 ] || die "trust in config.json is invalid" 2
 [ "$trust_rc" = 0 ] || die "author is not trusted (${author% *}, ${author#* }) — not running the chain" 3
@@ -318,10 +330,21 @@ case "$(jq -r '.chain.state // empty' "$M")" in
   merged) log "already merged"; exit 0 ;;
 esac
 case "$(jq -r '.status' "$M")" in
-  # held-large already has its notice — the large-PR comment, or the one posted when Stage 1 held it
-  held-large|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
+  # held-large and held-fork already have their notice — the large-PR or fork comment, or the one posted when Stage 1 held it
+  held-large|held-fork|"보류(대형PR)") NO_NOTICE=1; chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
   held-*|보류*) chain_state "blocked" "status=$(jq -r '.status' "$M") — a stage ended on hold"; exit 3 ;;
 esac
+
+# A fork PR stops before any session runs. The notice comment is posted once — a later call stops at the hold check above first
+if [ -n "$fork" ]; then
+  "$PR_QUORUM" status "$REPO" "$PR" "held-fork" >/dev/null
+  mkdir -p "$RUN/outputs"
+  printf 'This PR comes from %s. The automated chain does not run on fork PRs because its author pass pushes fixes to the PR branch, which is outside this repository. Push the branch to this repository and open a new PR, or ask for a human review.\n' \
+    "$fork" > "$RUN/outputs/fork-pr.md"
+  "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/fork-pr.md" fork >/dev/null || log "failed to post the fork notice comment"
+  NO_NOTICE=1   # The fork comment is this stop's notice
+  chain_state "blocked" "PR comes from a fork ($fork) — the author pass cannot push to it"; exit 3
+fi
 
 # The large-PR cutoff is checked here, not left to the session. The notice comment is posted once — a later call stops at the hold check above first
 pre_rc=0
@@ -332,7 +355,8 @@ case "$pre_rc" in
      mkdir -p "$RUN/outputs"
      printf 'This change is too large for automated review (%s; cutoff: more than 50 files or 3,000 lines). Please split the PR or have a person review it.\n' \
        "$(head -1 <<<"$pre_out" | sed 's/ (cut.*//')" > "$RUN/outputs/large-pr.md"
-     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" >/dev/null || log "failed to post the large-PR notice comment"
+     lk="$(head_sha)" && lk="large-${lk:0:7}" || lk=""
+     "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/large-pr.md" ${lk:+"$lk"} >/dev/null || log "failed to post the large-PR notice comment"
      NO_NOTICE=1   # The large-PR comment is this stop's notice
      chain_state "blocked" "hit the large-PR cutoff"; exit 3 ;;
   *) chain_state "blocked" "large-PR check failed (exit $pre_rc)"; exit 4 ;;

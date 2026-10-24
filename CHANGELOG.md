@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.0
+
+No new `config.json` keys. `git` 2.31 or later is now required, and fork PRs stop before Stage 1.
+
+- Repository git hooks no longer run in the chain. A repository that points `core.hooksPath` into its own tree (husky does) used to run a PR's hooks, or ones a build wrote into the worktree, on the author session's `git commit` and on `author-push.sh`'s `git push`, outside the build sandbox. The chain now gives every session `core.hooksPath=/dev/null` through `GIT_CONFIG_*`, which a session cannot override under its permissions. `author-push.sh` and the build's `git status` pass it with `-c`. This also turns off git-lfs's pre-push upload, so a PR that adds LFS objects needs a person to push them. The chain exits 2 before any session if `git` is older than 2.31, the first version that reads `GIT_CONFIG_*`, and `doctor.sh` checks the version.
+- The scripts keep their temp files under `~/.pr-quorum/tmp/` instead of `$TMPDIR`. A process a sandboxed build left running could write `$TMPDIR` and rewrite the risk score file before the gate read it. The build sandbox cannot read or write `~/.pr-quorum`. The watcher's cleanup removes entries there older than a day, which a killed script leaves behind. A build's leftover processes are still not stopped on macOS ([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
+- `reply` and `comment` no longer post twice when a rerun follows a post whose response was lost or whose recording failed. A reply ends with a hidden marker (comment id, stage, head SHA), and an unrecorded bot reply with the same marker is recorded instead of posted again. `reply` exits 4 when it posts but cannot record. `comment` takes an optional key (`comment <repo> <pr> <file> [<key>]`) and skips posting when a bot comment with that key exists. The chain keys the risk scorecard, the stop notice, the large-PR notice, and the fork notice. A stop notice's key includes how many notices were recorded before it, so a stop that comes back after a different one is announced again.
+- A PR whose head is in a fork (or a deleted fork) stops at `held-fork` before Stage 1 with one comment, instead of spending Stage 1 and then failing at the author's push. The watcher skips it like the other `held-*` states.
+- CI: `.github/workflows/selftest.yml` runs `bash -n` and `selftest.sh` on macOS (`/bin/bash` 3.2) and Ubuntu for each PR. The Ubuntu job runs without `bwrap`: its build sandbox checks do not pass yet.
+
 ## 0.5.0
 
 No new `config.json` keys. The risk score counts more files, so some PRs that were `low` now are not.

@@ -15,7 +15,7 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_ATTEMPTS=2
 SEARCH_LIMIT=100
-SEARCH_ERR="$(mktemp)"
+SEARCH_ERR="$(pq_mktemp)"
 GC_CACHE=""   # "<repo> <N> <state>" lines — PR states already asked in this cleanup (bash 3.2 has no associative arrays)
 trap 'rm -f "$SEARCH_ERR" ${GC_CACHE:+"$GC_CACHE"}' EXIT
 
@@ -64,7 +64,9 @@ gc_worktrees() {
   local repo slug path dir wt name n st
   [ -z "$(find "$PR_QUORUM_HOME/.gc-stamp" -mmin -30 2>/dev/null)" ] || return 0
   touch "$PR_QUORUM_HOME/.gc-stamp"
-  [ -n "$GC_CACHE" ] || GC_CACHE="$(mktemp)"
+  # Temp files a killed script left behind (scripts keep them under ~/.pr-quorum/tmp, which the OS does not clean)
+  [ ! -d "$PR_QUORUM_HOME/tmp" ] || find "$PR_QUORUM_HOME/tmp" -mindepth 1 -maxdepth 1 -mmin +1440 -exec rm -rf {} + 2>/dev/null || true
+  [ -n "$GC_CACHE" ] || GC_CACHE="$(pq_mktemp)"
   : > "$GC_CACHE"
   for repo in $(cfg '.repos | keys[]'); do
     path="$(cfg --arg r "$repo" '.repos[$r].path')"
