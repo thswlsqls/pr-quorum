@@ -116,7 +116,7 @@ take() {
 }
 case "$1" in
   auth) exit 1 ;;                 # token-scan asks for the user's token — there is none
-  search) echo '[]'; exit 0 ;;    # watch.sh --once: no review requests
+  search) cat "$S/search" 2>/dev/null || echo '[]'; exit 0 ;;    # watch.sh --once: no review requests unless $S/search holds some
   repo) [ -e "$S/push" ] && { echo main; exit 0; }; exit 1 ;;
   pr)
     # author-push.sh test (H2): a same-repository PR on branch pr whose head on GitHub is the SHA in $S/push
@@ -521,6 +521,72 @@ check "gc G1 merged and closed removed, open and unknown kept" g1_closed_removed
 check "gc G2 uncommitted changes keep the worktree"            g2_dirty_kept
 check "gc G3 running chain keeps the worktree"                 g3_chain_running_kept
 check "gc G4 fresh .gc-stamp skips cleanup"                    g4_stamp_skips
+
+# W1–W4 — watch.sh --once on a chain that stopped after Stage 1 (stub_chain_home records, .gc-stamp so cleanup is skipped).
+# A dead pid in .chain.lock with an in-progress chain.state is marked blocked with one notice, and is never resumed
+watch_chain_home() {  # watch_chain_home <chain.state, "" for none> <pid in .chain.lock>
+  stub_chain_home; touch "$STUB/home/.pr-quorum/.gc-stamp"
+  jq --arg s "$1" '.chain = (if $s == "" then {} else {state:$s, reason:"try 1", at:"2026-10-24T00:00:00Z"} end) | .status = "done" | .lock = null' \
+    "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  mkdir -p "$STUB_RUN/.chain.lock"; echo "$2" > "$STUB_RUN/.chain.lock/pid"
+}
+dead_pid() { local p; sh -c 'exit 0' & p=$!; wait "$p"; echo "$p"; }
+watch_tick() { stub_run "$HARNESS_DIR/scripts/watch.sh" --once 2>&1; }
+w1_dead_chain_blocked() {
+  local out; watch_chain_home stage2 "$(dead_pid)"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = blocked ] && grep -q 'during stage2' <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want blocked, 'during stage2', 1)"; echo "$out"; return 1; }
+  jq -e 'last.body | contains("does not resume on its own") and contains("chain.sh demo 1")' "$STUB/state/issues.json" >/dev/null \
+    || { echo "notice body: $(jq -c '[.[].body]' "$STUB/state/issues.json")"; return 1; }
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_notices)" = 1 ] && [ "$(stub_meta '.attempts')" = 0 ] && ! grep -q '^claude' "$STUB/state/calls.log" \
+    || { echo "tick 2: notices $(stub_notices), attempts $(stub_meta '.attempts'), sessions $(grep -c '^claude' "$STUB/state/calls.log") (want 1, 0, 0)"; echo "$out"; return 1; }
+}
+w2_live_chain_skipped() {
+  local out; watch_chain_home stage2 $$
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = stage2 ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "live chain: state $(stub_meta '.chain.state'), notices $(stub_notices) (want stage2, 0)"; echo "$out"; return 1; }
+  # A lock folder with no pid yet is a chain still starting
+  rm "$STUB_RUN/.chain.lock/pid"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = stage2 ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "starting chain: state $(stub_meta '.chain.state'), notices $(stub_notices) (want stage2, 0)"; echo "$out"; return 1; }
+  echo $$ > "$STUB_RUN/.chain.lock/pid"
+  # Before Stage 1 (a person running chain.sh), with the PR back in the search: the watcher leaves it alone
+  jq '.stage1 = []' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  echo '[{"number":1,"repository":{"name":"demo","nameWithOwner":"acme/demo"},"isDraft":false,"authorAssociation":"OWNER","author":{"login":"alice"}}]' > "$STUB/state/search"
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.attempts')" = 0 ] && grep -q 'skip demo#1 — chain running' <<<"$out" \
+    || { echo "search hit: attempts $(stub_meta '.attempts') (want 0)"; echo "$out"; return 1; }
+}
+w3_ended_states_kept() {
+  local s out p; p="$(dead_pid)"
+  for s in merged ready needs-human blocked ""; do
+    watch_chain_home "$s" "$p"
+    out="$(watch_tick)" || { echo "$out"; return 1; }
+    [ "$(stub_meta '.chain.state // ""')" = "$s" ] && [ "$(stub_notices)" = 0 ] \
+      || { echo "state '$s' became '$(stub_meta '.chain.state // ""')', notices $(stub_notices) (want unchanged, 0)"; echo "$out"; return 1; }
+  done
+}
+# W4 — only an OPEN PR gets the notice, as with notify_stop: a MERGED (1) or CLOSED (2) PR is marked without one, a failed lookup (5) is left for the next tick
+w4_closed_pr_no_notice() {
+  local out n p; p="$(dead_pid)"
+  watch_chain_home author "$p"; rm "$STUB/state/chain"
+  for n in 2 5; do
+    mkdir -p "$STUB/home/.pr-quorum/runs/demo-pr$n/.chain.lock"; cp "$STUB_RUN/meta.json" "$STUB/home/.pr-quorum/runs/demo-pr$n/"
+    echo "$p" > "$STUB/home/.pr-quorum/runs/demo-pr$n/.chain.lock/pid"
+  done
+  out="$(watch_tick)" || { echo "$out"; return 1; }
+  [ "$(stub_meta '.chain.state')" = blocked ] && [ "$(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr2/meta.json")" = blocked ] \
+    && [ "$(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr5/meta.json")" = author ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "states $(stub_meta '.chain.state') $(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr2/meta.json") $(jq -r '.chain.state' "$STUB/home/.pr-quorum/runs/demo-pr5/meta.json"), notices $(stub_notices) (want blocked blocked author, 0)"; echo "$out"; return 1; }
+}
+check "watch W1 dead chain after Stage 1 is blocked with one notice" w1_dead_chain_blocked
+check "watch W2 running chain is left alone"                         w2_live_chain_skipped
+check "watch W3 ended or absent chain states are left alone"         w3_ended_states_kept
+check "watch W4 merged or closed PR is marked without a notice"      w4_closed_pr_no_notice
 
 # D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
 # The stub gh is not logged in, so doctor always exits 2 here; only the lines matter
