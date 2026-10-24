@@ -19,7 +19,7 @@ finish() { [ "$fails" = 0 ] && { echo "doctor — all checks passed"; exit 0; };
 
 # 1) Commands
 for c in claude gh jq git; do
-  if command -v "$c" >/dev/null; then ok "command $c"; else bad "command $c not found — install it (README Requirements)"; fi
+  if command -v "$c" >/dev/null; then ok "command $c ($(dirname "$(command -v "$c")"))"; else bad "command $c not found — install it (README Requirements)"; fi
 done
 # Session templates set permissions.blockReadsOutsideWorkingDirectories, which needs Claude Code 2.1.257 or later
 if command -v claude >/dev/null; then
