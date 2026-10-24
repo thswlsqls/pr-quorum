@@ -5,8 +5,7 @@
   "trust": { "authors": [], "associations": ["OWNER"] },
   "build": { "sandbox": "require", "env_passthrough": [] },
   "repos": {
-    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "backend", "owner": "your-github-login",
-                   "commands": { "build": "./gradlew <target>:build", "test": "./gradlew <target>:test", "lint": "./gradlew <target>:check" } }
+    "your-repo": { "path": "/absolute/path/to/your-repo", "profile": "generic", "owner": "your-github-login" }
   },
   "limits": {
     "stage1": { "max_rounds": 3, "budget_usd": 25, "timeout_min": 120 },

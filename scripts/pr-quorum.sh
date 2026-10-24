@@ -68,7 +68,8 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
                                              every post refuses a body that holds a token (scripts/token-scan.sh), before any API call
 
   Check (bot token needed, no repo or pr)
-    whoami                                   print the bot token's login (doctor.sh compares it with config.json bot)
+    whoami [<repo>]                          print the bot token's login (doctor.sh compares it with config.json bot);
+                                             with a repo, also GET it with the bot token (exit 4 if the token cannot read it)
 
   State files (no bot token needed, no repo or pr)
     config                                   print config.json
@@ -863,7 +864,7 @@ cmd_comment() {
 # ---------- Check ----------
 
 # doctor.sh calls this instead of reading the token file itself — the token is read only in this script
-cmd_whoami() { load_bot_token; api user --jq '.login'; }
+cmd_whoami() { load_bot_token; api user --jq '.login'; [ $# -eq 0 ] || { SLUG="$(repo_slug "$1")" || exit "$E_ENV"; api "repos/$SLUG" --silent; }; }
 # Sessions block reads outside their working folders, and ~/.pr-quorum itself is not opened (that would expose every other PR's runs/).
 # These two print the only state files the skills read there, so a session needs no Read access to ~/.pr-quorum
 cmd_config() { cat "$PR_QUORUM_HOME/config.json"; }
@@ -916,7 +917,8 @@ case "$sub" in
                # The key goes inside an HTML comment marker, so it may not hold "-->" or anything else outside this set
                [ $# -eq 3 ] || [[ "$4" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]] || die "$E_USAGE" "comment key must be 1–64 of a-z 0-9 . _ - (starting with a letter or digit): $4"
                cmd_comment "$@" ;;
-  whoami)      [ $# -eq 0 ] || usage; cmd_whoami ;;
+  whoami)      [ $# -le 1 ] || usage; [ $# -eq 0 ] || [ "$(cfg --arg r "$1" '.repos | has($r)')" = true ] || die "$E_USAGE" "not in config.json repos: $1"
+               cmd_whoami "$@" ;;
   config)      [ $# -eq 0 ] || usage; cmd_config ;;
   learnings)   [ $# -eq 0 ] || usage; cmd_learnings ;;
   *) usage ;;

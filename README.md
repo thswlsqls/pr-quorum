@@ -11,6 +11,8 @@
 
 A Claude Code plugin that reviews your GitHub PRs with several Claude sessions, has an author session apply the review, checks the fixes, re-runs the build and tests, and uses a risk score to decide whether to merge.
 
+Each PR costs about $11–30 in Claude usage and takes 19–47 minutes (as of 2026-10). It needs a second GitHub account for the bot and an always-on machine (Requirements).
+
 Request a review from your bot account on a PR and the rest runs unattended. The review is posted like a human reviewer's: one summary plus inline comments on lines of code.
 
 ## How it works
@@ -165,6 +167,7 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 - [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git` 2.31 or later
 - On Linux, `bwrap` (bubblewrap) for the build sandbox. macOS ships `sandbox-exec`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
+- An always-on machine: the watcher polls from it and each chain runs there, unattended, for 19–47 minutes
 - Repositories on github.com. GitHub Enterprise Server and ghe.com are not supported
 - By default only PRs opened by the repository owner run; others are skipped. To run teammates' PRs, list them in `trust.authors` or `trust.associations`, and for an organization's repository set `repos.<name>.owner` ([Setup §3](#3-pr-quorumconfigjson)). A trusted author's PR description and diff reach sessions that push and merge under your gh account, so trust only people you would let do that
 
@@ -257,12 +260,12 @@ All keys and sample values are in [`templates/config.json`](templates/config.jso
 A profile defines the review axes and what each judge does and does not look at. Copy a sample and adapt it to your repository; the file name is the `profile` value.
 
 ```bash
-cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
+cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 ```
 
-The samples ([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md)) were written for a Spring Boot backend and a Next.js frontend. For another stack, start from [`generic.md`](examples/profiles/generic.md) and fill in its `<fill in>` lines; `doctor.sh` warns while a profile is an unmodified sample or still has them.
+[`generic.md`](examples/profiles/generic.md) fits any stack once its `<fill in>` lines are filled in; the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, start from [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
-Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json`, each repository's path and profile, the gh login, the token file's mode and account, the bot's invitation) and exits 2 if any line is `FAIL`. It reads only and posts nothing.
+Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation) and exits 2 if any line is `FAIL`. It reads only and posts nothing.
 
 ### 5. Watcher (optional)
 

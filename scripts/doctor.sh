@@ -53,6 +53,13 @@ tv="$(cfg '[(.owner, .bot | strings), (.repos | objects | keys[]), (.. | strings
 if [ "$(cfg '.repos | type == "object" and length > 0')" = true ]; then ok "config repos ($(cfg '.repos | length'))"
 else bad "config.json repos must be a non-empty object — README Setup §3"; finish; fi
 OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
+# The bot posts reviews and is the requested reviewer the watcher looks for, so it has to be a second account (logins are case-insensitive)
+[ -z "$BOT" ] || [ "$(tr A-Z a-z <<<"$BOT")" != "$(tr A-Z a-z <<<"$OWNER")" ] || bad "config bot is the owner ($BOT) — the bot must be a second GitHub account (README Setup §1)"
+# limits — a missing one means no cap, which is allowed. budget_usd goes to claude --max-budget-usd as read ("25" works), so it must read as a number
+[ "$(cfg '.limits | type')" = object ] || warn "no limits: a session has no cost cap"
+for k in $(cfg '.limits | objects | to_entries[] | select(.value | objects | has("budget_usd") and (.budget_usd | tostring | test("^[0-9]+(\\.[0-9]+)?$") | not)) | .key'); do
+  bad "limits.$k.budget_usd is not a number"
+done
 # trust — who may run the chain. A warning (associations beyond OWNER, MEMBER, COLLABORATOR) does not fail
 if err="$(trust_check 2>&1)"; then
   ok "config trust (authors: $(cfg '.trust.authors // [] | join(", ") | if . == "" then "-" else . end'); associations: $(cfg '.trust.associations // ["OWNER"] | join(", ")'))"
@@ -66,7 +73,8 @@ fi
 for r in $(cfg '.repos | keys[]'); do
   if slug="$(repo_slug "$r" 2>&1)"; then ok "$r owner ${slug%/*}"; else bad "$slug"; fi
   p="$(cfg --arg r "$r" '.repos[$r].path // empty')"
-  if [ -n "$p" ] && git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then ok "$r path $p"; pok=1
+  if [ -n "$p" ] && [[ "$p" != /* ]]; then bad "$r path is not absolute: $p — repos.$r.path must start with /"; pok=""
+  elif [ -n "$p" ] && git -C "$p" rev-parse --git-dir >/dev/null 2>&1; then ok "$r path $p"; pok=1
   else bad "$r path is not a git repository: ${p:-<unset>} — fix repos.$r.path"; pok=""; fi
   prof="$(cfg --arg r "$r" '.repos[$r].profile // empty')"
   if [ -n "$prof" ] && [ -f "$PR_QUORUM_HOME/profiles/$prof.md" ]; then
@@ -88,6 +96,9 @@ for r in $(cfg '.repos | keys[]'); do
         || warn "$r commands.$k runs $w, but $p has no package.json — check it, or delete commands to use auto-detection (README Setup §3)" ;;
     esac
   done < <(cfg --arg r "$r" '.repos[$r].commands // {} | to_entries[] | "\(.key)\t\(.value)"')
+  # Without commands, build and test are auto-detected from gradlew or package.json (pr-quorum.sh build)
+  [ "$(cfg --arg r "$r" '.repos[$r].commands | type')" = object ] || [ -f "$p/gradlew" ] || [ -f "$p/package.json" ] \
+    || warn "$r has no commands and no gradlew or package.json: builds and tests will be \"not measured\""
 done
 
 # 4) gh login (the owner's account) — a mismatch with owner is only a warning
@@ -95,6 +106,12 @@ if gh auth status >/dev/null 2>&1; then
   me="$(gh api user --jq '.login' 2>/dev/null || true)"
   ok "gh auth status (${me:-?})"
   [ -z "$me" ] || [ "$me" = "$OWNER" ] || warn "gh is logged in as $me, config owner is $OWNER"
+  # In another owner's repository (an organization) GitHub marks your own PRs MEMBER, not OWNER, so default trust skips them
+  for r in $(cfg '.repos | keys[]'); do
+    o="$(repo_slug "$r" 2>/dev/null)" || continue; o="${o%/*}"
+    [ -z "$me" ] || [ "$(tr A-Z a-z <<<"$o")" = "$(tr A-Z a-z <<<"$me")" ] || is_trusted "$me" MEMBER 2>/dev/null \
+      || warn "$r belongs to $o, where your PRs come as MEMBER and are skipped — add \"$me\" to trust.authors"
+  done
 else
   bad "gh is not logged in — run gh auth login"
 fi
@@ -108,7 +125,9 @@ else
 fi
 
 # 6) The token's account is config bot — otherwise the watcher polls as the wrong account and never fires
+botok=""
 if login="$("$PR_QUORUM" whoami 2>&1)"; then
+  botok=1
   if [ "$login" = "$BOT" ]; then ok "bot token login = $login"; else bad "bot token belongs to $login, config bot is $BOT — fix one of them"; fi
 else
   bad "pr-quorum.sh whoami failed: $(tail -1 <<<"$login") — check the token in $BOT_ENV"
@@ -127,6 +146,11 @@ if [ -n "$BOT" ]; then
       continue
     fi
     if e="$(gh api "repos/$slug/collaborators/$BOT" 2>&1 >/dev/null)"; then ok "$r bot is a collaborator"
+      # A collaborator its token still cannot see: a classic token with only public_repo cannot read a private repository
+      [ -z "$botok" ] || e="$("$PR_QUORUM" whoami "$r" 2>&1 >/dev/null)" || case "$e" in
+        *"HTTP 404"*) bad "$r bot token cannot read $slug (a private repository needs scope repo — README Setup §2)" ;;
+        *) bad "$r bot token cannot reach GitHub for $slug: $(tail -1 <<<"$e")" ;;
+      esac
     elif [[ "$e" != *"HTTP 404"* ]]; then bad "$r cannot check collaborator $BOT on $slug: $(tail -1 <<<"$e")"
     elif gh api "repos/$slug/invitations" --jq '.[].invitee.login' 2>/dev/null | grep -qx "$BOT"; then
       bad "$r bot invitation is pending — sign in as $BOT and accept it"
