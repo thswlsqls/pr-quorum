@@ -5,6 +5,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+need_cmds claude gh jq git || exit 2
 require_dotcom
 trust_check || exit 2
 # The bot login is read only from config.json's bot — if this value and the token file's account disagree,

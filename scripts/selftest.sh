@@ -429,6 +429,40 @@ check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alic
 check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
 check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
 
+# P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
+path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>
+  local dir="$STUB/nopath-$1" d IFS=:
+  rm -rf "$dir"; mkdir -p "$dir"
+  for d in $STUB/bin:$PATH; do [ -d "$d" ] && ln -s "$d"/* "$dir"/ 2>/dev/null; done
+  rm -f "$dir/$1"; echo "$dir"
+}
+# P1 — no jq: cfg names jq instead of calling a valid config.json broken
+p1_no_jq() {
+  local rc=0 out
+  stub_home
+  out="$(stub_run env PATH="$(path_without jq)" bash -c 'source "$1/scripts/config.sh"; cfg .bot' _ "$HARNESS_DIR" 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'jq not found on PATH' <<<"$out" && ! grep -q 'not valid JSON' <<<"$out" || { echo "exit $rc (want 2)"; echo "$out"; return 1; }
+}
+# P2 — no claude: the chain stops before any session, so no stop is recorded and nothing is posted
+p2_no_claude_chain() {
+  local rc=0 out
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"
+  out="$(stub_run env PATH="$(path_without claude)" "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'claude not found on PATH' <<<"$out" && [ "$(stub_meta '.chain')" = null ] && [ "$(stub_notices)" = 0 ] \
+    || { echo "exit $rc, chain $(stub_meta -c '.chain'), notices $(stub_notices) (want 2, null, 0)"; echo "$out"; return 1; }
+}
+# P3 — no claude: the watcher stops before its search, so no PR is picked up and no attempt is spent
+p3_no_claude_watch() {
+  local rc=0 out
+  stub_home
+  out="$(stub_run env PATH="$(path_without claude)" "$HARNESS_DIR/scripts/watch.sh" --once 2>&1)" || rc=$?
+  [ "$rc" = 2 ] && grep -q 'claude not found' <<<"$out" && ! grep -q search "$STUB/state/calls.log" \
+    || { echo "exit $rc (want 2), calls: $(paste -sd ' ' - < "$STUB/state/calls.log")"; echo "$out"; return 1; }
+}
+check "preflight P1 no jq → 'jq not found', exit 2"                 p1_no_jq
+check "preflight P2 no claude → chain exit 2, no stop, no notice"   p2_no_claude_chain
+check "preflight P3 no claude → watch exit 2 before its search"    p3_no_claude_watch
+
 # H1–H3 — repository hooks and harness temp files (harness.md §3-1). The hooks sit under husky's relative core.hooksPath, inside the worktree
 # a PR controls, and each one writes $STUB/state/hooks-ran. Neither the chain's sessions nor author-push.sh may run them
 hooked_repo() {  # hooked_repo — $STUB/repo/demo on core.hooksPath=.husky, a bare copy as acme/demo under $STUB/ssh, and HOOKED_WT on branch pr

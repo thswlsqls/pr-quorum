@@ -6,6 +6,7 @@
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
+need_cmds claude gh jq git || exit 2
 require_dotcom
 # The bot login is read from config.json's bot, the same way watch.sh does. The merge gate uses it to find the bot's reviews
 BOT="$(cfg '.bot // empty')"
