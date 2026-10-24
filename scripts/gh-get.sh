@@ -26,8 +26,8 @@ ok="$(for r in $names; do repo_slug "$r"; done)" || exit 2
 [ -z "${PR_QUORUM_SLUG:-}" ] || ok="$(grep -Fx -- "$PR_QUORUM_SLUG" <<<"$ok")" || reject "PR_QUORUM_SLUG=$PR_QUORUM_SLUG"
 ep="${1:-}"
 [[ "$ep" != *\?* ]] || { echo "gh-get.sh: put query parameters in -f key=value (sent as the query string with GET), not after '?': $ep" >&2; exit 1; }
-# ':' is for compare ranges (base...owner:branch)
-[[ ! "/$ep/" =~ /\.\.?/ ]] && [[ "$ep" =~ ^repos/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)(/[A-Za-z0-9._:-]+)*$ ]] \
+# No ':' — compare/base...owner:branch reaches branches of other repositories in the fork network
+[[ ! "/$ep/" =~ /\.\.?/ ]] && [[ "$ep" =~ ^repos/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)(/[A-Za-z0-9._-]+)*$ ]] \
   && grep -Fqx -- "${BASH_REMATCH[1]}" <<<"$ok" || reject "$ep"
 shift; v=
 for a in "$@"; do  # gh api takes one endpoint: no second positional (values of the flags below are skipped)

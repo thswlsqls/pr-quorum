@@ -669,11 +669,13 @@ r4_no_gh_in_sessions() {
   hits="$(grep -rnE 'gh (pr (view|diff|list|checks)|search)( |$)' "$HARNESS_DIR/skills" "$HARNESS_DIR/agents" "$HARNESS_DIR/rules")" || true
   [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
 }
-# R5 — a compare range (':') is read, a '?' query is refused with the -f hint, and a missing config.json is an environment error (exit 2)
+# R5 — a compare of two commits is read, an owner:branch range (another fork) is refused, a '?' query is refused with the -f hint,
+# and a missing config.json is an environment error (exit 2)
 r5_compare_query_env() {
   local rc out
   stub_home; : > "$STUB/state/calls.log"
-  stub_run "$GH_GET" repos/acme/demo/compare/main...alice:topic >/dev/null 2>&1 || { echo "compare range refused"; return 1; }
+  stub_run "$GH_GET" repos/acme/demo/compare/main...topic >/dev/null 2>&1 || { echo "compare range refused"; return 1; }
+  gh_refused -- repos/acme/demo/compare/main...other:topic || return 1
   rc=0; out="$(stub_run "$GH_GET" 'repos/acme/demo/pulls/1/files?per_page=100' 2>&1)" || rc=$?
   [ "$rc" = 1 ] && grep -q -- '-f key=value' <<<"$out" || { echo "'?' query: exit $rc, $out (want 1 and the -f hint)"; return 1; }
   rm "$STUB/home/.pr-quorum/config.json"; rc=0; stub_run "$GH_GET" repos/acme/demo/pulls/1 >/dev/null 2>&1 || rc=$?
