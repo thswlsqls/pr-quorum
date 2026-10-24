@@ -12,6 +12,8 @@ if [ "${1:-}" = --plist ]; then
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" path=""
   for c in claude gh jq git; do d="$(dirname "$(command -v "$c")")"; case ":$path:" in *":$d:"*) ;; *) path="${path:+$path:}$d" ;; esac; done
   for d in /usr/bin /bin; do case ":$path:" in *":$d:"*) ;; *) path="$path:$d" ;; esac; done
+  xml() { local s="${1//&/&amp;}"; s="${s//</&lt;}"; printf '%s' "${s//>/&gt;}"; }   # a folder name with & or < breaks the plist
+  dir="$(xml "$dir")" path="$(xml "$path")" home="$(xml "$HOME")"
   cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -30,8 +32,8 @@ if [ "${1:-}" = --plist ]; then
   <dict>
     <key>PATH</key><string>$path</string>
   </dict>
-  <key>StandardOutPath</key><string>$HOME/Library/Logs/pr-quorum-watch.log</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/pr-quorum-watch.log</string>
+  <key>StandardOutPath</key><string>$home/Library/Logs/pr-quorum-watch.log</string>
+  <key>StandardErrorPath</key><string>$home/Library/Logs/pr-quorum-watch.log</string>
 </dict>
 </plist>
 PLIST

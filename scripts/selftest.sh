@@ -242,7 +242,7 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
-    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT
+    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT CLAUDE_CODE_SUBAGENT_MODEL
     "$@" )
 }
 stub_post() {  # stub_post [stage] — post-review of that stage's draft
@@ -604,6 +604,8 @@ p4_plist() {
   grep -qF "<string>$HARNESS_DIR/scripts/watch.sh</string>" <<<"$out" && grep -qF "<key>WorkingDirectory</key><string>$HARNESS_DIR</string>" <<<"$out" \
     && grep -qF "<key>PATH</key><string>$want" <<<"$out" && grep -qF "<string>$STUB/home/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" \
     && ! grep -q '<plugin-dir>\|<home-dir>\|<dirs-' <<<"$out" || { echo "PATH want $want: $out"; return 1; }
+  out="$(stub_run env HOME="$STUB/a&b<c" "$HARNESS_DIR/scripts/watch.sh" --plist 2>&1)" || { echo "$out"; return 1; }   # XML-escaped
+  grep -qF "<string>$STUB/a&amp;b&lt;c/Library/Logs/pr-quorum-watch.log</string>" <<<"$out" || { echo "not escaped: $out"; return 1; }
 }
 check "preflight P4 watch --plist fills the folder, PATH and HOME" p4_plist
 
