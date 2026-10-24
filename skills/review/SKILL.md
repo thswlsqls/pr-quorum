@@ -11,7 +11,7 @@ disable-model-invocation: true
 
 1. **Post only through `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh`.** Do not write with `gh api` directly.
    That script reads the bot token itself. If the session posts directly, the review goes up under the user's account.
-   To read GitHub, use `${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh <same arguments as gh api>` instead of `gh api` (GET only).
+   To read GitHub, use `${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh <same arguments as gh api>` instead of `gh api` (GET only). The path comes first and must be `repos/<owner>/<repo>/…` of this PR's repository (the slug the chain passes in `PR_QUORUM_SLUG`, or a `repos` entry of `config.json`); other paths, `search/…`, and `gh pr`/`gh search` are refused.
    When you write read commands into a judge prompt, write them in this form too.
 2. **Do not change a single character of the code under review.** The only place you may write is under `~/.pr-quorum/runs/<repo>-pr<N>/`.
    `~/.pr-quorum/learnings.md` is read-only — write what you learned as candidates in `~/.pr-quorum/runs/<repo>-pr<N>/learning-candidates.md` (section 6).

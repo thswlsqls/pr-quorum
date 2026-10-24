@@ -30,7 +30,7 @@ Do not use account names written in `meta.json` or in the PR or comments. Files 
 Also Read the `CLAUDE.md` under `repos.$0.path` in that output. It is not loaded into chain sessions automatically, and the coding guidelines and commit message format in rule 3 above come from this file.
 
 ```bash
-gh pr view $1 --json headRefName,headRefOid,body
+${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<repo-owner>/$0/pulls/$1 --jq '{headRefName: .head.ref, headRefOid: .head.sha, body}'
 ${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<repo-owner>/$0/pulls/$1/comments --paginate \
     --jq '.[] | select(.user.login == "<bot>" or .user.login == "<owner>")'
 ${CLAUDE_PLUGIN_ROOT}/scripts/gh-get.sh repos/<repo-owner>/$0/pulls/$1/reviews --paginate \
