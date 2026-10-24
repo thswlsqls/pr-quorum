@@ -12,7 +12,7 @@ if [ "${1:-}" = --plist ]; then
   dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)" path=""
   for c in claude gh jq git; do d="$(dirname "$(command -v "$c")")"; case ":$path:" in *":$d:"*) ;; *) path="${path:+$path:}$d" ;; esac; done
   for d in /usr/bin /bin; do case ":$path:" in *":$d:"*) ;; *) path="$path:$d" ;; esac; done
-  xml() { local s="${1//&/&amp;}"; s="${s//</&lt;}"; printf '%s' "${s//>/&gt;}"; }   # a folder name with & or < breaks the plist
+  xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }   # a folder name with & or < breaks the plist; sed, as bash 5.2 reads & in ${//}
   dir="$(xml "$dir")" path="$(xml "$path")" home="$(xml "$HOME")"
   cat <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
