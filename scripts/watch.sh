@@ -52,8 +52,49 @@ pr_closed_state() {
   case "$s" in MERGED|CLOSED) echo "$s" ;; esac
 }
 
-# chain_running <repo> <N> — a chain holds runs/<repo>-pr<N>/.chain.lock and its pid is alive
-chain_running() { local p; p="$(cat "$PR_QUORUM_HOME/runs/$1-pr$2/.chain.lock/pid" 2>/dev/null)" && kill -0 "$p" 2>/dev/null; }
+# chain_running <repo> <N> — a chain holds runs/<repo>-pr<N>/.chain.lock and its pid is alive.
+# A lock folder with no pid yet is a chain between its mkdir and its pid write (chain.sh), so it counts as running
+chain_running() {
+  local l="$PR_QUORUM_HOME/runs/$1-pr$2/.chain.lock" p
+  [ -d "$l" ] || return 1
+  p="$(cat "$l/pid" 2>/dev/null || true)"
+  [ -z "$p" ] || kill -0 "$p" 2>/dev/null
+}
+
+# A chain killed after Stage 1 (SIGKILL, machine restart) never runs its EXIT trap, and one ended by a signal runs it without
+# recording a stop — either way chain.state keeps an in-progress value, and the posted review removed the review request, so
+# the search below never finds the PR again. Such a chain is marked blocked with the one notice the chain itself would post
+# (only on an OPEN PR, as notify_stop does). It is not resumed: a person reruns chain.sh, as the notice says
+mark_dead_chains() {
+  local m dir repo pr state at st reason body
+  for m in "$PR_QUORUM_HOME"/runs/*-pr*/meta.json; do
+    [ -f "$m" ] || continue
+    # Held statuses, no Stage 1 review, and any state not on this in-progress list are left alone
+    state="$(jq -r 'select((.status // "" | test("^(held-|보류)")) | not)
+                    | select([.stage1[]?.review_id | select(. != null)] | length > 0)
+                    | .chain.state // empty | select(test("^(stage[123]|author|merge-gate)$"))' "$m" 2>/dev/null)" || continue
+    [ -n "$state" ] || continue
+    dir="$(basename "$(dirname "$m")")"; repo="${dir%-pr*}"; pr="${dir##*-pr}"
+    [[ "$pr" =~ ^[1-9][0-9]*$ ]] && known_profile "$repo" || continue
+    chain_running "$repo" "$pr" && continue
+    lock_valid "$m" && continue
+    st="$(gh pr view "$pr" --repo "$(repo_slug "$repo")" --json state --jq .state 2>/dev/null)" \
+      || { log "dead chain check skipped — could not read the state of $repo#$pr"; continue; }
+    reason="the chain process ended during $state without recording a stop (killed, or the machine restarted)"
+    at="$(jq -r '.chain.at // ""' "$m")"
+    if [ "$st" = OPEN ]; then
+      body="$(dirname "$m")/outputs/chain-died.md"; mkdir -p "$(dirname "$body")"
+      { printf 'The automated review chain stopped at `blocked`: %s\n\n' "$reason"
+        printf 'It does not resume on its own. Once the cause is dealt with, run `<plugin-dir>/scripts/chain.sh %s %s` to continue from where it stopped.\n' "$repo" "$pr"; } > "$body"
+      # Keyed by the dead state's time, so a meta write that fails below does not post a second notice for the same death
+      "$PR_QUORUM" comment "$repo" "$pr" "$body" "died-$(printf '%s' "$at" | cksum | cut -d' ' -f1)" >/dev/null \
+        || log "failed to post the stop notice — $repo#$pr"
+    fi
+    jq '.chain += {state:"blocked", reason:$r, at:$at, pid:null}' --arg r "$reason" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$m" > "$m.tmp.$$" && mv "$m.tmp.$$" "$m" || { log "could not mark $repo#$pr blocked in meta.json"; continue; }
+    log "chain.state=blocked — $repo#$pr ($reason; PR $st)"
+  done
+}
 
 # Removes the review and author worktrees (pr-quorum-<N>[-<sha7>] · pr-author-<N>) of merged or closed PRs.
 # Session permissions only include worktree add, and the chain cannot see merges done by a person, so the poller does it.
@@ -93,6 +134,7 @@ gc_worktrees() {
 run_once() {
   local prs="[]" found n own o
   gc_worktrees || log "worktree cleanup step failed — polling continues"
+  mark_dead_chains || log "dead chain check failed — polling continues"
   own="$(owners)" || return 2
   # This is the only query that looks for review requests (apart from the PR-state lookups in the cleanup step above), once per owner. PR comments are not polled.
   # A failed search (expired token, rate limit, network) exits 2 — it must not read as "no review requests"
@@ -129,6 +171,8 @@ run_once() {
     [ "$rc" != 2 ] || return 2
     [ "$rc" = 0 ] || { log "skip $repo#$pr — author is not trusted ($login, $assoc)"; continue; }
 
+    # 2-2) A chain is running or starting (a person ran chain.sh before Stage 1 took the review lock)
+    chain_running "$repo" "$pr" && { log "skip $repo#$pr — chain running"; continue; }
     m="$PR_QUORUM_HOME/runs/$repo-pr$pr/meta.json"
     if [ -f "$m" ]; then
       # 3) Valid lock
