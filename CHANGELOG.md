@@ -4,7 +4,7 @@
 
 No new `config.json` keys. `models` changes meaning: a `null` or missing `session` or `subagent` now runs `claude-sonnet-5-5`; set it to `""` to keep Claude Code's default, as before.
 
-- Chain sessions and their subagents run on Sonnet by default. In a 3-PR benchmark Sonnet found the same planted defects for about $2 per PR, against $15.5 on Claude Code's default model. `templates/config.json` names the model.
+- Chain sessions and their subagents run on Sonnet by default. In a 3-PR benchmark Sonnet found the same planted defects for about $2 per PR, against $15.5 on Claude Code's default model.
 - `doctor.sh --init` also creates `~/.pr-quorum/profiles/`, `learnings.md` and `human-labels.md`, and copies `examples/profiles/generic.md` to `profiles/generic.md` when it is missing. It replaces nothing. README Setup §3 and §4 drop the `mkdir`, `touch` and `cp` steps.
 - `watch.sh --plist` prints the macOS LaunchAgent with the plugin folder, `$HOME` and a `PATH` of the folders `claude`, `gh`, `jq` and `git` are found in. README Setup §5 uses it instead of a plist with placeholders.
 - README Setup §1: a repository under a personal account cannot give a collaborator read, so the bot has write there; read applies to an organization's repository. `doctor.sh` no longer says to invite the bot "with read".

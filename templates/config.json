@@ -13,5 +13,5 @@
     "stage3": { "budget_usd": 12, "timeout_min": 45 },
     "author": { "budget_usd": 3, "timeout_min": 20 }
   },
-  "models": { "session": "claude-sonnet-5-5", "subagent": "claude-sonnet-5-5" }
+  "models": { "session": null, "subagent": null }
 }
