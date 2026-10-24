@@ -9,7 +9,7 @@
 | Stage | Question | Trigger |
 |---|---|---|
 | **1 review** | What defects does this PR have | Request the bot as reviewer → the watcher launches the chain (`scripts/chain.sh`) |
-| **2 followup** | Did the author do what the review asked | The chain calls it after the author's fix. On its own: `/pr-quorum:review stage2 <repo> <PR-number>` |
+| **2 followup** | Did the author do what the review asked | The chain calls it after the author's fix — the session runs only when the author pushed a commit; otherwise the chain leaves a `skipped` element. On its own: `/pr-quorum:review stage2 <repo> <PR-number>` |
 | **3 measured** | Does the review hold up under measurement, and did it miss anything | The chain calls it after the first Stage 2. On its own: `/pr-quorum:review stage3 <repo> <PR-number>` |
 
 **It goes as far as merging only when `auto_merge` in `config.json` is true (default false).** The chain runs the three stages and the author's fixes in sequence, then checks the merge gate and the risk gate (`03-risk.md`),
@@ -50,8 +50,8 @@ The posted verdict line is ``Verdict: `addressed` `` — the ID verbatim, with t
 | Code | Definition | Where it goes |
 |---|---|---|
 | **P** | There is a defect here and it is **nowhere in the Stage 1 review** | A coverage hole in the review — the only input to the §5 verdict. Posted as a new review |
-| **Q** | The review caught it but it was only partly fixed | Sent to the Stage 2 thread |
-| **N** | The fix itself created it | Sent to the Stage 2 thread |
+| **Q** | The review caught it but it was only partly fixed | Sent to the Stage 2 thread (the Stage 1 thread if Stage 2 was `skipped`) |
+| **N** | The fix itself created it | Sent to the Stage 2 thread (the Stage 1 thread if Stage 2 was `skipped`) |
 
 **What separates `P` from `Q` is the fix, not the location.** Even in the same file and line, if the review's fix does not
 resolve this defect, it is `P`.
@@ -283,7 +283,7 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
                             "axis": "R-B", "grade": "critical"}]}],
   "stage2": [{"stage_sha": "…", "last_judged_sha": "…", "at": "…",
               "verdicts": {"C-01": "addressed", "C-02": "partial"},
-              "replies": {"C-01": 456}, "new_comments": []}],
+              "replies": {"C-01": 456}, "new_comments": []}],   // the chain's own pass for an unpushed head: verdicts:{}, skipped:"no author push"
   "stage3": {"stage_sha": "…", "at": "…", "review_id": 789, "posted_at": "…",
              "comments": [{"id": 999, "code": "P-01", "path": "…", "line": 25,
                            "axis": "R-A · R-B", "grade": "minor"}],

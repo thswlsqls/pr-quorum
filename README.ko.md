@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `ae00d24`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `97a3542`
 
 <p align="center">
   <picture>
@@ -12,6 +12,8 @@
 </p>
 
 GitHub PR 리뷰를 여러 Claude 세션에 나눠 맡기는 Claude Code 플러그인이다. 저자 세션이 리뷰를 반영하면 반영 여부를 확인하고 빌드·테스트를 다시 돌린 뒤, 리스크 점수로 머지 여부를 정한다.
+
+PR 하나에 Claude 사용료가 약 $11~30 들고 19~47분이 걸린다(2026-10 기준). 봇용 GitHub 계정이 하나 더 필요하고, 상시 켜 둔 머신이 있어야 한다(Requirements).
 
 PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다. 리뷰는 사람 리뷰어처럼 요약 한 건과 코드 줄에 붙는 인라인 코멘트로 올라간다.
 
@@ -167,6 +169,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 - [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git` 2.31 이상
 - Linux 에서는 빌드 샌드박스용 `bwrap`(bubblewrap). macOS 에는 `sandbox-exec` 가 기본으로 들어 있다
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
+- 상시 켜 둔 머신. watcher 가 여기서 폴링하고, 체인도 여기서 사람 없이 19~47분 돈다
 - github.com 의 저장소. GitHub Enterprise Server 와 ghe.com 은 지원하지 않는다
 - 기본으로는 저장소 소유자가 연 PR 만 돌고 나머지는 건너뛴다. 팀원의 PR 도 돌리려면 `trust.authors` 나 `trust.associations` 에 넣고, 조직 저장소는 `repos.<name>.owner` 를 지정한다([설정 §3](#3-pr-quorumconfigjson)). 신뢰한 저자의 PR 본문과 diff 는 본인 gh 계정으로 push·머지하는 세션에 그대로 들어가므로, 그렇게 해도 되는 사람만 신뢰한다
 
@@ -259,12 +262,12 @@ touch ~/.pr-quorum/learnings.md ~/.pr-quorum/human-labels.md
 프로파일은 리뷰 축과 위원마다 볼 것·보지 않을 것을 정한다. 견본을 복사해 자기 저장소에 맞게 고친다. 파일 이름이 `profile` 값이 된다.
 
 ```bash
-cp <plugin-dir>/examples/profiles/backend.md ~/.pr-quorum/profiles/backend.md
+cp <plugin-dir>/examples/profiles/generic.md ~/.pr-quorum/profiles/generic.md
 ```
 
-견본([`backend.md`](examples/profiles/backend.md), [`frontend.md`](examples/profiles/frontend.md))은 Spring Boot 백엔드와 Next.js 프런트엔드에 맞춰 썼다. 다른 스택이라면 [`generic.md`](examples/profiles/generic.md)에서 시작해 `<fill in>` 줄을 채운다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
+[`generic.md`](examples/profiles/generic.md)는 `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)에서 시작하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
 
-그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json`, 저장소마다 경로와 프로파일, gh 로그인, 토큰 파일의 권한과 계정, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. 읽기만 하고 아무것도 올리지 않는다.
+그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. 읽기만 하고 아무것도 올리지 않는다.
 
 ### 5. watcher (선택)
 

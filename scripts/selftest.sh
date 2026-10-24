@@ -53,9 +53,10 @@ check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
 check "risk Python test file"        risk_score "tests/test_api.py" 0
 check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
 # Dependency-only PRs, files run at build or test time, and renames out of a sensitive path (rules/03-risk.md)
-risk_json() {  # risk_json <files JSON> <expected score> — for multi-file and rename cases
-  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r .score)" || return 1
-  [ "$got" = "$2" ] || { echo "expected $2, got $got"; return 1; }
+risk_json() {  # risk_json <files JSON> <expected score> [expected level] — for multi-file and rename cases
+  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r '"\(.score) \(.level)"')" || return 1
+  [ "${got%% *}" = "$2" ] || { echo "expected $2, got ${got%% *}"; return 1; }
+  [ -z "${3:-}" ] || [ "${got#* }" = "$3" ] || { echo "expected level $3, got ${got#* }"; return 1; }
 }
 check "risk lock file only"          risk_score "package-lock.json" 15
 check "risk small manifest bump"     risk_json '[{"filename":"go.mod","additions":1,"deletions":1,"patch":"+x"}]' 15
@@ -78,6 +79,22 @@ check "risk ini secret"           risk_json '[{"filename":"config/app.ini","addi
 check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
 check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
 check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
+# Level table — files that get executed stay medium or above even with a test file alongside (a test file alone would make the PR low)
+while read -r f score; do
+  check "risk level $f with tests" risk_json "[{\"filename\":\"$f\",\"additions\":3,\"deletions\":0,\"patch\":\"+RUN x\"},{\"filename\":\"src/test/a/ATest.java\",\"additions\":1,\"deletions\":0}]" "$score" medium
+done <<'EOF'
+Dockerfile 25
+docker/app.Dockerfile 15
+Dockerfile.prod 25
+docker/Dockerfile.dev 25
+Containerfile 15
+docker-compose.yml 25
+docker-compose.prod.yaml 25
+compose.yaml 15
+.github/workflows/x.yml 25
+action.yml 15
+Makefile 15
+EOF
 
 # Credential Read deny — the three session templates must deny the same list (dream alone also denies ~/.claude/** and docs/)
 cred_deny() {  # cred_deny <template> — its Read deny rules minus the dream-only ones, sorted
@@ -124,9 +141,9 @@ case "$1" in
       case "$*" in *isCrossRepository*) echo false ;; *headRefName*) echo pr ;; *headRefOid*) cat "$S/push" ;; esac
       exit 0
     fi
-    # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup
+    # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup, fail-prstate into the state one
     if [ -e "$S/chain" ]; then
-      case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) echo OPEN ;; esac
+      case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) take fail-prstate; echo OPEN ;; esac
       exit 0
     fi
     case "$3" in 1) echo MERGED ;; 2) echo CLOSED ;; 3) echo OPEN ;; *) echo "HTTP 404: Not Found" >&2; exit 1 ;; esac; exit 0 ;;
@@ -145,6 +162,7 @@ case "$path" in
     h=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; [ ! -s "$S/head" ] || h="$(cat "$S/head")"
     echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' \
       | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
+  */pulls/1/files) echo '[{"filename":"docs/a.md","status":"modified","additions":3,"deletions":0,"patch":"+a"}]' ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -169,7 +187,10 @@ case "$path" in
     echo "{\"id\":$((900 + n))}" | out ;;
   */issues/1/comments)
     [ -n "$input" ] || { cat "$S/issues.json"; exit 0; }
-    b="$(cat)"; n=$(( $(cat "$S/icomments") + 1 )); echo "$n" > "$S/icomments"
+    b="$(cat)"
+    # fail-icomment-pre fails before the comment exists when the body holds its text (a marker such as pr-quorum:comment:risk-)
+    ! { [ -s "$S/fail-icomment-pre" ] && grep -qF "$(cat "$S/fail-icomment-pre")" <<<"$b"; } || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    n=$(( $(cat "$S/icomments") + 1 )); echo "$n" > "$S/icomments"
     jq --argjson id $((500 + n)) --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, body:$p.body}]' "$S/issues.json" > "$S/t" && mv "$S/t" "$S/issues.json"
     [ ! -e "$S/fail-icomment" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     echo "{\"id\":$((500 + n))}" | out ;;
@@ -429,6 +450,106 @@ check "chain F1 fork PR → held-fork before Stage 1, one notice" fork_stop alic
 check "chain F2 deleted fork (head.repo null) → held-fork"      fork_stop null
 check "chain F3 fork PR again posts no second notice"           f3_fork_again_once
 
+# N1–N5, K1–K4 — every stop after Stage 1 is either on the PR or retried, and Stage 2 is skipped on an unpushed head.
+# The sessions these need come from a scripted claude in $STUB/sbin, put first on PATH only by k_chain and n3
+mkdir -p "$STUB/sbin"
+cat > "$STUB/sbin/claude" <<'CLAUDE'
+#!/usr/bin/env bash
+# Plays $STUB_STATE/<step>-<n>.sh (M is meta.json, H the PR head; author <pushed> [blocking] writes round-0<n>.json, review posts a bot
+# review on H), then prints a result whose subtype is $STUB_STATE/<step>.subtype (default success)
+S="$STUB_STATE"; p="${!#}"; echo "claude $p" >> "$S/calls.log"
+read -r -a w <<<"$p"; case "${w[0]}" in *:author) st=author ;; *) st="${w[1]}" ;; esac
+n=$(( $(cat "$S/count-$st" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/count-$st"
+R="$HOME/.pr-quorum/runs/demo-pr1"; M="$R/meta.json"; H="$(cat "$S/head" 2>/dev/null || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
+author() { jq -n --arg h "$H" --argjson p "$1" --argjson b "${2:-0}" '{pushed:$p, to_sha:$h, tests:{result:"pass"}, blocking_open:$b}' > "$R/outputs/author/round-0$n.json"; }
+review() { jq --arg h "$H" '. + [{id:(length + 111), user:{login:"quorum-bot"}, commit_id:$h}]' "$S/reviews.json" > "$S/t" && mv "$S/t" "$S/reviews.json"; }
+[ ! -f "$S/$st-$n.sh" ] || . "$S/$st-$n.sh"
+jq -nc --arg s "$(cat "$S/$st.subtype" 2>/dev/null || echo success)" '{type:"result", subtype:$s, result:"stub", session_id:"stub", total_cost_usd:0, num_turns:1, permission_denials:[]}'
+CLAUDE
+chmod +x "$STUB/sbin/claude"
+sessions() { grep -c "^claude.*${1:-}" "$STUB/state/calls.log"; }
+# N1 — the gate's state read fails and so does notify_stop's own state read: the notice still goes up
+n1_state_read_fails() { stub_chain_home; printf 'ok\nHTTP 502: Bad Gateway\n' > "$STUB/state/fail-prview"; echo 'HTTP 502: Bad Gateway' > "$STUB/state/fail-prstate"; chain_stop 'PR state'; }
+# N2 — the risk scorecard POST fails before it exists: blocked (exit 4) with a stop notice; the rerun posts it and ends ready
+n2_scorecard_fails() {
+  local rc=0 out
+  stub_chain_home; jq -n --arg h "$STUB_SHA" '[{id:111, user:{login:"quorum-bot"}, commit_id:$h}]' > "$STUB/state/reviews.json"
+  echo 'pr-quorum:comment:risk-' > "$STUB/state/fail-icomment-pre"
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_meta '.chain.state')" = blocked ] && grep -q scorecard <<<"$(stub_meta '.chain.reason')" && [ "$(stub_notices)" = 1 ] \
+    || { echo "exit $rc, state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', notices $(stub_notices) (want 4, blocked, 'scorecard', 1)"; echo "$out"; return 1; }
+  rm "$STUB/state/fail-icomment-pre"; rc=0
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 0 ] && [ "$(stub_meta '.chain.state')" = ready ] && [ "$(stub_notices)" = 2 ] \
+    || { echo "rerun: exit $rc, state $(stub_meta '.chain.state'), POST $(stub_notices) (want 0, ready, 2)"; echo "$out"; return 1; }
+}
+# N3 — Stage 1 hits its budget cap: held-failed, a notice that says how to resume, and two watcher ticks start no session
+n3_stage1_cap() {
+  local rc=0 out
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain" "$STUB/home/.pr-quorum/.gc-stamp"
+  echo error_max_budget_usd > "$STUB/state/stage1.subtype"
+  echo '[{"number":1,"repository":{"name":"demo","nameWithOwner":"acme/demo"},"isDraft":false,"authorAssociation":"OWNER","author":{"login":"alice"}}]' > "$STUB/state/search"
+  out="$(stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 4 ] && [ "$(stub_meta '.status')" = held-failed ] && [ "$(sessions)" = 1 ] && grep -q 'status demo 1 pending' "$STUB/state/issues.json" \
+    || { echo "exit $rc, status $(stub_meta '.status'), sessions $(sessions), notices $(jq -c '[.[].body]' "$STUB/state/issues.json") (want 4, held-failed, 1, 'status demo 1 pending')"; echo "$out"; return 1; }
+  stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/watch.sh" --once >/dev/null 2>&1
+  stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/watch.sh" --once >/dev/null 2>&1
+  [ "$(sessions)" = 1 ] || { echo "the watcher started $(( $(sessions) - 1 )) more session(s)"; return 1; }
+}
+# N4 — the fork notice POST fails: the rerun posts it
+n4_fork_notice_retried() {
+  stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo alice/demo > "$STUB/state/fork"
+  echo 'pr-quorum:comment:fork' > "$STUB/state/fail-icomment-pre"
+  stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1
+  [ "$(stub_notices)" = 0 ] || { echo "first run: notices $(stub_notices) (want 0)"; return 1; }
+  rm "$STUB/state/fail-icomment-pre"; fork_again
+}
+# N5 — a third reply in the same thread (the second overwrote the first under the same code key) still posts: posted_reply_ids keeps
+# the first one known, so it is not adopted
+n5_third_reply_posts() {
+  local out
+  stub_home
+  out="$(stub_reply 2>&1 && stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_replies)" = 3 ] && ! grep -q adopted <<<"$out" || { echo "third reply: POST $(stub_replies) (want 3): $out"; return 1; }
+}
+check "chain N1 notice posts though its state read fails"        n1_state_read_fails
+check "chain N2 scorecard not posted → blocked, rerun posts it"  n2_scorecard_fails
+check "chain N3 Stage 1 cap → held-failed, watcher does not rerun" n3_stage1_cap
+check "chain N4 failed fork notice posts on rerun"               n4_fork_notice_retried
+check "reply N5 third reply in a thread is not adopted"          n5_third_reply_posts
+k_home() {  # Stage 1 posted on the stub head (eval_sha), nothing after it; each argument is "<step>-<n>.sh=<script>"
+  local a
+  stub_home; mkdir -p "$STUB/repo/demo" "$STUB_RUN/outputs/author"; touch "$STUB/state/chain"
+  jq '.stage1 = [{review_id:111}] | .stage2 = [] | .status = "done"' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  jq -n --arg h "$STUB_SHA" '[{id:111, user:{login:"quorum-bot"}, commit_id:$h}]' > "$STUB/state/reviews.json"
+  echo '.stage3 = {comments:[]}' > "$STUB/state/s3.jq"; echo 'jq -f "$S/s3.jq" "$M" > "$S/t" && mv "$S/t" "$M"' > "$STUB/state/stage3-1.sh"
+  for a in "$@"; do printf '%s\n' "${a#*=}" > "$STUB/state/${a%%=*}"; done
+}
+k_chain() {  # k_chain <exit> <state> <stage2 sessions> <stage2 records> — runs the chain with the scripted sessions and checks the result
+  local rc=0 out
+  out="$(stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = "$1" ] && [ "$(stub_meta '.chain.state')" = "$2" ] && [ "$(sessions stage2)" = "$3" ] && [ "$(stub_meta '.stage2 | length')" = "$4" ] \
+    || { echo "exit $rc, state $(stub_meta '.chain.state'), stage2 sessions $(sessions stage2), records $(stub_meta '.stage2 | length') (want $1, $2, $3, $4)"; echo "$out"; return 1; }
+}
+PUSH='echo cccccccccccccccccccccccccccccccccccccccc > "$S/head"; H=cccccccccccccccccccccccccccccccccccccccc; author true'
+S2='jq --arg h "$H" ".stage2 += [{stage_sha:\$h, verdicts:{}}]" "$M" > "$S/t" && mv "$S/t" "$M"; review'
+# K1 — neither author pass pushes: no Stage 2 session, one skipped record, ready, and Stage 3's order check accepts the record
+k1_skip_unpushed() {
+  k_home 'author-1.sh=author false' 'author-2.sh=author false'; k_chain 0 ready 0 1 || return 1
+  stub_meta -e '.stage2[0].skipped' >/dev/null && stub_run "$PR_QUORUM" lock demo 1 3 >/dev/null 2>&1 \
+    || { echo "stage2 $(stub_meta -c .stage2), lock 3 refused"; return 1; }
+}
+# K2 — K1 with a blocking finding left open: the merge gate still stops it
+k2_skip_blocking() { k_home 'author-1.sh=author false 1' 'author-2.sh=author false 1'; k_chain 3 blocked 0 1; }
+# K3 — the second author pass pushes: one Stage 2 session on the new head, after the skipped record
+k3_second_push() { k_home 'author-1.sh=author false' "author-2.sh=$PUSH" "stage2-1.sh=$S2"; k_chain 0 ready 1 2; }
+# K4 — the first author pass pushes: Stage 2 runs as before
+k4_first_push() { k_home "author-1.sh=$PUSH" "stage2-1.sh=$S2" 'author-2.sh=author false'; k_chain 0 ready 1 1; }
+check "chain K1 unpushed head → Stage 2 skipped, ready"          k1_skip_unpushed
+check "chain K2 skipped Stage 2 with blocking open → blocked"    k2_skip_blocking
+check "chain K3 second pass pushes → one Stage 2 session"        k3_second_push
+check "chain K4 first pass pushes → Stage 2 runs"                k4_first_push
+
 # P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
 path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>
   local dir="$STUB/nopath-$1" d IFS=:
@@ -670,7 +791,7 @@ r4_no_gh_in_sessions() {
   [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
 }
 # R5 — a compare of two commits is read, an owner:branch range (another fork) is refused, a '?' query is refused with the -f hint,
-# and a missing config.json is an environment error (exit 2)
+# and a missing config.json is an environment error (exit 2), for gh-get and whoami <repo>
 r5_compare_query_env() {
   local rc out
   stub_home; : > "$STUB/state/calls.log"
@@ -680,6 +801,8 @@ r5_compare_query_env() {
   [ "$rc" = 1 ] && grep -q -- '-f key=value' <<<"$out" || { echo "'?' query: exit $rc, $out (want 1 and the -f hint)"; return 1; }
   rm "$STUB/home/.pr-quorum/config.json"; rc=0; stub_run "$GH_GET" repos/acme/demo/pulls/1 >/dev/null 2>&1 || rc=$?
   [ "$rc" = 2 ] || { echo "no config.json: exit $rc (want 2)"; return 1; }
+  rc=0; stub_run bash "$HARNESS_DIR/scripts/pr-quorum.sh" whoami demo >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 2 ] || { echo "whoami <repo> with no config.json: exit $rc (want 2)"; return 1; }
 }
 check "gh-get R1 other repositories and search are refused"    r1_other_repos
 check "gh-get R2 this PR's repository is read"                 r2_this_repo
@@ -742,6 +865,48 @@ check "doctor D2 repository 404 is not 'not a collaborator'" d2_repo_404
 check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborator_error
 check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
 check "doctor D4 commands that cannot start"           d4_commands
+
+# D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
+# repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh
+stub_doctor_gh() {
+  mkdir -p "$STUB/gh-in"
+  cat > "$STUB/gh-in/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  "auth status"|"api repos/acme/demo/collaborators/quorum-bot") exit 0 ;;
+  "api user --jq .login") [ "${GH_TOKEN:-}" = test-token ] && echo quorum-bot || echo alice; exit 0 ;;
+  "api repos/acme/demo --silent") [ "${GH_TOKEN:-}" = test-token ] && [ -e "$STUB_STATE/bot-404" ] && { echo "HTTP 404: Not Found" >&2; exit 1; }; exit 0 ;;
+esac
+exec "${0%/gh-in/gh}/bin/gh" "$@"
+GH
+  chmod +x "$STUB/gh-in/gh"; stub_run env PATH="$STUB/gh-in:$STUB/bin:$PATH" bash "$HARNESS_DIR/scripts/doctor.sh" 2>&1 || true
+}
+d5_bot_owner_relative_path() {
+  local out; doctor_home '.bot = "ACME" | .repos.demo.path = "repo/demo"' || return 1; out="$(cd "$STUB" && stub_doctor_gh)"
+  grep -q 'FAIL — config bot is the owner (ACME)' <<<"$out" && grep -q 'FAIL — demo path is not absolute: repo/demo' <<<"$out" || { echo "$out"; return 1; }
+}
+d6_trust_limits_bot_read_commands() {
+  local out; doctor_home || return 1; out="$(stub_doctor_gh)"
+  grep -q 'warn — demo belongs to acme, .* add "alice" to trust.authors' <<<"$out" && grep -q 'warn — no limits: a session has no cost cap' <<<"$out" \
+    && grep -q 'warn — demo has no commands and no gradlew or package.json' <<<"$out" && grep -q 'ok   — demo bot is a collaborator' <<<"$out" \
+    && ! grep -q 'bot token cannot\|config bot is the owner\|not absolute' <<<"$out" || { echo "first: $out"; return 1; }
+  doctor_home '.trust.authors = ["alice"] | .limits = {stage1: {budget_usd: "25"}, stage2: {budget_usd: 25}, author: {budget_usd: "abc"}}' || return 1
+  touch "$STUB/repo/demo/gradlew" "$STUB/state/bot-404"; out="$(stub_doctor_gh)"
+  grep -q 'FAIL — demo bot token cannot read acme/demo (a private repository needs scope repo' <<<"$out" \
+    && grep -q 'FAIL — limits.author.budget_usd is not a number' <<<"$out" && [ "$(grep -c 'budget_usd\|no limits\|trust.authors\|no commands' <<<"$out")" = 1 ] \
+    || { echo "second: $out"; return 1; }
+}
+d7_first_run_text() {  # the template starts from the generic profile with auto-detected commands; each README states the cost and the always-on machine up front
+  local f w
+  [ "$(jq -r '.repos[] | "\(.profile) \(has("commands"))"' "$HARNESS_DIR/templates/config.json")" = "generic false" ] || { echo "template repos: not generic without commands"; return 1; }
+  for f in README.md:always-on README.ko.md:상시 README.zh-CN.md:常开; do
+    w="${f#*:}"; f="$HARNESS_DIR/${f%%:*}"
+    head -40 "$f" | grep -q '\$[0-9]' && head -40 "$f" | grep -qF "$w" || { echo "${f##*/}: no cost or '$w' in the first 40 lines"; return 1; }
+  done
+}
+check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
+check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
+check "first run D7 generic template, cost line in each README" d7_first_run_text
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
