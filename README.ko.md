@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `abe1799`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `07b0a10`
 
 <p align="center">
   <picture>
@@ -229,7 +229,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-키 이름은 `GH_TOKEN` 도 된다. 이 파일은 `scripts/pr-quorum.sh` 만 읽고, 리뷰 세션은 읽지 못하게 막혀 있다. 절대 커밋하지 않는다. `<plugin-dir>/scripts/pr-quorum.sh whoami` 는 토큰의 계정을 출력한다.
+키 이름은 `GH_TOKEN` 도 된다. 이 파일은 `scripts/pr-quorum.sh` 가 읽고, `scripts/token-scan.sh` 가 저자 패스가 푸시하거나 게시하는 글에 토큰이 섞이지 않게 하려고 읽는다. 리뷰 세션은 읽지 못하게 막혀 있다. 절대 커밋하지 않는다. `<plugin-dir>/scripts/pr-quorum.sh whoami` 는 토큰의 계정을 출력한다.
 
 ### 3. `~/.pr-quorum/config.json`
 

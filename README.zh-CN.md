@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `abe1799`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `07b0a10`
 
 <p align="center">
   <picture>
@@ -229,7 +229,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-键名也可以用 `GH_TOKEN`。只有 `scripts/pr-quorum.sh` 读取这个文件，评审会话被禁止读取。切勿提交它。`<plugin-dir>/scripts/pr-quorum.sh whoami` 会输出令牌所属的账号。
+键名也可以用 `GH_TOKEN`。只有 `scripts/pr-quorum.sh` 读取这个文件，另外 `scripts/token-scan.sh` 也会读取它，以防令牌混入作者环节推送或发布的内容；评审会话被禁止读取。切勿提交它。`<plugin-dir>/scripts/pr-quorum.sh whoami` 会输出令牌所属的账号。
 
 ### 3. `~/.pr-quorum/config.json`
 
