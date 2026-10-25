@@ -227,7 +227,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-`GH_TOKEN` also works as the key name. Only `scripts/pr-quorum.sh` reads this file; review sessions are denied access. Never commit it. `<plugin-dir>/scripts/pr-quorum.sh whoami` prints the token's account.
+`GH_TOKEN` also works as the key name. Only `scripts/pr-quorum.sh` reads this file, and `scripts/token-scan.sh` reads it to keep the token out of what the author pass pushes and posts; review sessions are denied access. Never commit it. `<plugin-dir>/scripts/pr-quorum.sh whoami` prints the token's account.
 
 ### 3. `~/.pr-quorum/config.json`
 
