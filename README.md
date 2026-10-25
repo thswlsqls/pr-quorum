@@ -44,7 +44,7 @@ flowchart TD
 
 Converged: the exit conditions in [`rules/01-stages.md`](rules/01-stages.md) §4. The round cap is `limits.stage1.max_rounds` in `config.json` (5 when unset).
 
-Before Stage 1, a PR over 50 changed files or 3,000 changed lines is held as `held-large` and the chain stops at `blocked`. After Stage 1, a PR that conflicts with main stops there too.
+Before Stage 1, a PR over 50 changed files or 3,000 changed lines is held as `held-large` and the chain stops at `blocked`. A PR from a fork is held as `held-fork` the same way, with one comment: the author pass pushes fixes to the PR branch, which a fork keeps outside the repository. After Stage 1, a PR that conflicts with main stops there too.
 
 </details>
 
@@ -65,7 +65,7 @@ flowchart TD
   D --> P(["Reply in each<br/>thread, once"])
 ```
 
-Stage 2 runs after the author fixes the Stage 1 comments, and again after the author's second pass (following Stage 3) if that pass pushed.
+Stage 2 runs after the author fixes the Stage 1 comments (the chain records an empty pass instead when that fix pushed nothing), and again after the author's second pass (following Stage 3) if that pass pushed.
 
 Any `regressed` verdict left blocks the merge gate. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
 
@@ -163,7 +163,7 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 
 ## Requirements
 
-- macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the launchd watcher example is macOS-specific. Native Windows (PowerShell, cmd) is not supported
+- macOS, or Linux including WSL2 on Windows. The scripts are bash and call no macOS-only commands; only the LaunchAgent that `watch.sh --plist` prints is macOS-specific. Native Windows (PowerShell, cmd) is not supported
 - [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git` 2.31 or later
 - On Linux, `bwrap` (bubblewrap) for the build sandbox. macOS ships `sandbox-exec`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
@@ -180,7 +180,7 @@ To call the skills from a normal Claude Code session, install from the marketpla
 /plugin install pr-quorum@pr-quorum
 ```
 
-The unattended chain does **not** use that install. It runs with `--setting-sources ""` (so user-enabled plugins are not loaded) and needs a fixed path, so it loads a clone with `--plugin-dir`. In this document `<plugin-dir>` is the absolute path of that clone.
+The unattended chain does **not** use that install. It runs with `--setting-sources ""` (so user-enabled plugins are not loaded) and needs a fixed path, so it loads a clone with `--plugin-dir`. In this document `<plugin-dir>` is the absolute path of that clone. It must not contain `|` or `&`, and a `repos.*.path` (Setup §3) must not contain `*` or `[`: they go into permission rules unescaped.
 
 ```bash
 git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
@@ -227,7 +227,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-`GH_TOKEN` also works as the key name. Only `scripts/pr-quorum.sh` reads this file; review sessions are denied access. Never commit it.
+`GH_TOKEN` also works as the key name. Only `scripts/pr-quorum.sh` reads this file; review sessions are denied access. Never commit it. `<plugin-dir>/scripts/pr-quorum.sh whoami` prints the token's account.
 
 ### 3. `~/.pr-quorum/config.json`
 
@@ -241,7 +241,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 |---|---|
 | `owner` | Your GitHub login. The owner of every repository under `repos` that does not set its own; the watcher looks for review requests in each owner's repositories |
 | `bot` | The bot login from step 1. Must match the token's account |
-| `auto_merge` | Whether the chain merges a PR that passed both gates. Default `false`: the chain stops at `ready` |
+| `auto_merge` | Whether the chain merges a PR that passed both gates. Default `false`: the chain stops at `ready`. The risk rules' path patterns fit the repository they were written for: check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning it on |
 | `trust` | Whose PRs run the chain: `authors` (logins) or `associations` (GitHub `author_association` values). Missing: `associations` is `["OWNER"]`. A value GitHub does not use stops the watcher and chain with exit 2; values beyond `OWNER`, `MEMBER`, `COLLABORATOR` log a warning. For an organization, prefer logins: `MEMBER` is everyone in it |
 | `repos` | Per repository name: the absolute path of its local clone (`path`) and the profile to use (`profile`) |
 | `repos.<name>.owner` | The repository's GitHub owner, a user or an organization. Missing: the top-level `owner` |
@@ -251,7 +251,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
 | `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: `claude-sonnet-5-5`; `""`: Claude Code's default |
 
-All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox. The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
+All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox and, since 0.10.0, sessions run on Sonnet (`models`). The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
 `learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
@@ -261,7 +261,7 @@ A profile defines the review axes and what each judge does and does not look at.
 
 `doctor.sh --init` copied [`generic.md`](examples/profiles/generic.md) to `~/.pr-quorum/profiles/generic.md`; it fits any stack once its `<fill in>` lines are filled in, and the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, copy [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) there instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
-Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
+Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands and the Claude Code and git versions, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation, the build sandbox) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
 
 ### 5. Watcher (optional)
 
@@ -294,7 +294,7 @@ On Linux (a cloud VM, or WSL2 on Windows), run `watch.sh` every minute from cron
 
 Open the PR (not as a draft) and add the bot account as a reviewer. Within a minute the watcher starts the chain, which runs Stage 1 through the merge decision.
 
-Follow progress in the watcher log, or in the PR's state file:
+Follow progress in the watcher log (`~/.pr-quorum/watch.log` under cron), or in the PR's state file:
 
 ```bash
 tail -f ~/Library/Logs/pr-quorum-watch.log
@@ -390,21 +390,6 @@ Other safeguards:
 - Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token pattern or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff.
 - Sessions cannot edit `meta.json`, which the merge gate reads. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
-
-## Limitations
-
-As of 2026-10:
-
-- No review has been graded by a person: the author's `human-labels.md` has no filled-in grade, so "a stricter procedure gives better reviews" is untested.
-- One full chain costs $11–30 on Claude Code's default model and takes 19–47 minutes (sum of the sessions' `total_cost_usd` and `wall_ms`; from a 12-line PR, #66, to #61).
-- It has run on one backend repository only (all 14 runs); the [`frontend.md`](examples/profiles/frontend.md) profile has never run.
-- The risk rules' paths (`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`) fit the repository they were written for; check [`rules/03-risk.md`](rules/03-risk.md) and [`scripts/risk.jq`](scripts/risk.jq) against yours before turning on `auto_merge`. The signals are path patterns: a file the list does not name (a deploy script, a new CI tool's config) scores as ordinary code.
-- github.com only, and one machine polls for review requests.
-- PRs from forks are not run: the author pass pushes fixes to the PR branch, which a fork keeps outside the repository. The chain stops such a PR at `held-fork` before Stage 1 and leaves one comment.
-- Real reviews have run only on macOS. On Linux only `selftest.sh` and cron with `flock` were checked, with stub `gh` and `claude`, and the `bwrap` build sandbox has not passed its own selftest checks yet (two fail in a container where `bwrap` runs), so CI's Linux job runs without it.
-- The plugin path must not contain `|` or `&`, and a `repos.*.path` must not contain `*` or `[`: they go into permission rules unescaped.
-- The scorecard and notices the scripts post are in English; only the review text follows the PR's language.
-- The build sandbox leaves the network and `localhost` open, and builds share one cache root, which a build can poison for the next sandboxed build ([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
 
 ## Contributing
 
