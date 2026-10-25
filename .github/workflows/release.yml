@@ -1,0 +1,54 @@
+name: release
+
+# Tags and releases the version in .claude-plugin/plugin.json once it reaches main, the way `claude plugin tag` names it
+# (pr-quorum--v<version>). Marketplace installs follow main and plugin.json's version, not tags; the tag and release are a
+# record and a pin point for --plugin-dir clones. selftest.sh checks CHANGELOG.md's first heading before merge.
+on:
+  push:
+    branches: [main]
+    paths: [.claude-plugin/plugin.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'  # a dispatch from another branch would tag that branch
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read and check the version
+        id: v
+        run: |
+          name="$(jq -r .name .claude-plugin/plugin.json)"
+          version="$(jq -r .version .claude-plugin/plugin.json)"
+          jq -e --arg n "$name" 'any(.plugins[]; .name == $n)' .claude-plugin/marketplace.json >/dev/null \
+            || { echo "::error::marketplace.json has no plugin named $name"; exit 1; }
+          awk -v h="## $version" '$0==h{f=1;next} /^## /{f=0} f' CHANGELOG.md | sed -e '/./,$!d' > "$RUNNER_TEMP/notes.md"
+          [ -s "$RUNNER_TEMP/notes.md" ] || { echo "::error::CHANGELOG.md has no '## $version' section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$name--v$version" >> "$GITHUB_OUTPUT"
+          echo "title=$name $version" >> "$GITHUB_OUTPUT"
+      # The tag and the release are checked apart, so a rerun after a failed release step finishes the job
+      - name: Tag
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          TITLE: ${{ steps.v.outputs.title }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then echo "$TAG exists"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "$TITLE"
+          git push origin "refs/tags/$TAG"
+      - name: Release
+        env:
+          TAG: ${{ steps.v.outputs.tag }}
+          TITLE: ${{ steps.v.outputs.title }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then echo "release $TAG exists"; exit 0; fi
+          gh release create "$TAG" --verify-tag --title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md"
