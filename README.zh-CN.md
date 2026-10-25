@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `47a0ac8`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `abe1799`
 
 <p align="center">
   <picture>
@@ -46,7 +46,7 @@ flowchart TD
 
 已收敛：指 [`rules/01-stages.md`](rules/01-stages.md) §4 中的退出条件。轮数上限是 `config.json` 中的 `limits.stage1.max_rounds`，未设置时为 5。
 
-Stage 1 之前，改动超过 50 个文件或 3,000 行的 PR 会被标为 `held-large`，链停在 `blocked`。Stage 1 之后，与 main 冲突的 PR 也停在这里。
+Stage 1 之前，改动超过 50 个文件或 3,000 行的 PR 会被标为 `held-large`，链停在 `blocked`。来自 fork 的 PR 也会以同样方式标为 `held-fork`，并留下一条评论：author 步骤会把修复 push 到 PR 分支，而 fork 的分支在仓库之外。Stage 1 之后，与 main 冲突的 PR 也停在这里。
 
 </details>
 
@@ -67,7 +67,7 @@ flowchart TD
   D --> P(["在每个讨论串<br/>回复一次"])
 ```
 
-Stage 2 在作者修复 Stage 1 的评论后运行；Stage 3 之后作者第二次修复若有推送，会再运行一次。
+Stage 2 在作者修复 Stage 1 的评论后运行(若这次修复没有推送任何内容，链路改为记录一次空的 pass)；Stage 3 之后作者第二次修复若有推送，会再运行一次。
 
 只要还留有 `regressed` 判定，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
 
@@ -165,7 +165,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 
 ## 环境要求
 
-- macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 launchd watcher 示例依赖 macOS。不支持原生 Windows(PowerShell、cmd)
+- macOS，或 Linux(包括 Windows 上的 WSL2)。脚本为 bash，不调用 macOS 专有命令；只有 `watch.sh --plist` 输出的 LaunchAgent 依赖 macOS。不支持原生 Windows(PowerShell、cmd)
 - [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git` 2.31 或更高版本
 - Linux 上需要构建沙箱用的 `bwrap`(bubblewrap)。macOS 自带 `sandbox-exec`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
@@ -182,7 +182,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 /plugin install pr-quorum@pr-quorum
 ```
 
-无人值守的链路**不使用**这个安装。链路以 `--setting-sources ""` 运行(不会加载用户设置中启用的插件)，并且需要固定路径，所以它用 `--plugin-dir` 加载一个克隆。本文中 `<plugin-dir>` 指该克隆的绝对路径。
+无人值守的链路**不使用**这个安装。链路以 `--setting-sources ""` 运行(不会加载用户设置中启用的插件)，并且需要固定路径，所以它用 `--plugin-dir` 加载一个克隆。本文中 `<plugin-dir>` 指该克隆的绝对路径。它不能包含 `|` 或 `&`，`repos.*.path`(配置 §3)不能包含 `*` 或 `[`：它们未经转义就进入权限规则。
 
 ```bash
 git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
@@ -229,7 +229,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-键名也可以用 `GH_TOKEN`。只有 `scripts/pr-quorum.sh` 读取这个文件，评审会话被禁止读取。切勿提交它。
+键名也可以用 `GH_TOKEN`。只有 `scripts/pr-quorum.sh` 读取这个文件，评审会话被禁止读取。切勿提交它。`<plugin-dir>/scripts/pr-quorum.sh whoami` 会输出令牌所属的账号。
 
 ### 3. `~/.pr-quorum/config.json`
 
@@ -243,7 +243,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 |---|---|
 | `owner` | 你的 GitHub 登录名。`repos` 中未单独指定所有者的仓库都以它为所有者；watcher 按所有者分别查找其仓库中的评审请求 |
 | `bot` | 第 1 步创建的机器人登录名。必须与令牌的账号一致 |
-| `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready` |
+| `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready`。风险规则的路径模式是按最初编写它的仓库定的：开启之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq) |
 | `trust` | 谁的 PR 运行链路：`authors`(登录名列表)或 `associations`(GitHub 的 `author_association` 值)。缺省时 `associations` 为 `["OWNER"]`。含 GitHub 不使用的值时，watcher 和链路以 exit 2 停止；`OWNER`、`MEMBER`、`COLLABORATOR` 以外的值会记录警告。组织建议列登录名：`MEMBER` 指组织里的所有人 |
 | `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
 | `repos.<name>.owner` | 该仓库的 GitHub 所有者(用户或组织)。缺省时为顶层 `owner` |
@@ -253,7 +253,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
 | `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值 |
 
-所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
+所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
 `learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
@@ -263,7 +263,7 @@ Profile 定义评审维度，以及每名评审员看什么、不看什么。按
 
 `doctor.sh --init` 已把 [`generic.md`](examples/profiles/generic.md) 复制到 `~/.pr-quorum/profiles/generic.md`，填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改为把 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 复制到那里，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
-然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请)，只要有一行 `FAIL` 就以 exit 2 结束。不带 `--init` 时它只读取，任何时候都不发布内容。
+然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令及 Claude Code 和 git 的版本、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请、构建沙箱)，只要有一行 `FAIL` 就以 exit 2 结束。不带 `--init` 时它只读取，任何时候都不发布内容。
 
 ### 5. Watcher(可选)
 
@@ -296,7 +296,7 @@ launchctl load ~/Library/LaunchAgents/io.github.thswlsqls.pr-quorum.plist
 
 以非草稿状态打开 PR，并把机器人账号添加为评审人。一分钟内 watcher 会启动链路，从 Stage 1 一直运行到合并判断。
 
-通过 watcher 日志或 PR 的状态文件查看进度：
+通过 watcher 日志(cron 下为 `~/.pr-quorum/watch.log`)或 PR 的状态文件查看进度：
 
 ```bash
 tail -f ~/Library/Logs/pr-quorum-watch.log
@@ -392,21 +392,6 @@ flowchart LR
 - 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。
 - 会话不能编辑合并关卡读取的 `meta.json`。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
-
-## 限制
-
-截至 2026-10：
-
-- 没有经过人工评分的评审：作者的 `human-labels.md` 中没有任何已填写的评分，所以“流程越严格评审越好”尚未验证。
-- 使用 Claude Code 默认模型时，一次完整链路花费 $11–30、耗时 19–47 分钟(各会话 `total_cost_usd` 与 `wall_ms` 之和；从 12 行的 PR #66 到 #61)。
-- 只在一个后端仓库上运行过(全部 14 次运行)；[`frontend.md`](examples/profiles/frontend.md) profile 从未运行过。
-- 风险规则中的路径(`common/security/`、`api/gateway/.*/filter/`、`/api/bff/auth/`)是按最初编写它的仓库定的；开启 `auto_merge` 之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq)。这些信号是路径模式：列表里没有的文件(部署脚本、新 CI 工具的配置)会按普通代码计分。
-- 仅支持 github.com，并由一台机器轮询评审请求。
-- 不运行来自 fork 的 PR：author 步骤会把修复 push 到 PR 分支，而 fork 的分支在仓库之外。链路会在 Stage 1 之前把这类 PR 停在 `held-fork`，并留下一条评论。
-- 真实评审只在 macOS 上运行过。Linux 上只用 stub `gh` 和 `claude` 检查过 `selftest.sh` 以及 cron 加 `flock`，`bwrap` 构建沙箱还没有通过它自己的 selftest 检查(在能运行 `bwrap` 的容器里有两项失败)，所以 CI 的 Linux 作业不带 bwrap 运行。
-- 插件路径不能包含 `|` 或 `&`，`repos.*.path` 不能包含 `*` 或 `[`：它们未经转义就进入权限规则。
-- 脚本发布的评分卡和通知是英文的；只有评审正文跟随 PR 的语言。
-- 构建沙箱对网络和 `localhost` 保持开放，且所有构建共用一个缓存根目录，一次构建可能污染下一次沙箱构建的缓存([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1)。
 
 ## 参与贡献
 

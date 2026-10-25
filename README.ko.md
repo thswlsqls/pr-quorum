@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `47a0ac8`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `abe1799`
 
 <p align="center">
   <picture>
@@ -46,7 +46,7 @@ flowchart TD
 
 수렴: [`rules/01-stages.md`](rules/01-stages.md) §4 의 종료 조건. 라운드 상한은 `config.json` 의 `limits.stage1.max_rounds` 이고, 없으면 5다.
 
-Stage 1 전에 변경 파일이 50개를 넘거나 변경 줄이 3,000줄을 넘는 PR 은 `held-large` 로 보류되고 체인은 `blocked` 에서 멈춘다. Stage 1 뒤에 main 과 충돌하는 PR 도 여기서 멈춘다.
+Stage 1 전에 변경 파일이 50개를 넘거나 변경 줄이 3,000줄을 넘는 PR 은 `held-large` 로 보류되고 체인은 `blocked` 에서 멈춘다. fork 에서 온 PR 도 같은 방식으로 `held-fork` 로 보류되고 코멘트가 하나 남는다. author 단계가 PR 브랜치에 수정을 push 하는데, fork 의 브랜치는 저장소 밖에 있기 때문이다. Stage 1 뒤에 main 과 충돌하는 PR 도 여기서 멈춘다.
 
 </details>
 
@@ -67,7 +67,7 @@ flowchart TD
   D --> P(["스레드마다<br/>한 번 답함"])
 ```
 
-Stage 2 는 저자가 Stage 1 코멘트를 고친 뒤에 돌고, Stage 3 뒤 저자의 두 번째 패스가 push 했으면 한 번 더 돈다.
+Stage 2 는 저자가 Stage 1 코멘트를 고친 뒤에 돌고(그 수정이 아무것도 push 하지 않았으면 체인은 대신 빈 패스를 기록한다), Stage 3 뒤 저자의 두 번째 패스가 push 했으면 한 번 더 돈다.
 
 `regressed` 판정이 하나라도 남으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
 
@@ -165,7 +165,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 
 ## 요구사항
 
-- macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 launchd watcher 예시뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
+- macOS, 또는 Linux(Windows 의 WSL2 포함). 스크립트는 bash 이고 macOS 전용 명령을 쓰지 않는다. macOS 에 묶인 것은 `watch.sh --plist` 가 출력하는 LaunchAgent 뿐이다. Windows 네이티브(PowerShell, cmd)는 지원하지 않는다
 - [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git` 2.31 이상
 - Linux 에서는 빌드 샌드박스용 `bwrap`(bubblewrap). macOS 에는 `sandbox-exec` 가 기본으로 들어 있다
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
@@ -182,7 +182,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 /plugin install pr-quorum@pr-quorum
 ```
 
-무인 체인은 이 설치본을 쓰지 **않는다**. 체인은 `--setting-sources ""` 로 돌아 사용자 설정으로 켠 플러그인을 싣지 않고, 고정된 경로도 필요하다. 그래서 clone 한 폴더를 `--plugin-dir` 로 싣는다. 이 문서에서 `<plugin-dir>` 는 그 clone 의 절대 경로다.
+무인 체인은 이 설치본을 쓰지 **않는다**. 체인은 `--setting-sources ""` 로 돌아 사용자 설정으로 켠 플러그인을 싣지 않고, 고정된 경로도 필요하다. 그래서 clone 한 폴더를 `--plugin-dir` 로 싣는다. 이 문서에서 `<plugin-dir>` 는 그 clone 의 절대 경로다. 이 경로에 `|`·`&` 가, `repos.*.path`(설정 §3)에 `*`·`[` 가 있으면 안 된다. 이스케이프 없이 권한 규칙에 들어간다.
 
 ```bash
 git clone https://github.com/thswlsqls/pr-quorum.git <plugin-dir>
@@ -229,7 +229,7 @@ ENV
 chmod 600 ~/.config/pr-quorum/bot.env
 ```
 
-키 이름은 `GH_TOKEN` 도 된다. 이 파일은 `scripts/pr-quorum.sh` 만 읽고, 리뷰 세션은 읽지 못하게 막혀 있다. 절대 커밋하지 않는다.
+키 이름은 `GH_TOKEN` 도 된다. 이 파일은 `scripts/pr-quorum.sh` 만 읽고, 리뷰 세션은 읽지 못하게 막혀 있다. 절대 커밋하지 않는다. `<plugin-dir>/scripts/pr-quorum.sh whoami` 는 토큰의 계정을 출력한다.
 
 ### 3. `~/.pr-quorum/config.json`
 
@@ -243,7 +243,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 |---|---|
 | `owner` | 본인 GitHub 로그인. `repos` 중 소유자를 따로 지정하지 않은 저장소의 소유자다. watcher 는 소유자마다 그 저장소들에서 리뷰 요청을 찾는다 |
 | `bot` | 1단계에서 만든 봇 로그인. 토큰의 계정과 같아야 한다 |
-| `auto_merge` | 두 게이트를 지난 PR 을 체인이 머지할지. 기본값 `false` 면 체인은 `ready` 에서 멈춘다 |
+| `auto_merge` | 두 게이트를 지난 PR 을 체인이 머지할지. 기본값 `false` 면 체인은 `ready` 에서 멈춘다. 리스크 규칙의 경로 패턴은 처음 만든 저장소에 맞춰져 있으니, 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 가 자기 저장소에 맞는지 확인한다 |
 | `trust` | 누구의 PR 이 체인을 돌리는지. `authors`(로그인 목록) 또는 `associations`(GitHub `author_association` 값). 없으면 `associations` 는 `["OWNER"]`. GitHub 가 쓰지 않는 값이 있으면 watcher 와 체인이 exit 2 로 멈추고, `OWNER`, `MEMBER`, `COLLABORATOR` 밖의 값은 경고를 남긴다. 조직이라면 로그인 목록이 낫다. `MEMBER` 는 조직 전원이다 |
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
 | `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
@@ -253,7 +253,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
 | `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 `claude-sonnet-5-5`, `""` 이면 Claude Code 기본값 |
 
-모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돈다. 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
+모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 
@@ -263,7 +263,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 
 `doctor.sh --init` 이 [`generic.md`](examples/profiles/generic.md)를 `~/.pr-quorum/profiles/generic.md` 로 복사해 두었다. `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)를 대신 그곳에 복사하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
 
-그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. `--init` 이 없으면 읽기만 하고, 아무것도 올리지 않는다.
+그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령과 Claude Code·git 버전, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부, 빌드 샌드박스를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. `--init` 이 없으면 읽기만 하고, 아무것도 올리지 않는다.
 
 ### 5. watcher (선택)
 
@@ -296,7 +296,7 @@ Linux(클라우드 VM, Windows 의 WSL2)에서는 cron 이나 systemd timer 로 
 
 PR 을 draft 가 아닌 상태로 열고 봇 계정을 리뷰어로 지정한다. 1분 안에 watcher 가 체인을 띄우고, 체인은 Stage 1 부터 머지 판단까지 이어 돈다.
 
-진행 상황은 watcher 로그나 PR 상태 파일로 본다.
+진행 상황은 watcher 로그(cron 에서는 `~/.pr-quorum/watch.log`)나 PR 상태 파일로 본다.
 
 ```bash
 tail -f ~/Library/Logs/pr-quorum-watch.log
@@ -392,21 +392,6 @@ flowchart LR
 - 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다.
 - 세션은 머지 게이트가 읽는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
-
-## 제약
-
-2026-10 기준:
-
-- 사람이 채점한 리뷰가 없다. 작성자의 `human-labels.md` 에 채워진 판정이 하나도 없어서, "절차가 엄격하면 리뷰가 낫다"는 아직 검증되지 않았다.
-- Claude Code 기본 모델로 체인 한 번에 $11~30, 19~47분이 든다(세션별 `total_cost_usd` 와 `wall_ms` 의 합. 12줄 PR #66 부터 #61 까지).
-- 백엔드 저장소 하나에서만 돌려 봤다(실행 14건 모두). [`frontend.md`](examples/profiles/frontend.md) 프로파일은 한 번도 돈 적이 없다.
-- 리스크 규칙의 경로(`common/security/`, `api/gateway/.*/filter/`, `/api/bff/auth/`)는 처음 만든 저장소에 맞춰져 있다. `auto_merge` 를 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 를 자기 저장소에 맞는지 확인한다. 신호는 경로 패턴이라, 목록에 없는 파일(배포 스크립트, 새 CI 도구의 설정)은 보통 코드로 점수가 매겨진다.
-- github.com 전용이고, 머신 한 대가 리뷰 요청을 폴링한다.
-- fork 에서 온 PR 은 돌리지 않는다. author 단계가 PR 브랜치에 수정을 push 하는데, fork 의 브랜치는 저장소 밖에 있다. 체인은 그런 PR 을 Stage 1 전에 `held-fork` 로 멈추고 코멘트를 하나 남긴다.
-- 실제 리뷰는 macOS 에서만 돌렸다. Linux 에서는 stub `gh`·`claude` 로 `selftest.sh` 와 cron+`flock` 만 확인했고, `bwrap` 빌드 샌드박스는 아직 자기 selftest 검사를 통과하지 못해(`bwrap` 이 도는 컨테이너에서 두 건 실패) CI 의 Linux 작업은 bwrap 없이 돈다.
-- 플러그인 경로에 `|`·`&`, `repos.*.path` 에 `*`·`[` 가 있으면 안 된다. 이스케이프 없이 권한 규칙에 들어간다.
-- 스크립트가 올리는 점수표와 알림은 영어다. 리뷰 본문만 PR 의 언어를 따른다.
-- 빌드 샌드박스는 네트워크와 `localhost` 를 열어 두고, 빌드들이 캐시 루트 하나를 같이 쓰므로 한 빌드가 다음 샌드박스 빌드의 캐시를 오염시킬 수 있다([`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1).
 
 ## 기여
 
