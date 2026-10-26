@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `dbc9456`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7bceec1`
 
 <p align="center">
   <picture>
@@ -10,6 +10,13 @@
     <img src="assets/logo-light.svg" alt="pr-quorum" width="240">
   </picture>
 </p>
+
+<p align="center">
+  <img src="assets/review-summary-ko.png" alt="PR #68 에 봇이 남긴 리뷰 요약" width="49%">
+  <img src="assets/inline-comment-ko.png" alt="PR #68 의 인라인 코멘트와 후속 판정" width="49%">
+</p>
+
+위 화면은 실제 PR #68 에 봇이 남긴 리뷰다. 리뷰 글은 PR 의 언어를 따른다. Stage 1 은 suggestion 1건·nitpick 1건·잘한 점 1건을 남겼다. Stage 2 는 두 건 모두 `addressed` 로 판정했고, Stage 3 은 놓친 결함을 찾지 못했다. 리스크 점수 0점(`low`)으로 체인이 머지했다.
 
 GitHub PR 리뷰를 여러 Claude 세션에 나눠 맡기는 Claude Code 플러그인이다. 저자 세션이 리뷰를 반영하면 반영 여부를 확인하고 빌드·테스트를 다시 돌린 뒤, 리스크 점수로 머지 여부를 정한다.
 
@@ -119,16 +126,6 @@ flowchart TD
 </details>
 
 리스크 게이트는 코드 품질이 아니라 어떤 파일을 얼마나 바꿨는지만 본다. 인증·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동 머지되지 않는다. `repos.<name>.always_human` 에 적은 경로를 건드린 PR 도 마찬가지다. 규칙: [`rules/03-risk.md`](rules/03-risk.md).
-
-### 예시
-
-실제 PR 에 봇이 남긴 리뷰다. 리뷰 글은 PR 의 언어를 따른다.
-
-![PR #68 에 봇이 남긴 리뷰 요약](assets/review-summary-ko.png)
-
-![PR #68 의 인라인 코멘트와 후속 판정](assets/inline-comment-ko.png)
-
-Stage 1 은 suggestion 1건·nitpick 1건·잘한 점 1건을 남겼다. Stage 2 는 두 건 모두 `addressed` 로 판정했고, Stage 3 은 놓친 결함을 찾지 못했다. 리스크 점수 0점(`low`)으로 체인이 머지했다.
 
 ## 설계 원칙
 
