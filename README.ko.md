@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `a352684`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `0de45b6`
 
 <p align="center">
   <picture>
@@ -263,6 +263,8 @@ chmod 600 ~/.config/pr-quorum/bot.env
 프로파일은 리뷰 축과 위원마다 볼 것·보지 않을 것을 정한다. 프로파일 하나를 자기 저장소에 맞게 고친다. `~/.pr-quorum/profiles/` 아래 파일 이름이 `profile` 값이 된다.
 
 `doctor.sh --init` 이 [`generic.md`](examples/profiles/generic.md)를 `~/.pr-quorum/profiles/generic.md` 로 복사해 두었다. `<fill in>` 줄을 채우면 어느 스택에나 맞는다. 템플릿의 `profile` 도 `generic` 이다. Spring Boot 백엔드나 Next.js 프런트엔드라면 [`backend.md`](examples/profiles/backend.md)나 [`frontend.md`](examples/profiles/frontend.md)를 대신 그곳에 복사하고 `profile` 을 그에 맞춘다. 프로파일이 견본을 고치지 않은 사본이거나 그 줄이 남아 있으면 `doctor.sh`가 경고한다.
+
+저장소 루트에 `REVIEW.md` 가 있으면, 기본 브랜치로 가는 PR의 리뷰는 PR 자신의 변경이 아니라 base 커밋에서 이 파일을 읽는다. 그래서 관리형 Code Review와 같은 파일을 쓸 수 있다. 이 파일로 건너뛸 경로를 정하고, `minor`·`nit` 상한을 낮추고, 더 높은 등급으로 볼 실패를 적고, 축마다 볼 것을 더할 수 있다. 등급을 낮추거나, 예산을 늘리거나, 게이트를 바꿀 수는 없다([`rules/00-criteria.md`](rules/00-criteria.md) §0). 예시는 [`examples/REVIEW.md`](examples/REVIEW.md)에 있다.
 
 그다음 `<plugin-dir>/scripts/doctor.sh` 로 설정을 점검한다. 명령과 Claude Code·git 버전, `config.json` 과 그 `limits`, 저장소마다 경로·프로파일·빌드 명령, gh 로그인과 조직 저장소의 `trust`, 토큰 파일의 권한·계정·읽기 권한, 봇 초대 수락 여부, 빌드 샌드박스를 한 줄씩 출력하고, `FAIL` 이 하나라도 있으면 exit 2 로 끝난다. `--init` 이 없으면 읽기만 하고, 아무것도 올리지 않는다.
 

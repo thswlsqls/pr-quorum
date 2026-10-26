@@ -133,7 +133,7 @@ Write measurement results **as the command and output verbatim** in the evidence
 > **Include the full text of invalidation conditions I-1 – I-8 from `00-criteria.md` §1 in the challenger prompt too.** Giving only the codes is not enough.
 > Question ④ below only says "do any of the invalidation conditions apply", so it is easy to build the prompt without the full text,
 > and then the challenger **reports that it could not compare word for word** (measured — PR #33 round 1, C-05 challenge).
-> To judge by the same standard as the judge, the challenger must see the same text.
+> To judge by the same standard as the judge, the challenger must see the same text. The same goes for the root `REVIEW.md`, if one was read (`01-stages.md` §3-1).
 
 ```
 Challenge this review finding.
@@ -172,7 +172,7 @@ The verification targets are `summary.md` and `comments.json` in `runs/<…>/out
 
 | Verifier | Instruction |
 |---|---|
-| **V1 evidence verifier** | *"Verify every anchor and number. Open every `file:line`. Is that code really on that line? Is each quoted code snippet the same as the original? Recompute the numbers yourself. Flag any mismatch."* **The first line of the report must state its own scope checked (all anchors or a sample, and how many it looked at)** — without it, metrics cannot be compared across rounds |
+| **V1 evidence verifier** | *"Verify every anchor and number. Open every `file:line`. Is that code really on that line? Is each quoted code snippet the same as the original? Recompute the numbers yourself. Flag any mismatch. If the repository's root `REVIEW.md` was given: is any comment on a path it says to skip, does the `minor`·`nit` count exceed its cap, and was any grade lowered on its say-so?"* **The first line of the report must state its own scope checked (all anchors or a sample, and how many it looked at)** — without it, metrics cannot be compared across rounds |
 | **V2 citation verifier** | *"Verify every external source. Does each source grade B (official docs) quote alone support that comment's conclusion? Find places that lean on a quote to claim something the quote does not say. Point out every quote that looks written from memory and every claim beyond its source grade (asserting the size of an impact from a grade C code fact, describing a guess as a measurement)."* |
 | **V3 author challenger** | *"You are the author of this PR. You received this review. Find and push back on comments whose facts are wrong, whose point the code already handles, whose evidence is weak, or that push an equivalent alternative as a matter of taste. If the author shows with data or engineering grounds that it is an equivalent alternative, the reviewer must accept the author's preference (I-8). Point out every comment that can be pushed back on this way."* |
 

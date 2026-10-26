@@ -103,6 +103,9 @@ A follow-up PR does not mean the original PR was wrong — open it and judge. Tu
 
 ### Observation log
 
+When a row records a missed defect, end "What was seen" with one tag naming the layer that should have caught it — `missed-by: S1:<axis>` (that Stage 1 axis), `S3` (Stage 3's measurement, e.g. a test existed but did not run), `risk-pattern` (the path patterns missed the file), `CI` (the repository's CI), or `human` (only a person could judge it — direction, scope).
+When the same tag shows up twice, that layer's rules are a candidate to fix. The rows below record pattern defects and rule reviews, so they carry no tag.
+
 | Date | What was seen | What was done |
 |---|---|---|
 | 2026-10-02 | 20 most recent merges. 1 of 12 `low` PRs (#17 → #20) got a follow-up fix. #20 reverted the `disableConcurrentBuilds()` that #17 added. 0 follow-ups for the 8 `medium`/`high` PRs | The pattern (`Jenkinsfile$`) missed #17's `Jenkinsfile-cicd` → changed to `Jenkinsfile[^/]*$`. Even after the fix it is `low` at 10 configuration points. With a sample of 1, the weight stays and it is only noted as a candidate — **CI/deployment config changes** |

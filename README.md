@@ -262,6 +262,8 @@ A profile defines the review axes and what each judge does and does not look at.
 
 `doctor.sh --init` copied [`generic.md`](examples/profiles/generic.md) to `~/.pr-quorum/profiles/generic.md`; it fits any stack once its `<fill in>` lines are filled in, and the template's `profile` is `generic`. For a Spring Boot backend or a Next.js frontend, copy [`backend.md`](examples/profiles/backend.md) or [`frontend.md`](examples/profiles/frontend.md) there instead and set `profile` to match. `doctor.sh` warns while a profile is an unmodified sample or still has them.
 
+If the repository has a `REVIEW.md` at its root, reviews of PRs into the default branch read it from the base commit, never from the PR's own changes, so the same file can serve managed Code Review too. It can name paths to skip, lower the `minor`·`nit` cap, describe failures to grade higher, and add checks per axis; it cannot lower a grade, raise the budget, or change the gates ([`rules/00-criteria.md`](rules/00-criteria.md) §0). See [`examples/REVIEW.md`](examples/REVIEW.md).
+
 Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands and the Claude Code and git versions, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation, the build sandbox) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
 
 ### 5. Watcher (optional)

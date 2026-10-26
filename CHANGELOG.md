@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+No new `config.json` keys.
+
+- When a PR's base is the repository's default branch, judges, challengers and V1–V3 get the target repository's root `REVIEW.md`, read from the base commit (`git show <base_sha>:REVIEW.md`), never from the PR. It may name paths to skip, lower the `minor`·`nit` cap, describe failures to grade higher, and add checks per axis; it cannot lower a grade, raise the budget, or change invalidation conditions, gates, the risk score or the merge gate (`rules/00-criteria.md` §0). V1 checks that the review followed it. Subfolder `REVIEW.md` files and `@` includes are not read. Example in `examples/REVIEW.md`.
+- Each item in the author's `declined[]` has a `kind`: `wrong`, `intentional` or `out-of-scope` (pre-existing declines are `out-of-scope`).
+- `dream.sh` reads the author's `declined[]`, counts declines by kind (`unknown` for items without one), flags an axis declined as `wrong` or `intentional` in two or more PRs, and has a new kind `move to lint/test` for a finding repeated across PRs that a grep or lint rule could express; it drafts the rule or test for a human to move into the target repository.
+- `rules/03-risk.md`: a missed-defect row in the observation log ends with a `missed-by:` tag naming the layer that should have caught it.
+
 ## 0.13.0
 
 No new `config.json` keys.

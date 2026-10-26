@@ -964,6 +964,11 @@ r4_no_gh_in_sessions() {
   hits="$(grep -rnE 'gh (pr (view|diff|list|checks)|search)( |$)' "$HARNESS_DIR/skills" "$HARNESS_DIR/agents" "$HARNESS_DIR/rules")" || true
   [ -z "$hits" ] || { echo "session instructions use gh directly: $hits"; return 1; }
 }
+# R6 — the judge input rule reads the root REVIEW.md from the base commit, never from the PR's head
+r6_review_md_from_base() {
+  grep -qF 'git show <base_sha>:REVIEW.md' "$HARNESS_DIR/rules/01-stages.md" \
+    || { echo "rules/01-stages.md does not read REVIEW.md with git show <base_sha>:REVIEW.md"; return 1; }
+}
 # R5 — a compare of two commits is read, an owner:branch range (another fork) is refused, a '?' query is refused with the -f hint,
 # and a missing config.json is an environment error (exit 2), for gh-get and whoami <repo>
 r5_compare_query_env() {
@@ -983,6 +988,7 @@ check "gh-get R2 this PR's repository is read"                 r2_this_repo
 check "gh-get R3 path tricks and a second endpoint are refused" r3_path_tricks
 check "gh-get R4 sessions have no direct gh read"               r4_no_gh_in_sessions
 check "gh-get R5 compare range, '?' hint, missing config exit 2" r5_compare_query_env
+check "gh-get R6 REVIEW.md is read from the base commit"        r6_review_md_from_base
 
 # D1–D4 — doctor.sh on the fake HOME: template values, repository 404 vs other errors, bare sample profiles, commands that cannot start.
 # The stub gh is not logged in, so doctor always exits 2 here; only the lines matter
