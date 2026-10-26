@@ -259,12 +259,15 @@ cmd_risk() {
   mktmp; local tmp="$TMP"
   api --paginate "repos/$SLUG/pulls/$pr/files" | jq -s 'add // []' > "$tmp/files.json"
   # A jq syntax error exits with 3, which would be confused with a gate violation (E_GATE). Exit separately as a scoring failure
-  jq --arg sha "$sha" --arg at "$(now_iso)" -f "$HARNESS_DIR/scripts/risk.jq" "$tmp/files.json" > "$tmp/risk.json" \
+  # repos.<name>.always_human: path prefixes that always go to a person (rules/03-risk.md Levels)
+  jq --arg sha "$sha" --arg at "$(now_iso)" --argjson always_human "$(cfg -c --arg r "$repo" '.repos[$r].always_human // []')" \
+    -f "$HARNESS_DIR/scripts/risk.jq" "$tmp/files.json" > "$tmp/risk.json" \
     || die "$E_API" "risk.jq calculation failed"
 
-  # If a comment was already posted for the same head and score, carry that record over (chain.sh uses it to avoid duplicate posts).
-  # If a rule change altered the score, do not carry it over — so the scorecard on the PR does not go stale
+  # If a comment was already posted for the same head, score, and override, carry that record over (chain.sh uses it to avoid duplicate posts).
+  # If a rule or always_human change altered them, do not carry it over — so the scorecard on the PR does not go stale
   meta_update "$repo" "$pr" '.risk = ($r[0] + {commented_sha: (if .risk.sha == $r[0].sha and .risk.score == $r[0].score and .risk.level == $r[0].level
+                                                                  and .risk.override == $r[0].override
                                                                then .risk.commented_sha else null end)})' \
     --slurpfile r "$tmp/risk.json"
 
@@ -278,7 +281,11 @@ cmd_risk() {
     def files: if length == 0 then "" elif length <= 2 then " — " + (map("`\(.)`") | join(", "))
                else " — `\(.[0])` and \(length - 1) more" end;
     "**Auto-merge risk \(.score) / 100 — `\(.level)`** · scored commit `\(.sha[0:7])`\n",
-    (if .override then "**\(.override).** Not auto-merging. Remove the secret, rotate any value already pushed, then a person reviews again.\n" else "\(action)\n" end),
+    # One line per override reason (risk.jq joins them with "; "). A secret replaces the level action; an owner-listed path keeps it
+    ((.override // "") | split("; ")[] | select(. != "")
+     | if startswith("Plaintext secret") then "**\(.).** Not auto-merging. Remove the secret, rotate any value already pushed, then a person reviews again.\n"
+       else "**\(.)** — a person reviews it.\n" end),
+    (if (.override // "") | contains("Plaintext secret") then empty else "\(action)\n" end),
     "| Category | Points | Signals hit |", "|---|---|---|",
     (.categories[] | "| \(.title) | \(.points) / \(.max) | \([.signals[] | select(.points > 0) | "\(.name) \(.points)\(.hits | files)"] | join("<br>") | if . == "" then "-" else . end) |"),
     "| **Total** | **\(.score)** / 100 | |\n",

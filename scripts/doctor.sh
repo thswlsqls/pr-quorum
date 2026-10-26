@@ -116,6 +116,9 @@ for r in $(cfg '.repos | keys[]'); do
     n="$(grep -c '<fill in' "$PR_QUORUM_HOME/profiles/$prof.md")"
     [ "$n" = 0 ] || warn "$r profile $prof has $n placeholder(s) left — replace the <fill in: …> lines"
   else bad "$r profile file is missing: $PR_QUORUM_HOME/profiles/${prof:-<unset>}.md — README Setup §4"; fi
+  # always_human — optional path prefixes that always go to a person (rules/03-risk.md). Anything but a list of strings makes risk scoring fail
+  [ "$(cfg --arg r "$r" '.repos[$r] | (has("always_human") | not) or (.always_human | type == "array" and all(type == "string"))')" = true ] \
+    || bad "$r always_human is not a list of path prefixes — repos.$r.always_human must look like [\"src/billing/\"]"
   # ./X must exist in path (commands run at the worktree root). npm and friends often run in a subfolder (--prefix, cd app), so only a warning
   [ -n "$pok" ] || continue
   while IFS=$'\t' read -r k c; do
