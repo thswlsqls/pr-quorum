@@ -53,8 +53,8 @@ check "risk Go test file"            risk_score "pkg/auth/token_test.go" 0
 check "risk Python test file"        risk_score "tests/test_api.py" 0
 check "risk Go code without tests"   risk_score "pkg/store/store.go" 25
 # Dependency-only PRs, files run at build or test time, and renames out of a sensitive path (rules/03-risk.md)
-risk_json() {  # risk_json <files JSON> <expected score> [expected level] — for multi-file and rename cases
-  local got; got="$(jq --arg sha t --arg at t -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r '"\(.score) \(.level)"')" || return 1
+risk_json() {  # risk_json <files JSON> <expected score> [expected level] [always_human JSON] — for multi-file and rename cases
+  local got; got="$(jq --arg sha t --arg at t ${4:+--argjson always_human "$4"} -f "$HARNESS_DIR/scripts/risk.jq" <<<"$1" | jq -r '"\(.score) \(.level)"')" || return 1
   [ "${got%% *}" = "$2" ] || { echo "expected $2, got ${got%% *}"; return 1; }
   [ -z "${3:-}" ] || [ "${got#* }" = "$3" ] || { echo "expected level $3, got ${got#* }"; return 1; }
 }
@@ -76,6 +76,9 @@ check "risk CODEOWNERS removed"   risk_json '[{"filename":".github/CODEOWNERS","
 check "risk noxfile with tests"   risk_json '[{"filename":"noxfile.py","additions":30,"deletions":0,"patch":"+x"},{"filename":"tests/test_a.py","additions":1,"deletions":0}]' 15
 check "risk toml secret"          risk_json '[{"filename":"config/settings.toml","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
 check "risk ini secret"           risk_json '[{"filename":"config/app.ini","additions":1,"deletions":0,"patch":"+password = hunter2hunter2"}]' 30
+# Owner-listed paths (repos.<name>.always_human): a hit raises low to medium with the score unchanged; a miss scores as before
+check "risk owner-listed path"    risk_json '[{"filename":"src/billing/Price.java","additions":3,"deletions":0},{"filename":"src/test/a/PriceTest.java","additions":1,"deletions":0}]' 0 medium '["src/billing/"]'
+check "risk owner list, no hit"   risk_json '[{"filename":"src/other/A.java","additions":3,"deletions":0},{"filename":"src/test/a/ATest.java","additions":1,"deletions":0}]' 0 low '["src/billing/"]'
 check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
 check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
 check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
@@ -509,7 +512,19 @@ n2_scorecard_fails() {
   [ "$rc" = 0 ] && [ "$(stub_meta '.chain.state')" = ready ] && [ "$(stub_notices)" = 2 ] \
     || { echo "rerun: exit $rc, state $(stub_meta '.chain.state'), POST $(stub_notices) (want 0, ready, 2)"; echo "$out"; return 1; }
 }
-# N3 — Stage 1 hits its budget cap: held-failed, a notice that says how to resume, and two watcher ticks start no session
+# N2b — same head, only the override changed (always_human added after a ready run): a new scorecard posts and the stop names the path
+n2b_override_reposts() {
+  local rc=0 out
+  stub_chain_home; jq -n --arg h "$STUB_SHA" '[{id:111, user:{login:"quorum-bot"}, commit_id:$h}]' > "$STUB/state/reviews.json"
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 0 ] && [ "$(stub_notices)" = 1 ] || { echo "first: exit $rc, POST $(stub_notices) (want 0, 1)"; echo "$out"; return 1; }
+  jq '.repos.demo.always_human = ["docs/"]' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  rc=0; out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && [ "$(stub_meta '.chain.state')" = needs-human ] && grep -q 'Owner-listed path `docs/`' <<<"$(stub_meta '.chain.reason')" \
+    && [ "$(stub_notices)" = 2 ] && jq -e '.[-1].body | contains("**Owner-listed path `docs/` (`docs/a.md`)** — a person reviews it.")' "$STUB/state/issues.json" >/dev/null \
+    || { echo "rerun: exit $rc, state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')', POST $(stub_notices) (want 3, needs-human, 'Owner-listed path', 2)"; echo "$out"; return 1; }
+}
+# N3 —Stage 1 hits its budget cap: held-failed, a notice that says how to resume, and two watcher ticks start no session
 n3_stage1_cap() {
   local rc=0 out
   stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain" "$STUB/home/.pr-quorum/.gc-stamp"
@@ -552,6 +567,7 @@ m1_models() {
 check "chain M1 models default to Sonnet, \"\" is Claude Code's default" m1_models
 check "chain N1 notice posts though its state read fails"        n1_state_read_fails
 check "chain N2 scorecard not posted → blocked, rerun posts it"  n2_scorecard_fails
+check "chain N2b same head, override changed → scorecard posts again" n2b_override_reposts
 check "chain N3 Stage 1 cap → held-failed, watcher does not rerun" n3_stage1_cap
 check "chain N4 failed fork notice posts on rerun"               n4_fork_notice_retried
 check "reply N5 third reply in a thread is not adopted"          n5_third_reply_posts
@@ -1017,11 +1033,12 @@ d6_trust_limits_bot_read_commands() {
   local out; doctor_home || return 1; out="$(stub_doctor_gh)"
   grep -q 'warn — demo belongs to acme, .* add "alice" to trust.authors' <<<"$out" && grep -q 'warn — no limits: a session has no cost cap' <<<"$out" \
     && grep -q 'warn — demo has no commands and no gradlew or package.json' <<<"$out" && grep -q 'ok   — demo bot is a collaborator' <<<"$out" \
-    && ! grep -q 'bot token cannot\|config bot is the owner\|not absolute' <<<"$out" || { echo "first: $out"; return 1; }
-  doctor_home '.trust.authors = ["alice"] | .limits = {stage1: {budget_usd: "25"}, stage2: {budget_usd: 25}, author: {budget_usd: "abc"}}' || return 1
+    && ! grep -q 'bot token cannot\|config bot is the owner\|not absolute\|always_human' <<<"$out" || { echo "first: $out"; return 1; }
+  doctor_home '.trust.authors = ["alice"] | .limits = {stage1: {budget_usd: "25"}, stage2: {budget_usd: 25}, author: {budget_usd: "abc"}} | .repos.demo.always_human = "src/billing/"' || return 1
   touch "$STUB/repo/demo/gradlew" "$STUB/state/bot-404"; out="$(stub_doctor_gh)"
   grep -q 'FAIL — demo bot token cannot read acme/demo (a private repository needs scope repo' <<<"$out" \
     && grep -q 'FAIL — limits.author.budget_usd is not a number' <<<"$out" && [ "$(grep -c 'budget_usd\|no limits\|trust.authors\|no commands' <<<"$out")" = 1 ] \
+    && grep -q 'FAIL — demo always_human is not a list of path prefixes' <<<"$out" \
     || { echo "second: $out"; return 1; }
 }
 d7_first_run_text() {  # the template starts from the generic profile with auto-detected commands; each README states the cost and the always-on machine up front
@@ -1065,7 +1082,7 @@ i4_init_state_files() {
   [ "$(cksum < "$h/profiles/generic.md")" = "$a" ] && ! grep -q 'copied' <<<"$out" || { echo "second: $out"; return 1; }
 }
 check "doctor D5 bot = owner and a relative path fail"        d5_bot_owner_relative_path
-check "doctor D6 org trust, limits, bot token read, no commands" d6_trust_limits_bot_read_commands
+check "doctor D6 org trust, limits, always_human, bot token read, no commands" d6_trust_limits_bot_read_commands
 check "first run D7 generic template, cost line in each README" d7_first_run_text
 check "doctor I1 --init fills config.json, or writes nothing"  i1_init_writes
 check "doctor I2 --init keeps an existing config.json"        i2_init_keeps
