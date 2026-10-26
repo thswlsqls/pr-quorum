@@ -19,7 +19,7 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 
 | Stage | What it does |
 |---|---|
-| Stage 1 · review | Four judges review the PR on separate axes without seeing each other's results. A challenger re-checks every `critical`/`major` finding against the code, and three verifiers re-read the review. Up to 5 rounds by default (`limits.stage1.max_rounds`) |
+| Stage 1 · review | Four judges review the PR on separate axes without seeing each other's results. A challenger re-checks every `critical`/`major` finding against the code, and three verifiers re-read the review. A defect that is a pattern lists every place it occurs in the diff; one the PR did not introduce is marked pre-existing and does not block. The summary opens with the number of blocking comments. Up to 5 rounds by default (`limits.stage1.max_rounds`) |
 | Author | A separate session (`/pr-quorum:author`) fixes the code and pushes to the PR branch with your gh account. It never force-pushes, merges, or approves |
 | Stage 2 · followup | Replies in each thread with `addressed`, `partial`, `not-addressed`, or `regressed` (the fix introduced a new defect) |
 | Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
@@ -104,6 +104,7 @@ flowchart TD
   G(["After the<br/>author loop"]) --> MG{"Merge gate<br/>0 blocking<br/>0 open blocking (Stage 2)<br/>0 regressed<br/>no failed tests<br/>CI green<br/>head reviewed"}
   MG -- no --> B[blocked]
   MG -- "Stage 3 found<br/>missed<br/>critical/major" --> H
+  MG -- "pre-existing<br/>critical/major" --> H
   MG -- yes --> RG{"Risk gate<br/>0–100 points"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -115,7 +116,7 @@ A session that hits its `limits` budget or time cap also stops the chain at `blo
 
 </details>
 
-The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically. Rules: [`rules/03-risk.md`](rules/03-risk.md).
+The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically, and so are PRs touching a path you list in `repos.<name>.always_human`. Rules: [`rules/03-risk.md`](rules/03-risk.md).
 
 ### Example
 
@@ -132,6 +133,7 @@ Stage 1 left 2 nits and 1 praise. Stage 2 judged both nits `addressed`, Stage 3 
 - **Evidence is graded.** A finding must cite a repository norm document, an official doc quotation, a `file:line`, or a result of running something. A claim beyond what its evidence supports is dropped ([`rules/00-criteria.md`](rules/00-criteria.md) §4).
 - **No scores in the review.** Only four grades (`critical`, `major`, `minor`, `nit`), and at least one praise.
 - **Confirmed facts are pinned** in `frozen.md`, so rounds don't re-argue them without new evidence.
+- **Only limits stated before the review lower a grade.** Stages 2 and 3 read the PR description as it was at Stage 1, kept in `meta.json`, so a limit the author adds later lowers nothing.
 - **Everything is inspectable.** Rules in [`rules/`](rules/), judge instructions in [`rules/02-judges.md`](rules/02-judges.md), gates in [`scripts/`](scripts/), and per-round logs in `~/.pr-quorum/runs/`.
 
 ### Where the criteria come from
@@ -312,7 +314,7 @@ The chain ends in one of these states (`chain.state`):
 |---|---|---|
 | `merged` | Passed both gates with `auto_merge: true` | Nothing |
 | `ready` | Passed both gates; `auto_merge` is off | Merge it yourself |
-| `needs-human` | Risk is `medium` or higher, Stage 3 found missed `critical`/`major` defects, or Stage 1 found `critical`/`major` defects the PR did not introduce (pre-existing) | Review and decide yourself. The risk scorecard is on the PR |
+| `needs-human` | Risk is `medium` or higher (always, for a path in `always_human`), Stage 3 found missed `critical`/`major` defects, or Stage 1 found `critical`/`major` defects the PR did not introduce (pre-existing) | Review and decide yourself. The risk scorecard is on the PR |
 | `blocked` | Merge gate failed, a merge conflict, a session left no record, a session hit its `limits` budget or time cap, or the head moved | Read `chain.reason`, fix the cause, then run the chain again. The bot also posts the reason and the command to resume once as a comment on the PR |
 
 ### Run the chain by hand
@@ -348,7 +350,7 @@ PRs over 50 changed files or 3,000 changed lines are held as `held-large`. To re
 | Command | When |
 |---|---|
 | `git -C <plugin-dir> pull --ff-only` | To get a new version into the chain. The clone does not update itself |
-| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | Summarizes learning candidates from past runs into `~/.pr-quorum/runs/_dream/<time>/proposal.md`. You decide what goes into `learnings.md` |
+| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | Summarizes learning candidates from past runs, and the comments the author declined by kind (`wrong`, `intentional`, `out-of-scope`), into `~/.pr-quorum/runs/_dream/<time>/proposal.md`. A finding that keeps coming back can be proposed as a lint rule or test for the repository. You decide what goes into `learnings.md` |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | Lists the risk score of the last N merged PRs (default 30) next to any fix or revert within 14 days, to tune the auto-merge threshold |
 | `<plugin-dir>/scripts/selftest.sh` | After changing a gate script. Re-runs the gates on past outputs without an LLM |
 | `<plugin-dir>/scripts/doctor.sh` | After setup or a `config.json` change, or when the watcher stops picking up requests. Read-only; exits 2 on any `FAIL` |
@@ -393,7 +395,7 @@ Other safeguards:
 - Only PRs from trusted authors run: the repository owner by default, plus anyone in `trust.authors` or `trust.associations`. Trust comes only from `config.json` and the GitHub API. The watcher filters PRs and `chain.sh` checks again. A trusted author's PR text reaches sessions that push and merge under your account, so the trust list is the boundary.
 - Sessions cannot call build tools directly. Builds and tests run only through `pr-quorum.sh build` (review: a clean worktree at a SHA the PR pinned) and `pr-quorum.sh author-build` (the author's worktree), which run the command from `repos.<name>.commands` or the Gradle/npm default.
 - Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token pattern or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff.
-- Sessions cannot edit `meta.json`, which the merge gate reads. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
+- Sessions cannot edit `meta.json`, which the merge gate reads and which keeps the PR description as of Stage 1. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
 
 ## Contributing

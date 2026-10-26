@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `0ab51e0`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `dbc9456`
 
 <p align="center">
   <picture>
@@ -21,7 +21,7 @@ PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다
 
 | 스테이지 | 하는 일 |
 |---|---|
-| Stage 1 · review | 위원 4인이 리뷰 축을 나눠 맡아 서로의 결과를 모른 채 리뷰한다. 반박자가 `critical`(치명)·`major`(중대) 지적을 하나씩 코드로 다시 확인하고, 검증자 셋이 리뷰를 다시 읽는다. 기본 최대 5라운드(`limits.stage1.max_rounds`) |
+| Stage 1 · review | 위원 4인이 리뷰 축을 나눠 맡아 서로의 결과를 모른 채 리뷰한다. 반박자가 `critical`(치명)·`major`(중대) 지적을 하나씩 코드로 다시 확인하고, 검증자 셋이 리뷰를 다시 읽는다. 패턴인 결함은 diff 안의 모든 위치를 한 지적에 나열하고, 이 PR 이 들여오지 않은 결함은 pre-existing 으로 표시해 머지를 막지 않는다. 요약은 blocking 지적 개수로 시작한다. 기본 최대 5라운드(`limits.stage1.max_rounds`) |
 | 저자 | 별도 세션(`/pr-quorum:author`)이 코드를 고쳐 사용자의 gh 계정으로 PR 브랜치에 push 한다. force push·머지·승인은 하지 않는다 |
 | Stage 2 · followup | 스레드마다 `addressed`(반영)·`partial`(부분)·`not-addressed`(미반영)·`regressed`(역행, 고치다가 새 결함을 만듦) 중 하나로 답한다 |
 | Stage 3 · measured | 고친 커밋으로 빌드와 테스트를 다시 돌리고, 리뷰가 놓친 결함(`P`)을 찾는다 |
@@ -106,6 +106,7 @@ flowchart TD
   G(["저자 루프<br/>이후"]) --> MG{"머지 게이트<br/>blocking 0<br/>열린 blocking 0 (Stage 2)<br/>regressed 0<br/>테스트 실패 0<br/>CI 통과<br/>head 리뷰 완료"}
   MG -- "아니오" --> B[blocked]
   MG -- "Stage 3 에서<br/>놓친 critical/major<br/>발견" --> H
+  MG -- "pre-existing<br/>critical/major" --> H
   MG -- "예" --> RG{"리스크 게이트<br/>0–100점"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -117,7 +118,7 @@ flowchart TD
 
 </details>
 
-리스크 게이트는 코드 품질이 아니라 어떤 파일을 얼마나 바꿨는지만 본다. 인증·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동 머지되지 않는다. 규칙: [`rules/03-risk.md`](rules/03-risk.md).
+리스크 게이트는 코드 품질이 아니라 어떤 파일을 얼마나 바꿨는지만 본다. 인증·비밀값·CI·빌드 스크립트·하니스 자신을 건드린 PR 은 점수가 올라 자동 머지되지 않는다. `repos.<name>.always_human` 에 적은 경로를 건드린 PR 도 마찬가지다. 규칙: [`rules/03-risk.md`](rules/03-risk.md).
 
 ### 예시
 
@@ -134,6 +135,7 @@ Stage 1 은 suggestion 1건·nitpick 1건·잘한 점 1건을 남겼다. Stage 2
 - **근거에 등급을 매긴다.** 지적에는 저장소 규범 문서, 공식 문서 인용, `file:line`, 직접 실행한 결과 중 하나가 붙어야 한다. 근거가 뒷받침하는 범위를 넘은 주장은 뺀다([`rules/00-criteria.md`](rules/00-criteria.md) §4).
 - **리뷰에 점수를 쓰지 않는다.** 등급은 `critical`·`major`·`minor`(경미)·`nit`(사소) 넷뿐이고, 잘한 점을 최소 한 건 적는다.
 - **확정된 사실은 `frozen.md` 에 고정한다.** 새 근거 없이는 라운드마다 같은 논쟁을 되풀이하지 않는다.
+- **리뷰 전에 밝힌 한계만 등급을 낮춘다.** Stage 2·3 은 `meta.json` 에 보관한 Stage 1 시점의 PR 설명을 읽는다. author 가 나중에 덧붙인 한계 문장으로는 등급이 내려가지 않는다.
 - **모두 들여다볼 수 있다.** 규칙은 [`rules/`](rules/), 위원 지시는 [`rules/02-judges.md`](rules/02-judges.md), 게이트는 [`scripts/`](scripts/), 라운드별 기록은 `~/.pr-quorum/runs/` 에 있다.
 
 ### 기준의 출처
@@ -314,7 +316,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | `auto_merge: true` 에서 두 게이트를 통과했다 | 없음 |
 | `ready` | 두 게이트를 통과했지만 `auto_merge` 가 꺼져 있다 | 직접 머지한다 |
-| `needs-human` | 리스크가 `medium` 이상이거나, Stage 3 이 놓친 `critical`/`major` 결함을 찾았거나, Stage 1 이 이 PR 이 들여오지 않은(pre-existing) `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
+| `needs-human` | 리스크가 `medium` 이상이거나(`always_human` 경로는 항상 해당), Stage 3 이 놓친 `critical`/`major` 결함을 찾았거나, Stage 1 이 이 PR 이 들여오지 않은(pre-existing) `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
 | `blocked` | 머지 게이트 실패, 머지 충돌, 세션이 기록을 남기지 않음, 세션이 `limits` 의 예산·시간 상한에 걸림, head 가 바뀜 중 하나 | `chain.reason` 을 보고 원인을 고친 뒤 체인을 다시 돌린다. 봇도 그 이유와 재개 명령을 PR 에 코멘트로 한 번 남긴다 |
 
 ### 체인 직접 돌리기
@@ -350,7 +352,7 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | 명령 | 언제 |
 |---|---|
 | `git -C <plugin-dir> pull --ff-only` | 체인에 새 버전을 반영할 때. clone 은 저절로 갱신되지 않는다 |
-| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 지난 run 들의 학습 후보를 `~/.pr-quorum/runs/_dream/<time>/proposal.md` 로 정리한다. `learnings.md` 에 넣을지는 사람이 정한다 |
+| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 지난 run 들의 학습 후보와, author 가 거절한 지적을 종류별(`wrong`·`intentional`·`out-of-scope`)로 `~/.pr-quorum/runs/_dream/<time>/proposal.md` 에 정리한다. 반복되는 지적은 저장소에 넣을 린트 규칙이나 테스트로 제안될 수 있다. `learnings.md` 에 넣을지는 사람이 정한다 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 최근 머지된 PR N건(기본 30)의 리스크 점수를 14일 안에 뒤따른 수정·revert PR 과 나란히 보여 준다. 자동 머지 기준을 조정할 때 쓴다 |
 | `<plugin-dir>/scripts/selftest.sh` | 게이트 스크립트를 고친 뒤. LLM 없이 지난 산출물에 게이트를 다시 돌린다 |
 | `<plugin-dir>/scripts/doctor.sh` | 설정 직후나 `config.json` 을 고친 뒤, 또는 watcher 가 요청을 집지 않을 때. 읽기만 하며 `FAIL` 이 있으면 exit 2 |
@@ -395,7 +397,7 @@ flowchart LR
 - 신뢰한 저자의 PR 만 돈다. 기본은 저장소 소유자이고, `trust.authors` 나 `trust.associations` 에 든 사람이 더해진다. 신뢰는 `config.json` 과 GitHub API 에서만 정해진다. watcher 가 PR 을 거르고 `chain.sh` 가 다시 확인한다. 신뢰한 저자의 PR 텍스트는 본인 계정으로 push·머지하는 세션에 들어가므로, 신뢰 목록이 곧 경계다.
 - 세션은 빌드 도구를 직접 부르지 못한다. 빌드와 테스트는 `pr-quorum.sh build`(리뷰: PR 이 고정한 SHA 의 깨끗한 worktree)와 `pr-quorum.sh author-build`(저자의 worktree)로만 돌고, 이 둘은 `repos.<name>.commands` 의 명령이나 Gradle/npm 기본 명령을 실행한다.
 - 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다.
-- 세션은 머지 게이트가 읽는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
+- 세션은 머지 게이트가 읽고 Stage 1 시점의 PR 설명을 보관하는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
 
 ## 기여
