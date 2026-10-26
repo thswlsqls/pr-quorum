@@ -13,7 +13,8 @@ The prompt gives the list of runs to look at this time and the path of the previ
 
 1. All of `~/.pr-quorum/learnings.md`
 2. Current rules — `rules/00-criteria.md`·`rules/01-stages.md`·`rules/02-judges.md`·`~/.pr-quorum/profiles/`·`scripts/`·`templates/settings.json`·`templates/author-settings.json`. Use these to `Grep` whether a fix is already in
-3. For each run in the list, `learning-candidates.md` (if present)·`rounds/`·`decisions.md`·`meta.json`. If `meta.json`'s `chain.sessions[]` has `permission_denials`·`denied_tools`, use them to count tool denials
+3. For each run in the list, `learning-candidates.md` (if present)·`rounds/`·`decisions.md`·`meta.json`·the `declined[]` of `outputs/author/round-*.json`. If `meta.json`'s `chain.sessions[]` has `permission_denials`·`denied_tools`, use them to count tool denials.
+   Each declined item has a `kind` — `wrong`·`intentional`·`out-of-scope`. Count an item with no `kind` or another value as `unknown` (runs from before the field)
 4. The previous proposal and the `Verdict` a human wrote on it (older proposals: `## 요약`, `판정`) — do not propose a rejected item again on the same grounds
 5. If verdicts in `~/.pr-quorum/human-labels.md` are filled in, read those too
 
@@ -27,6 +28,8 @@ Do not read `docs/` (permissions block it too). Design docs state expected resul
 - Rows whose fix is already in a rule document, script, or config — candidates to demote to the "Already in the rules" section
 - Rows whose fix has gone a long time without being moved into the rules — which section of which document to move it to
 - Rows with unknown source (signals that point to another row, such as "same run"). If the run records show the source, fill it in. If not, leave it as `source unknown`
+- The same axis's findings declined as `wrong` or `intentional` in two or more different PRs. The author is Claude too, so a decline is a lead for a human to check, not proof of a false positive
+- The same finding repeated in two or more PRs that a grep or one lint rule could express — a candidate to move to the target repository's lint or tests
 - Tool permission denials. The count is the number of failed attempts, not the number of causes. Confirm the cause in the round logs; if you cannot, leave it as `cause unknown`
 
 ## What not to look at
@@ -52,14 +55,15 @@ The names `## Summary`, the `Verdict` field, and the learnings section `Already 
 
 - Runs reviewed: …
 - Learnings first table: N rows now → M rows if every proposal is accepted
-- Items: merge a · move to rules b · demote c · new row d · fix e
+- Items: merge a · move to rules b · demote c · new row d · fix e · move to lint/test f
+- Declines: wrong g · intentional h · out-of-scope i · unknown j
 
 ### D-01 merge — L0-38 + L0-44
 
-- Kind: merge | move to rules | demote | new row | fix
+- Kind: merge | move to rules | demote | new row | fix | move to lint/test
 - Evidence: (run file paths and the confirmed facts. Number of distinct PRs, tool denial count, or `not recorded`)
 - Proposed text: (a row to paste as-is into the learnings first table, or a rule document section and sentence)
-- Move to: (only when moving into the rules — file and section)
+- Move to: (only when moving into the rules — file and section. For move to lint/test, the target repository and a draft lint rule or test; this session cannot change that repository, so a human opens the PR there)
 - If not done: (concretely, what will happen again)
 - Verdict (human):
 ```

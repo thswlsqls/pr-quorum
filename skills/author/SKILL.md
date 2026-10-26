@@ -101,10 +101,12 @@ Write it with the Write tool to `~/.pr-quorum/runs/$0-pr$1/outputs/author/round-
 
 ```json
 { "round": 1, "from_sha": "<head at start>", "to_sha": "<head after finishing>", "pushed": true,
-  "fixed": ["C-01"], "declined": [{"code": "C-03", "label": "suggestion", "reason": "…"}],
+  "fixed": ["C-01"], "declined": [{"code": "C-03", "label": "suggestion", "kind": "wrong", "reason": "…"}],
   "blocking_open": 0,
   "tests": {"cmd": "<the command the wrapper printed after running in>", "result": "pass"} }
 ```
 
+Give each declined item a `kind` — `wrong` (the finding's facts are wrong), `intentional` (the behavior is intended; the evidence is the PR description, a design doc, or a test),
+or `out-of-scope` (right, but not this PR's job; pre-existing declines go here). `dream.sh` counts these across PRs.
 If there are no items to answer, write `pushed: false`, `to_sha` = `from_sha`, `tests.result: "skip"`.
 In a `.md` file with the same name, write the decision per item and the reply ids in a human-readable form.
