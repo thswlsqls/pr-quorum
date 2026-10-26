@@ -42,8 +42,10 @@ The agent instructions/CI/build scripts signal is 15 points for the same reason.
 | `high` | 40–69 | Same. Someone who knows the flagged categories reviews it (e.g. for security, someone who knows the authentication code) |
 | `critical` | 70+, **or a plaintext secret regardless of score** | Same. For a secret, remove and rotate it, then review again. Otherwise, first decide whether to split the PR |
 
+Paths the owner lists in `config.json` under `repos.<name>.always_human` (path prefixes such as `"src/billing/"`, no globs; a renamed file also counts at its old path) always go to a person: a PR touching one is at least `medium`, and the scorecard and the `needs-human` reason name the prefix and a file. The score does not change. The list is policy, not risk: it says who must look, not how much could break, so mixing it into the score would blur the threshold tuning below (`risk-audit.sh` scores without it). It fills the gap this score cannot see, sensitive code with ordinary names such as billing, permission policies, release scripts, and installers. The Claude Code team puts it this way: "Some paths always need a person, anything owners have listed as sensitive and any CI workflow file" ([How the Claude Code team does code review](https://claude.dev/blog/solving-code-review-at-anthropic)). CI workflow files are already 15 points here.
+
 The chain only distinguishes `low` from the rest. If `auto_merge` is off (the default), even `low` is not merged; the chain stops at `ready` and a person merges. The distinctions above `medium` are left for people to decide whom to call.
-Regardless of level, the bot posts the scorecard as a comment on the PR. It does not post twice for the same head and score, and posts again if a rule change alters the score.
+Regardless of level, the bot posts the scorecard as a comment on the PR. It does not post twice for the same head, level, score, and override, and posts again on the same head if a rule change or an `always_human` change alters any of them.
 The result is recorded in `meta.json` under `risk`.
 
 ## What was taken from the video and what was decided differently

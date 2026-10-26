@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+
+New optional `config.json` key `repos.<name>.always_human`. Without it the chain behaves as in 0.11.0.
+
+- `repos.<name>.always_human` lists path prefixes (no globs) that always go to a person. A PR touching one, at its new or old path, is raised from `low` to `medium` and stops at `needs-human`; higher levels and a secret's `critical` are unchanged, and so is the score. The risk `override` names the prefix and a file, joined with `; ` to the secret reason when both apply. `risk-audit.sh` scores without the list, so threshold tuning still reads the score alone.
+- The `needs-human` reason ends with the override when there is one, so a 0-point `medium` says why it stopped.
+- The risk scorecard gives each override reason its own line: a secret still says to remove and rotate it; an owner-listed path names the prefix and a file and keeps the level's action.
+- The scorecard posts again on the same head when its level, score or override changes: `meta.risk.commented_sha` carries over only when the override is also the same, and the chain keys the scorecard `risk-<sha7>-<level>-<score>-<override hash>`. Before this, a rule change on the same head left the old scorecard up, though `rules/03-risk.md` said it posted again.
+- `doctor.sh` fails when `always_human` is present and not a list of strings.
+
 ## 0.11.0
 
 No new `config.json` keys.

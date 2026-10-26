@@ -298,13 +298,14 @@ risk_gate() {
     || { chain_state "blocked" "head changed after the merge gate (${GATE_SHA:0:7}) — run the chain again"; exit 3; }
   if [ "$(jq -r '.risk.commented_sha // empty' "$M")" != "$(jq -r '.risk.sha' "$M")" ]; then
     # The key keeps a rerun from posting the same scorecard again when the post went up but commented_sha was not recorded
-    # Without it, a needs-human or ready stop would leave nothing on the PR
-    "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" "risk-$(jq -r '.risk.sha' "$M" | cut -c1-7)" >/dev/null \
+    # Without it, a needs-human or ready stop would leave nothing on the PR. Level, score, and override are in it so a changed scorecard on the same head posts again
+    "$PR_QUORUM" comment "$REPO" "$PR" "$RUN/outputs/risk.md" \
+      "risk-$(jq -r '"\(.risk.sha[0:7])-\(.risk.level)-\(.risk.score)"' "$M")-$(jq -r '.risk.override // ""' "$M" | cksum | cut -d' ' -f1 | cut -c1-7)" >/dev/null \
       || { chain_state "blocked" "risk scorecard was not posted — run the chain again"; exit 4; }
     meta_set '.risk.commented_sha = .risk.sha' || log "posted the risk comment but could not record it in meta.json"
   fi
   if [ "$rc" = 3 ]; then
-    chain_state "needs-human" "risk $(jq -r '.risk.level' "$M") $(jq -r '.risk.score' "$M") points — merges only with human approval"
+    chain_state "needs-human" "risk $(jq -r '.risk.level' "$M") $(jq -r '.risk.score' "$M") points — merges only with human approval$(jq -r '.risk.override // empty | " — " + .' "$M")"
     exit 3
   fi
 }

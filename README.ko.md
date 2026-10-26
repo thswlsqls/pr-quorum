@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `6ea8188`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7d8e4d1`
 
 <p align="center">
   <picture>
@@ -248,12 +248,13 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
 | `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
 | `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 명령이 없는 종류는 `not measured` 로 기록된다 |
+| `repos.<name>.always_human` | 언제나 사람에게 넘길 경로 접두사(glob 아님, 예: `["src/billing/", "scripts/release.sh"]`). 이 가운데 하나를 건드린 PR 은 위험도가 적어도 `medium` 이 되어 체인이 `needs-human` 에서 멈춘다. 점수는 바뀌지 않는다. 없으면: 없음([`rules/03-risk.md`](rules/03-risk.md) Levels) |
 | `build.sandbox` | `"require"`(기본): 빌드와 테스트를 OS 샌드박스 안에서 돌리고, 샌드박스가 뜨지 않는 머신에서는 `not measured` 로 기록한다. `"off"`: 샌드박스 없이 돌린다. Docker, 키체인, 또는 샌드박스가 가리는 `~/.npmrc`·`~/.m2/settings.xml` 의 사설 레지스트리 자격 증명이 필요한 빌드용이다 |
 | `build.env_passthrough` | 빌드가 추가로 넘겨받을 환경 변수 이름(기본 `[]`. 이 밖에는 비운 환경으로 시작한다). 자격 증명처럼 보이는 이름(`*TOKEN*`, `*SECRET*`, `*KEY*`)은 거부하므로, 레지스트리 자격 증명은 이 길로 넘길 수 없다 |
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
 | `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 `claude-sonnet-5-5`, `""` 이면 Claude Code 기본값 |
 
-모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
+`repos.<name>.always_human` 을 뺀 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 

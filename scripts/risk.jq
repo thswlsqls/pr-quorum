@@ -1,5 +1,5 @@
 # risk.jq — auto-merge risk score. Rules and rationale are in rules/03-risk.md.
-# Input: the array from gh api repos/{o}/{r}/pulls/{N}/files. Arguments: $sha · $at
+# Input: the array from gh api repos/{o}/{r}/pulls/{N}/files. Arguments: $sha · $at · optional --argjson always_human (repos.<name>.always_human)
 # Looks only at file paths and changed lines. No session judgment goes in — the same diff always gets the same score.
 
 def doc:        test("\\.(md|png|jpe?g|gif|svg|drawio)$|^(docs|contents)/"; "i");   # Only top-level doc folders. A code path such as .../contents/auth/ is not a document
@@ -76,8 +76,14 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
 | ([$cats[].points] | add) as $score
 # A plaintext secret is not a risk to add up and compare — it is a change that must not be merged. Raise it to critical regardless of score
 | ([$cats[].signals[] | select(.name == "credentials-secrets") | .hits[]] | length > 0) as $secret
+# A path the owner listed (repos.<name>.always_human, path prefixes) is policy, not risk: low becomes medium and the score stays.
+# Read through $ARGS so callers that do not pass it (risk-audit.sh, selftest) score as before
+| ([$all[] | .filename as $f | ($ARGS.named.always_human // [])[] | select(. as $p | $f | startswith($p)) | {p: ., f: $f}] | .[0]) as $owner
+| (if $secret then "critical"
+   elif $score < 15 then "low" elif $score < 40 then "medium" elif $score < 70 then "high" else "critical" end) as $level
 | {sha: $sha, at: $at, score: $score,
-   level: (if $secret then "critical"
-           elif $score < 15 then "low" elif $score < 40 then "medium" elif $score < 70 then "high" else "critical" end),
-   override: (if $secret then "Plaintext secret found, so critical regardless of score" else null end),
+   level: (if $owner and $level == "low" then "medium" else $level end),
+   override: ([if $secret then "Plaintext secret found, so critical regardless of score" else empty end,
+               if $owner then "Owner-listed path `\($owner.p)` (`\($owner.f)`)" else empty end]
+              | if length > 0 then join("; ") else null end),
    size: $size, categories: $cats}
