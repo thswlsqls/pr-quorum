@@ -14,6 +14,8 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PR_QUORUM="$HARNESS_DIR/scripts/pr-quorum.sh"
 MAX_AUTHOR_ROUNDS=2   # Cap on author passes — one for Stage 1, one for Stage 3
 MAX_STEP_TRIES=2      # If a step ends without leaving a record, run it once more
+CI_POLL_MAX=20        # The merge gate reads CI checks still running up to this many times (10 minutes at the default interval)
+CI_POLL_SECS="${PR_QUORUM_CI_POLL_SECS:-30}"   # selftest sets 0
 
 log() { echo "[$(date -u +%H:%M:%S)] chain $REPO#$PR — $*"; }
 die() { log "$1"; exit "${2:-1}"; }
@@ -227,6 +229,49 @@ merge_gate() {
   bot_reviews="$(gh api --paginate "repos/$SLUG/pulls/$PR/reviews" \
     | jq -s --arg b "$BOT" --arg s "$head" '[add // [] | .[] | select(.user.login == $b and .commit_id == $s)] | length')" || bot_reviews=""
   [ "${bot_reviews:-0}" -gt 0 ] || reasons+=("no review by the bot ($BOT) on head $head found on GitHub")
+
+  # Every blocking comment needs Stage 2's latest verdict to be addressed — the author saying it fixed one is not enough.
+  # A later pass judges only the codes it covered, so the passes are merged in order. Old runs recorded Korean verdicts and no blocking field:
+  # there, only critical counts as blocking. A blocking code with no verdict also stops (a skipped Stage 2 has none)
+  local open late
+  open="$(jq -r --argjson pushed "$(jq '.pushed == true' "$a")" '
+    (reduce .stage2[]?.verdicts as $v ({}; . + ($v // {}))
+     | map_values({"반영":"addressed", "부분":"partial", "미반영":"not-addressed", "역행":"regressed"}[.] // .)) as $latest
+    | [.stage2[-1].new_comments[]?.code] as $last
+    | [(.stage1[-1].comments // []) + (.stage1[-1].summary_items // []) + [.stage2[]?.new_comments[]?]
+       | .[] | select(.pre_existing != true and (.blocking == true or (.grade | IN("critical", "치명"))))
+       | select($latest[.code] != "addressed") | .code] | unique
+    | map(. as $c | if $latest[$c] == null and $pushed and any($last[]; . == $c) then "late:\($c)"
+                    else "\($c)(\($latest[$c] // "no verdict"))" end)
+    | (map(select(startswith("late:") | not)) | join(", ")), (map(select(startswith("late:")) | ltrimstr("late:")) | join(", "))' "$M")"
+  late="$(sed -n 2p <<<"$open")"; open="$(sed -n 1p <<<"$open")"
+  [ -z "$open" ] || reasons+=("Stage 2 has not confirmed blocking comments: $open — a person can check them against the code and merge by hand")
+  [ -z "$late" ] || reasons+=("blocking comments raised after the last author pass: $late — a person can check them against the code and merge by hand")
+
+  # CI checks on the head (statusCheckRollup). Read here, not in pr_state(), which the conflict check before the author pass also calls.
+  # Checks still running are read again every CI_POLL_SECS, up to CI_POLL_MAX reads, while nothing else blocks
+  local ci i
+  for (( i=1; ; i++ )); do
+    ci="$(gh pr view "$PR" --repo "$SLUG" --json headRefOid,statusCheckRollup | jq -c '
+      .headRefOid as $sha
+      | [.statusCheckRollup[]? | {name:(.name // .context),
+        result:(if .__typename == "StatusContext" or .context != null
+                then (if .state | IN("PENDING", "EXPECTED") then "pending" elif .state | IN("FAILURE", "ERROR") then .state else "ok" end)
+                else (if .status != "COMPLETED" then "pending" elif .conclusion | IN("SUCCESS", "NEUTRAL", "SKIPPED") then "ok" else .conclusion end) end)}]
+      | {sha:$sha, checks:length, failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
+         pending:[.[] | select(.result == "pending") | .name]}')" \
+      || { chain_state "blocked" "merge gate: could not read the CI checks from GitHub — run the chain again"; exit 4; }
+    [ "$(jq '.pending | length' <<<"$ci")" -gt 0 ] && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] \
+      && [ ${#reasons[@]} -eq 0 ] && [ "$i" -lt "$CI_POLL_MAX" ] || break
+    sleep "$CI_POLL_SECS"
+  done
+  meta_set '.chain.ci = $c' --argjson c "$ci" || log "could not write the CI checks to meta.json"
+  if [ "$(jq -r '.sha' <<<"$ci")" != "$head" ]; then
+    reasons+=("CI checks are for $(jq -r '.sha' <<<"$ci"), not head $head — the head moved; run the chain again")
+  else
+    while IFS= read -r i; do reasons+=("CI check $i on $head"); done < <(jq -r '.failing[]' <<<"$ci")
+    [ "$(jq '.pending | length' <<<"$ci")" = 0 ] || reasons+=("CI checks still running on $head — run the chain again")
+  fi
 
   if [ ${#reasons[@]} -gt 0 ]; then
     chain_state "blocked" "merge gate: $(IFS='; '; echo "${reasons[*]}")"

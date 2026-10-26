@@ -85,7 +85,7 @@ It is not just one comment dropped — the review does not go up at all. Give th
 
 ### 4. Write the outputs
 
-Write two files in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/` (`<stage>` = `stage1`·`stage2`·`stage3`).
+Write these files in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/` (`<stage>` = `stage1`·`stage2`·`stage3`).
 **All three stages share one run directory, so put them in the per-stage folder** — if you write everything in one place, the Stage 1 outputs that Stage 3 judges
 read to assign origin (P/Q/N) get overwritten. **If the two disagree, PG2 catches it.**
 
@@ -93,6 +93,10 @@ read to assign origin (P/Q/N) get overwritten. **If the two disagree, PG2 catche
 - `comments.json` — array of inline comments. Each item is
   `{"path","line","side":"RIGHT","body","code","axis","grade"}`.
   `line` is the **line number in the new file**.
+- `summary-items.json` (Stage 1) — the findings that went to the summary body instead of inline (PG1 moved them, or they sit outside the diff),
+  as `[{"code","grade","blocking","path","line"}]`; `[]` if there are none. `blocking` is `true` when the label is `issue (blocking)`.
+  `post-review` records it, and the merge gate holds each blocking code until Stage 2 judges it `addressed` — leaving one out lets it merge unjudged.
+  Include it in the 4-5 edit; PG6 checks its count and every field.
 
 ### 4-5. Pre-post edit — all text going to GitHub
 
@@ -101,7 +105,7 @@ the procedure and gate are in `01-stages.md` §3-4 · PG6.
 
 | Stage | When | What |
 |---|---|---|
-| 1 | Once, in the **last round** (not in intermediate rounds) | `comments.json` · `summary.md` |
+| 1 | Once, in the **last round** (not in intermediate rounds) | `comments.json` · `summary.md` · `summary-items.json` |
 | 2 | Right before calling `reply`·`patch` | `replies/*.md` · `patches/*.md` |
 | 3 | Right before calling `reply`·`post-review` | `replies/*.md` · `comments.json` · `summary.md` |
 
@@ -189,6 +193,7 @@ and write each decision as one line in `~/.pr-quorum/runs/<repo>-pr<N>/decisions
 `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh stage2-begin $1 $2 <stage_sha> <last_judged_sha>`. It appends a new element if the last one already has verdicts or judged another commit, and otherwise reuses it (a resumed session).
 `post-review` merges into the last element if its `stage_sha` matches. Write the verdicts as a `{"C-01": "addressed", …}` JSON object in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/stage2/verdicts.json` and record them with
 `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh verdicts $1 $2 <stage_sha> <absolute path of that file>` — values other than the four verdict words exit 1. The chain counts completion by the number of elements that have `verdicts`.
+Give the blocking items of the Stage 1 summary body (`stage1[-1].summary_items` in `pr-quorum.sh meta`) a verdict by code too — the merge gate holds any blocking code whose latest verdict is not `addressed`, or that has none (`01-stages.md` §2-1).
 
 **Stage 3 reply ids** go straight into `stage3.replies` if `post-review … stage3` has already run under this lock; otherwise they collect in `stage3_replies` and `post-review` merges them. Either order works.
 If you finish under this lock without calling `post-review` (a resumed session), run `${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh stage3-replies $1 $2` — it moves `stage3_replies` into `stage3.replies`.

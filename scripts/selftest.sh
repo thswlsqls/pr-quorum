@@ -142,7 +142,14 @@ case "$1" in
       exit 0
     fi
     # chain.sh tests (C1–C3): an open, mergeable PR; fail-prview injects failures into the mergeable lookup, fail-prstate into the state one
+    # The merge gate's CI read (G1–G10): each line of $S/ci is the rollup for one read and the last one repeats; none is an empty rollup
     if [ -e "$S/chain" ]; then
+      case "$*" in *"--json headRefOid,statusCheckRollup"*)
+        h=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; [ ! -s "$S/head" ] || h="$(cat "$S/head")"
+        r='[]'; [ ! -s "$S/ci" ] || r="$(head -1 "$S/ci")"
+        [ ! -s "$S/ci" ] || [ "$(wc -l < "$S/ci")" -le 1 ] || { tail -n +2 "$S/ci" > "$S/t"; mv "$S/t" "$S/ci"; }
+        jq -n --arg h "$h" --argjson r "$r" '{headRefOid:$h, statusCheckRollup:$r}'; exit 0 ;;
+      esac
       case "$*" in *"--json state,isDraft,mergeable"*) take fail-prview; echo '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE"}' ;; *) take fail-prstate; echo OPEN ;; esac
       exit 0
     fi
@@ -241,7 +248,7 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
   printf 'Fixed in the latest push.\n' > "$STUB_RUN/outputs/stage3/reply.md"
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
-  ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0"
+  ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0" PR_QUORUM_CI_POLL_SECS=0
     unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT CLAUDE_CODE_SUBAGENT_MODEL
     "$@" )
 }
@@ -334,6 +341,24 @@ check "post T4 other stage's marker not adopted" t4_other_stage_marker
 check "api T5 GET retries 5xx, not 404"         t5_get_retry
 check "post T6 link at the posting copy refused" t6_posting_link_refused
 check "post T7 stage3 reposts keep earlier ids known" t7_repost_keeps_known
+# T8 — Stage 1 records the label as blocking and summary-items.json as summary_items; PG5 refuses a critical without `issue (blocking)`
+t8_blocking_records() {
+  local out rc=0
+  stub_home
+  echo '[{"code":"C-02","grade":"major","blocking":true,"path":"src/b.txt","line":9}]' > "$STUB_RUN/outputs/stage1/summary-items.json"
+  out="$(stub_post 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_meta -c '[.stage1[0].comments[0].blocking, .stage1[0].summary_items[0].code, .stage1[0].summary_items[0].blocking]')" = '[false,"C-02",true]' ] \
+    || { echo "stage1 record: $(stub_meta -c '.stage1[0]')"; return 1; }
+  jq '.[0].grade = "critical"' "$STUB_RUN/outputs/stage1/comments.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/stage1/comments.json"
+  out="$(stub_run "$PR_QUORUM" pg5 "$STUB_RUN/outputs/stage1/summary.md" "$STUB_RUN/outputs/stage1/comments.json" 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && grep -q 'S1-1' <<<"$out" || { echo "pg5 on a critical labelled non-blocking: exit $rc (want 3): $out"; return 1; }
+  # PG6 — an edit that drops a summary item's blocking flag is caught, though the codes are the same
+  rc=0; stub_run "$PR_QUORUM" snapshot "$STUB_RUN/outputs/stage1" >/dev/null 2>&1 || { echo "snapshot failed"; return 1; }
+  jq '.[0].blocking = false' "$STUB_RUN/outputs/stage1/summary-items.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/stage1/summary-items.json"
+  out="$(stub_run "$PR_QUORUM" pg6 "$STUB_RUN/outputs/stage1" 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && grep -q 'summary-items' <<<"$out" || { echo "pg6 on a dropped blocking flag: exit $rc (want 3): $out"; return 1; }
+}
+check "post T8 blocking label and summary items recorded, PG5 critical label, PG6 summary items" t8_blocking_records
 
 # R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
 stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
@@ -562,6 +587,66 @@ check "chain K1 unpushed head → Stage 2 skipped, ready"          k1_skip_unpus
 check "chain K2 skipped Stage 2 with blocking open → blocked"    k2_skip_blocking
 check "chain K3 second pass pushes → one Stage 2 session"        k3_second_push
 check "chain K4 first pass pushes → Stage 2 runs"                k4_first_push
+
+# G1–G10 — the merge gate reads Stage 2's verdicts on blocking comments and the head's CI checks. stub_chain_home records
+# with the bot's review on the head reach ready; each case changes meta.json (jq, $h is the head) and the CI rollups in $S/ci
+g_home() {  # g_home <jq program on meta.json> [rollup per CI read...]
+  local r
+  stub_chain_home; jq -n --arg h "$STUB_SHA" '[{id:111, user:{login:"quorum-bot"}, commit_id:$h}]' > "$STUB/state/reviews.json"
+  jq --arg h "$STUB_SHA" "$1" "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"; shift
+  for r in "$@"; do printf '%s\n' "$r" >> "$STUB/state/ci"; done
+}
+g_run() {  # g_run <exit> <state> <reason fragment> — runs the chain and checks the result; no session may start
+  local rc=0 out
+  out="$(stub_run "$HARNESS_DIR/scripts/chain.sh" demo 1 2>&1)" || rc=$?
+  [ "$rc" = "$1" ] && [ "$(stub_meta '.chain.state')" = "$2" ] && grep -qF -- "$3" <<<"$(stub_meta '.chain.reason')" \
+    || { echo "exit $rc, state $(stub_meta '.chain.state'), reason '$(stub_meta '.chain.reason')' (want $1, $2, '$3')"; echo "$out"; return 1; }
+  ! grep -q '^claude' "$STUB/state/calls.log" || { echo "a session was started"; return 1; }
+}
+C01='.stage1[0].comments = [{code:"C-01", grade:"major", blocking:true}]'
+# G1 — a blocking comment Stage 2 judged partial
+g1_partial() { g_home "$C01 | .stage2[0].verdicts = {\"C-01\":\"partial\"}"; g_run 3 blocked 'C-01(partial)'; }
+# G2 — a non-blocking comment not addressed: merges as before
+g2_nonblocking() { g_home '.stage1[0].comments = [{code:"C-01", grade:"major", blocking:false}] | .stage2[0].verdicts = {"C-01":"not-addressed"}'; g_run 0 ready ''; }
+# G3 — partial (in Korean, as old runs wrote it) in the first pass, absent from the second: the latest verdict is still partial
+g3_earlier_pass() { g_home "$C01 | .stage2 = [{verdicts:{\"C-01\":\"부분\"}}, {verdicts:{\"C-02\":\"addressed\"}, stage_sha:\$h}]"; g_run 3 blocked 'C-01(partial)'; }
+# G4 — Stage 2 skipped (no author push): a blocking comment has no verdict
+g4_skipped() { g_home "$C01 | .stage2[0].skipped = \"no author push\""; g_run 3 blocked 'C-01(no verdict)'; }
+# G5 — labelled non-blocking but graded critical: still blocking
+g5_critical() { g_home '.stage1[0].comments = [{code:"C-01", grade:"critical", blocking:false}] | .stage2[0].verdicts = {"C-01":"not-addressed"}'; g_run 3 blocked 'C-01(not-addressed)'; }
+# G6 — a blocking summary-body item with no verdict
+g6_summary_item() { g_home '.stage1[0].summary_items = [{code:"C-03", grade:"major", blocking:true}]'; g_run 3 blocked 'C-03(no verdict)'; }
+# G7 — after the author pass cap, the last Stage 2 raised a blocking S2- comment: its own reason
+g7_late_s2() {
+  g_home '.stage2[0].new_comments = [{code:"S2-01", grade:"major", blocking:true}]'
+  jq '.pushed = true' "$STUB_RUN/outputs/author/round-02.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/author/round-02.json"
+  g_run 3 blocked 'raised after the last author pass: S2-01'
+}
+# G8 — a failed CheckRun names the check
+g8_ci_failure() { g_home . '[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE"}]'; g_run 3 blocked 'CI check build is FAILURE'; }
+# G9 — no checks: ready as before, with checks:0 recorded; an old record (치명, no blocking field) judged 반영 passes too
+g9_no_checks() {
+  g_home '.stage1[0].comments = [{code:"C-01", grade:"치명"}] | .stage2[0].verdicts = {"C-01":"반영"}'; g_run 0 ready '' || return 1
+  [ "$(stub_meta '.chain.ci.checks')" = 0 ] || { echo "chain.ci $(stub_meta -c '.chain.ci')"; return 1; }
+}
+# G10 — in progress on the first read, success on the second: ready after two reads
+g10_ci_wait() {
+  g_home . '[{"__typename":"CheckRun","name":"build","status":"IN_PROGRESS","conclusion":""}]' \
+           '[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"__typename":"StatusContext","context":"lint","state":"SUCCESS"}]'
+  g_run 0 ready '' || return 1
+  [ "$(grep -c statusCheckRollup "$STUB/state/calls.log")" = 2 ] && [ "$(stub_meta -c '.chain.ci | [.checks, .pending]')" = '[2,[]]' ] \
+    || { echo "CI reads $(grep -c statusCheckRollup "$STUB/state/calls.log"), chain.ci $(stub_meta -c '.chain.ci') (want 2, checks 2)"; return 1; }
+}
+check "chain G1 blocking comment partial → blocked"              g1_partial
+check "chain G2 non-blocking not-addressed → ready"              g2_nonblocking
+check "chain G3 partial in an earlier pass only → blocked"       g3_earlier_pass
+check "chain G4 skipped Stage 2 with a blocking comment → blocked" g4_skipped
+check "chain G5 critical labelled non-blocking → blocked"        g5_critical
+check "chain G6 summary item with no verdict → blocked"          g6_summary_item
+check "chain G7 blocking S2- after the last author pass → blocked" g7_late_s2
+check "chain G8 failed CI check → blocked"                       g8_ci_failure
+check "chain G9 no CI checks → ready"                            g9_no_checks
+check "chain G10 CI in progress, then green → ready"             g10_ci_wait
 
 # P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
 path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>

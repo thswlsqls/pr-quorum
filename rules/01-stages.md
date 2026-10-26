@@ -42,6 +42,8 @@ Fold the fixes of rolled-back findings into the surviving comment body as a unio
 | L4 Regression lock | Would it be caught if the same thing broke again (were tests or checks added). Did the fix commit make tests pass by deleting them, disabling them, or weakening assertions |
 
 Give each comment a **four-level verdict** — `addressed` / `partial` / `not-addressed` / `regressed`.
+**Judge the blocking items of the Stage 1 summary body per code too** (`summary-items.json`, recorded as `stage1[-1].summary_items`).
+The merge gate holds every blocking code — inline, summary, and Stage 2's own `S2-` — until its latest verdict is `addressed`; a code with no verdict holds too.
 `regressed` means the attempted fix created a new defect.
 The posted verdict line is ``Verdict: `addressed` `` — the ID verbatim, with the explanation after it in the PR's language.
 
@@ -151,6 +153,7 @@ Fix the body file paths for `reply`·`patch` in advance. Taking a snapshot needs
 ```
 outputs/<stage>/comments.json          new inline comments (Stage 1, Stage 3's P)
 outputs/<stage>/summary.md             review summary     (Stage 1, Stage 3's P)
+outputs/stage1/summary-items.json      findings that went to the summary body, [{code, grade, blocking, path, line}] (Stage 1)
 outputs/<stage>/replies/<code>.md      thread replies     (Stage 2·3)   e.g. stage2/replies/C-01.md
 outputs/<stage>/patches/<comment-id>.md  corrections and additions to existing comments (Stage 2·3)
 outputs/<stage>/pre-polish/            pre-edit snapshots of all of the above, under the same names
@@ -280,7 +283,8 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
   "attempts": 0,                   // consecutive Stage 1 failures. At 2, set status to held-failed
   "stage1": [{"rounds": 2, "review_id": 123, "posted_at": "…", "eval_sha": "…", "unmet": ["S3"],
               "comments": [{"id": 456, "code": "C-01", "path": "…", "line": 42,
-                            "axis": "R-B", "grade": "critical"}]}],
+                            "axis": "R-B", "grade": "critical", "blocking": true}],   // blocking: the first line's label is `issue (blocking)`
+              "summary_items": [{"code": "C-07", "grade": "major", "blocking": true, "path": "…", "line": 12}]}],   // from summary-items.json, [] without it
   "stage2": [{"stage_sha": "…", "last_judged_sha": "…", "at": "…",
               "verdicts": {"C-01": "addressed", "C-02": "partial"},
               "replies": {"C-01": 456}, "new_comments": []}],   // the chain's own pass for an unpushed head: verdicts:{}, skipped:"no author push"
@@ -290,7 +294,8 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
              "replies": {"C-02": 1001}},   // thread replies. Replies made before posting collect in stage3_replies and post-review merges them here
                                            // (if reply creates .stage3, the chain treats Stage 3 as done before it is posted)
   "stage3_history": [],            // when Stage 3 is re-posted with a different stage_sha, the previous pass's stage3 moves here
-  "chain": {"sessions": [{"step": "stage1", "try": 1, "at": "…", "session_id": "…", "duration_ms": 0, "cost_usd": 0, "num_turns": 0, "is_error": false}]},   // chain.sh appends one per session
+  "chain": {"sessions": [{"step": "stage1", "try": 1, "at": "…", "session_id": "…", "duration_ms": 0, "cost_usd": 0, "num_turns": 0, "is_error": false}],   // chain.sh appends one per session
+            "ci": {"sha": "…", "checks": 2, "failing": ["build is FAILURE"], "pending": []}},   // the merge gate's last read of the head's CI checks
 
   "status": "pending|running|done|held-large|held-fork|held-failed"   // the watcher skips held-*
 }
@@ -306,8 +311,8 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
 | **PG2** | Summary ↔ body, every item | Count blocking items with `grep -c` and confirm the summary table covers all of them | Postings that write a summary (Stage 1, Stage 3's `P` review) |
 | **PG3** | Do the fixes conflict | Look for places where following both comments would waste the author's work or create a new defect | All stages |
 | **PG4** | V1 evidence · V2 quotes · V3 author challenge | Fix every factual error V1·V2 catch; for V3, choose one of reinforce · downgrade · delete | All stages |
-| **PG5** | Required items | At least 1 `praise` · every comment has anchor/label/axis · no scores | Stage 1 |
-| **PG6** | Did the pre-post edit cut meaning | Compare with the snapshots in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/pre-polish/` — for **JSON**, are the count, `path`·`line`·`side`·`code`·`axis`·`grade`, and the body's first line all the same; for **markdown**, did anchors, numbers, and quotes survive as they were. And does every comment still have impact (②) and direction (④) | All stages — once, right before posting (§3-4) |
+| **PG5** | Required items | At least 1 `praise` · every comment has anchor/label/axis · a `critical`'s first line carries `issue (blocking)` · no scores | Stage 1 |
+| **PG6** | Did the pre-post edit cut meaning | Compare with the snapshots in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/pre-polish/` — for **JSON**, are the count, `path`·`line`·`side`·`code`·`axis`·`grade`, and the body's first line all the same (for `summary-items.json`, the count and `code`·`grade`·`blocking`·`path`·`line`); for **markdown**, did anchors, numbers, and quotes survive as they were. And does every comment still have impact (②) and direction (④) | All stages — once, right before posting (§3-4) |
 
 **The machine-countable part of PG6** runs in one line: `pr-quorum.sh pg6 <outputs/<stage>[/round-NN]>`. A mismatch exits with 3.
 If the session assembles the two commands below itself, permissions deny them (L0-42·L0-51). Below is a description of what the script does.

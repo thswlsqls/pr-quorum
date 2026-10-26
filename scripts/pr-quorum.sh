@@ -410,6 +410,9 @@ cmd_pg5() {
   # The axis needs its name in the body, not just its code — the author must be able to read it without opening the profile.
   local noname; noname="$(jq -r '[.[] | select((.body | test("R-[A-I] \\(")) | not) | .code] | join(", ")' "$cfile")"
   [ -z "$noname" ] || die "$E_GATE" "PG5 violation — axis name missing (must be in \`R-x (Name)\` form): $noname"
+  # critical takes only the `issue (blocking)` label (rules/00-criteria.md §3) — the merge gate counts it as blocking either way
+  local unlabeled; unlabeled="$(jq -r '[.[] | select((.grade // "" | IN("critical", "치명")) and ((.body | split("\n")[0] | contains("`issue (blocking)`")) | not)) | .code] | join(", ")' "$cfile")"
+  [ -z "$unlabeled" ] || die "$E_GATE" "PG5 violation — critical without the \`issue (blocking)\` label on its first line: $unlabeled"
   # The summary carries the axis legend once — because the blocking order table cells hold only codes.
   if [ "$stage" = "stage1" ]; then
     grep -qE '`R-[A-I]`' "$sfile" || die "$E_GATE" "PG5 violation — summary has no axis legend (rules/00-criteria.md §6)"
@@ -433,6 +436,14 @@ cmd_pg6() {
                            head:(.body | split("\n")[0])})) | .[0] == .[1]' \
          "$pre/comments.json" "$dir/comments.json" >/dev/null; then
       echo "PG6 violation — comments.json count, fields, or first lines differ from the copy"; bad=1
+    fi
+  fi
+  # summary-items.json (Stage 1) — the same count and the fields the merge gate reads.
+  if [ -f "$pre/summary-items.json" ] || [ -f "$dir/summary-items.json" ]; then
+    [ -f "$pre/summary-items.json" ] && [ -f "$dir/summary-items.json" ] \
+      || die "$E_GATE" "PG6 violation — summary-items.json exists in only one of the copy and the current folder"
+    if ! jq -e -s 'map(map({code, grade, blocking:(.blocking == true), path, line})) | .[0] == .[1]' "$pre/summary-items.json" "$dir/summary-items.json" >/dev/null; then
+      echo "PG6 violation — summary-items.json count or fields differ from the copy"; bad=1
     fi
   fi
 
@@ -471,7 +482,7 @@ cmd_snapshot() {
   real="$(cd "$dir" && pwd -P)"
   case "$real/" in "$runs"/*/*) ;; *) die "$E_USAGE" "only output folders under runs/ are accepted: $1" ;; esac
   mkdir -p "$real/pre-polish"
-  for f in comments.json summary.md replies patches; do
+  for f in comments.json summary-items.json summary.md replies patches; do
     [ -e "$real/$f" ] || continue
     cp -R "$real/$f" "$real/pre-polish/"
     copied+=("$f")
@@ -654,6 +665,15 @@ cmd_post_review() {
 
   cmd_pg5 "$sfile" "$cfile" "$stage"
 
+  # Stage 1's summary-body findings, [{code, grade, blocking, path, line}], written by the session next to summary.md. Optional
+  local items=""
+  if [ "$stage" = stage1 ] && [ -e "$(dirname "$sfile")/summary-items.json" ]; then
+    items="$(dirname "$sfile")/summary-items.json"
+    need_run_file "$items"
+    jq -e 'type == "array" and all(.[]; type == "object" and (.code | type) == "string")' "$items" >/dev/null 2>&1 \
+      || die "$E_USAGE" "$items must be a JSON array of objects with a code — nothing was posted"
+  fi
+
   load_bot_token
   mktmp; local tmp="$TMP" known rid posting
   # The draft as posted. When a later call adopts the review, this copy stands in for comments.json — a retrying session may have
@@ -685,7 +705,7 @@ cmd_post_review() {
     # The file whose codes go into meta.json passes the checks comments.json passed at the entry point
     need_run_file "$posting"; need_clean_body "$posting"; need_clean_json "$posting"
     jq -e 'type == "array"' "$posting" >/dev/null 2>&1 || die "$E_USAGE" "$posting must be a JSON array — nothing was recorded"
-    record_review "$repo" "$pr" "$stage" "$rid" "$sha" "$posting" \
+    record_review "$repo" "$pr" "$stage" "$rid" "$sha" "$posting" "$items" \
       || die "$E_API" "review_id=$rid is on GitHub but recording it in meta.json failed — rerun the same post-review command"
     [ "$posting" = "$cfile" ] || rm -f "$posting"
     echo "adopted — review_id=$rid (already posted, now recorded)"
@@ -706,18 +726,19 @@ cmd_post_review() {
     || die "$E_API" "review post failed. On 422, first suspect a line anchor that does not attach at the pinned SHA ($sha) (rules/01-stages.md §7). If the review did go up, rerunning the same post-review command records it without posting again"
   local review_id; review_id="$(jq -r '.id' <<<"$resp")"
 
-  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$posting" \
+  record_review "$repo" "$pr" "$stage" "$review_id" "$sha" "$posting" "$items" \
     || die "$E_API" "review posted (review_id=$review_id) but not recorded in meta.json — rerun the same post-review command; it records this review without posting again"
   rm -f "$posting"
   echo "posted — review_id=$review_id, $(jq 'length' "$cfile") inline comments"
 }
 
-# record_review <repo> <pr> <stage> <review_id> <sha> <draft comments.json> — writes a posted review into meta.json.
+# record_review <repo> <pr> <stage> <review_id> <sha> <draft comments.json> [summary-items.json] — writes a posted review into meta.json.
 # It runs after the review is public and is called with ||, so errexit is off here: each step returns 1 on failure instead.
 record_review() {
-  local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" tmp="$TMP" merged
+  local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" ifile="${7:-}" tmp="$TMP" merged items='[]'
 
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
+  # blocking comes from the label on the body's first line — the merge gate reads it (rules/00-criteria.md §6)
   api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
              | map({id, path, line, body})' > "$tmp/posted.json" || return 1
@@ -730,15 +751,16 @@ record_review() {
         | (first($posted[] | select(.body == $d.body) | .id)
            // first($posted[] | select(.path==$d.path and .line==$d.line) | .id)) as $id
         | {id: ($id // null), code:$d.code, path:$d.path, line:$d.line,
-           axis:$d.axis, grade:($d.grade // null)})
+           axis:$d.axis, grade:($d.grade // null), blocking:($d.body | split("\n")[0] | contains("`issue (blocking)`"))})
     ' "$cfile" "$tmp/posted.json")" || return 1
+  [ -z "$ifile" ] || items="$(jq -c 'map({code, grade:(.grade // null), blocking:(.blocking == true), path:(.path // null), line:(.line // null)})' "$ifile")" || return 1
 
   # Each stage records in a different place. Appending stage2 to stage1 would break both the watcher's "already posted" check and
   # the stage1[].comments[].id that Stage 2 uses to find threads.
   case "$stage" in
     stage1)
-      meta_update "$repo" "$pr" '.stage1 += [{review_id:$rid, posted_at:$at, eval_sha:$sha, comments:$c}] | .attempts=0 | .status="done"' \
-        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" || return 1 ;;
+      meta_update "$repo" "$pr" '.stage1 += [{review_id:$rid, posted_at:$at, eval_sha:$sha, comments:$c, summary_items:$i}] | .attempts=0 | .status="done"' \
+        --argjson rid "$review_id" --arg at "$(now_iso)" --arg sha "$sha" --argjson c "$merged" --argjson i "$items" || return 1 ;;
     stage2)
       # If the last element is a round that judged a different commit, append a new element — merging would overwrite the previous round's post record (L0-25)
       meta_update "$repo" "$pr" '.stage2 = ((.stage2 // []) | if length == 0 or ((.[-1].stage_sha // $sha) != $sha) then . + [{}] else . end)
