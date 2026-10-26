@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `0ab51e0`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `dbc9456`
 
 <p align="center">
   <picture>
@@ -21,7 +21,7 @@
 
 | 阶段 | 做什么 |
 |---|---|
-| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。默认最多 5 轮(`limits.stage1.max_rounds`) |
+| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。属于某种模式的缺陷会在一条意见中列出 diff 内的所有位置；并非本 PR 引入的缺陷标为 pre-existing，不阻止合并。总结以 blocking 意见的数量开头。默认最多 5 轮(`limits.stage1.max_rounds`) |
 | 作者 | 独立的会话(`/pr-quorum:author`)修改代码，用你的 gh 账号推送到 PR 分支。从不强制推送、合并或批准 |
 | Stage 2 · followup | 在每个讨论串中回复 `addressed`(已落实)、`partial`(部分)、`not-addressed`(未落实) 或 `regressed`(倒退，修复引入了新缺陷) |
 | Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
@@ -106,6 +106,7 @@ flowchart TD
   G(["作者循环<br/>结束后"]) --> MG{"合并关卡<br/>blocking 0<br/>未关闭 blocking 0 (Stage 2)<br/>regressed 0<br/>无测试失败<br/>CI 通过<br/>已评审 head"}
   MG -- "否" --> B[blocked]
   MG -- "Stage 3 发现<br/>遗漏的<br/>critical/major" --> H
+  MG -- "pre-existing<br/>critical/major" --> H
   MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -117,7 +118,7 @@ flowchart TD
 
 </details>
 
-风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
+风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并；改动 `repos.<name>.always_human` 中所列路径的 PR 也一样。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
 
 ### 示例
 
@@ -134,6 +135,7 @@ Stage 1 留下了 1 条 nitpick 和 2 条表扬。Stage 2 判定这条 nitpick �
 - **证据分级。** 每条意见必须引用仓库规范文档、官方文档原文、`file:line` 或亲自运行的结果之一。超出证据支撑范围的主张会被剔除([`rules/00-criteria.md`](rules/00-criteria.md) §4)。
 - **评审不打分。** 只有 `critical`、`major`、`minor`(轻微)、`nit`(琐碎) 四个等级，并且至少写一条值得肯定之处。
 - **已确认的事实固定在 `frozen.md` 中**，没有新证据时各轮不再重复争论。
+- **只有评审前声明的局限才能降级。** Stage 2·3 读取保存在 `meta.json` 中的 Stage 1 时的 PR 描述，因此 author 事后补充的局限不会降低等级。
 - **一切都可查看。** 规则在 [`rules/`](rules/)，评审员指令在 [`rules/02-judges.md`](rules/02-judges.md)，关卡在 [`scripts/`](scripts/)，逐轮记录在 `~/.pr-quorum/runs/`。
 
 ### 标准的出处
@@ -314,7 +316,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | 在 `auto_merge: true` 下通过了两道关卡 | 无 |
 | `ready` | 通过了两道关卡，但 `auto_merge` 关闭 | 自己合并 |
-| `needs-human` | 风险为 `medium` 及以上，Stage 3 发现遗漏的 `critical`/`major` 缺陷，或 Stage 1 发现并非本 PR 引入的(pre-existing) `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
+| `needs-human` | 风险为 `medium` 及以上(`always_human` 中的路径总是如此)，Stage 3 发现遗漏的 `critical`/`major` 缺陷，或 Stage 1 发现并非本 PR 引入的(pre-existing) `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
 | `blocked` | 合并关卡未通过、合并冲突、会话未留下记录、会话触及 `limits` 的预算或时间上限，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路。机器人还会在 PR 上发一次评论，写明原因和恢复命令 |
 
 ### 手动运行链路
@@ -350,7 +352,7 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | 命令 | 何时使用 |
 |---|---|
 | `git -C <plugin-dir> pull --ff-only` | 让链路用上新版本时。克隆不会自动更新 |
-| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 把以往运行中的经验候选整理到 `~/.pr-quorum/runs/_dream/<time>/proposal.md`。是否写入 `learnings.md` 由你决定 |
+| `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 把以往运行中的经验候选，以及 author 按类别(`wrong`、`intentional`、`out-of-scope`)拒绝的意见，整理到 `~/.pr-quorum/runs/_dream/<time>/proposal.md`。反复出现的意见可能被提议为仓库中的 lint 规则或测试。是否写入 `learnings.md` 由你决定 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 列出最近 N 个已合并 PR(默认 30)的风险分，并对照 14 天内的修复或回滚 PR，用于调整自动合并阈值 |
 | `<plugin-dir>/scripts/selftest.sh` | 修改关卡脚本后。不用 LLM，在以往产出上重跑关卡 |
 | `<plugin-dir>/scripts/doctor.sh` | 配置完成后、修改 `config.json` 后，或 watcher 不再接收请求时。只读；有 `FAIL` 时 exit 2 |
@@ -395,7 +397,7 @@ flowchart LR
 - 只运行受信任作者的 PR：默认是仓库所有者，另加 `trust.authors` 或 `trust.associations` 中的人。信任只来自 `config.json` 和 GitHub API。Watcher 先过滤，`chain.sh` 再检查一次。受信任作者的 PR 文本会进入以你的账号推送和合并的会话，所以信任列表就是边界。
 - 会话不能直接调用构建工具。构建和测试只通过 `pr-quorum.sh build`(评审：PR 固定的 SHA 上的干净 worktree)和 `pr-quorum.sh author-build`(作者的 worktree)运行，二者执行 `repos.<name>.commands` 中的命令或 Gradle/npm 默认命令。
 - 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。
-- 会话不能编辑合并关卡读取的 `meta.json`。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
+- 会话不能编辑 `meta.json`：合并关卡读取它，它也保存着 Stage 1 时的 PR 描述。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
 
 ## 参与贡献
