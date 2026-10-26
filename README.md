@@ -246,12 +246,13 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `repos` | Per repository name: the absolute path of its local clone (`path`) and the profile to use (`profile`) |
 | `repos.<name>.owner` | The repository's GitHub owner, a user or an organization. Missing: the top-level `owner` |
 | `repos.<name>.commands` | The `build`, `test`, and `lint` commands sessions run in a PR worktree; `<target>` in a command is filled in per run. Missing: `./gradlew [<target>:]build` and `test` in a Gradle worktree, otherwise `npm run build`, `npm run lint`, and `npx --no -- tsc --noEmit` as the test. A kind with no command is recorded as `not measured` |
+| `repos.<name>.always_human` | Path prefixes (no globs, e.g. `["src/billing/", "scripts/release.sh"]`) that always go to a person: a PR touching one is at least risk `medium`, so the chain stops at `needs-human`. The score does not change. Missing: none ([`rules/03-risk.md`](rules/03-risk.md) Levels) |
 | `build.sandbox` | `"require"` (default): builds and tests run in the OS sandbox, and a host where it does not start records them as `not measured`. `"off"`: no sandbox, for builds that need Docker, the keychain, or private-registry credentials in `~/.npmrc` or `~/.m2/settings.xml`, which the sandbox hides |
 | `build.env_passthrough` | Extra environment variable names a build keeps (default `[]`; the build otherwise starts with an emptied environment). Names that look like credentials (`*TOKEN*`, `*SECRET*`, `*KEY*`) are refused, so registry credentials cannot come in this way |
 | `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
 | `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: `claude-sonnet-5-5`; `""`: Claude Code's default |
 
-All keys and sample values are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox and, since 0.10.0, sessions run on Sonnet (`models`). The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
+All keys except `repos.<name>.always_human`, with sample values, are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox and, since 0.10.0, sessions run on Sonnet (`models`). The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
 `learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
