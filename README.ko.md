@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7d8e4d1`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `a352684`
 
 <p align="center">
   <picture>
@@ -310,7 +310,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | `auto_merge: true` 에서 두 게이트를 통과했다 | 없음 |
 | `ready` | 두 게이트를 통과했지만 `auto_merge` 가 꺼져 있다 | 직접 머지한다 |
-| `needs-human` | 리스크가 `medium` 이상이거나, Stage 3 이 놓친 `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
+| `needs-human` | 리스크가 `medium` 이상이거나, Stage 3 이 놓친 `critical`/`major` 결함을 찾았거나, Stage 1 이 이 PR 이 들여오지 않은(pre-existing) `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
 | `blocked` | 머지 게이트 실패, 머지 충돌, 세션이 기록을 남기지 않음, 세션이 `limits` 의 예산·시간 상한에 걸림, head 가 바뀜 중 하나 | `chain.reason` 을 보고 원인을 고친 뒤 체인을 다시 돌린다. 봇도 그 이유와 재개 명령을 PR 에 코멘트로 한 번 남긴다 |
 
 ### 체인 직접 돌리기

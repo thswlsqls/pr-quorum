@@ -89,6 +89,10 @@ The question is not *"is this the ideal design?"* but *"does this make code heal
 A defect that comes from a **limit stated in advance** in the PR description, a `TODO` comment, or a design doc is **downgraded one step** (`critical` → `major`).
 This is not an exemption; it reflects the cost of undoing it.
 
+**In Stage 2·3, F9 counts only limits stated by Stage 1.** The PR description is `eval_body` in `meta.json` (`pr-quorum.sh init` copies it when it sets `eval_sha`); `TODO` comments and design docs are the ones at `eval_sha`.
+In an old run with no `eval_body`, Stage 2·3 do not use the PR description as grounds. Stage 1 reads the description as it is then.
+A limit the author writes in after the review is not a limit stated in advance.
+
 ### Bundled findings
 
 If one finding holds two or more strands, **have each strand challenged separately, and re-grade by the number of strands that survive.**
@@ -98,6 +102,31 @@ Only lower the grade — since we use no deduction numbers, the original's "bott
 
 **Defects resolved by the same fix plan go in one comment.** One comment holding several defects is normal.
 "The files to change are different" is not enough reason to split; split only when the author **may fix one side alone**.
+
+### Pre-existing defects — Stage 1 only
+
+A defect is **pre-existing** only when both hold.
+
+1. The same defect is at the base commit as it is. Open that line with `git show <base_sha>:<path>` and give the base-side `path:line` as evidence (grade C).
+2. The PR's change does not reach it. If the PR put the defect on an execution path (a new caller) or widened its impact, the PR brought it in.
+
+**If condition 2 is unclear, it is not pre-existing** — treat it as an ordinary finding, so a wrong call errs on the blocking side.
+
+| | Ordinary finding | Pre-existing |
+|---|---|---|
+| Grade | One of the four | One of the four, kept as is — the severity is not thrown away |
+| Label | By grade | `issue (non-blocking)` whatever the grade |
+| First line | `**C-01** \`issue (blocking)\` · R-B (…)` | `**C-07** \`issue (non-blocking)\` · pre-existing · R-B (…)` — `pre-existing` verbatim in every language, like the label |
+| Blocking order table, `blocking_open` | In | Out |
+| Author | Fixes by default | Does not fix. Declines it as out of scope, with a reason starting with "pre-existing" |
+| Where it goes | Inline or summary | Usually outside the diff, so the summary's "pre-existing defects" section. **At most 3** |
+| Chain | The merge gate holds it as blocking | `critical`·`major` stop the chain at `needs-human`; `minor`·`nit` change nothing |
+
+Record it as `pre_existing: true` with `base_anchor` (the base-side `path:line`) — in `comments.json` items, and in `summary-items.json` for summary items (`01-stages.md` §3-4).
+`post-review` reads the inline mark from the first line. A `critical`·`major` marked pre-existing always gets a challenger (`01-stages.md` §2); if it is refuted as pre-existing, it goes back to an ordinary finding.
+A pre-existing `critical`·`major` does not block the author, but it does not merge unseen either — a person decides.
+
+**Stage 2 and 3 do not use this mark.** Stage 3's P/Q/N classes and its `needs-human` call stay as they are (`01-stages.md` §2-2, §5).
 
 ---
 
@@ -149,6 +178,8 @@ Writing line 2 down lets you address that pushback inside the paragraph first.
 2. **What happens as a result** — the impact. Tie it to the spec or traffic conditions where possible.
 3. **Evidence** — one of A–D from §4. State the grade with it.
 4. **Direction** — an alternative, or at least a direction. Do not leave only the problem.
+   **If the defect is a pattern, not a one-line slip** (the same call, the same omission, the same conversion), find every place in the diff with the same pattern and **list them all in this one comment**, with the command that found them.
+   If there is no other place, write "0 others, `grep -n …`". Places you saw outside the diff go on a separate line as "outside the diff (no fix needed)".
 
 ### Posting format
 
@@ -172,7 +203,13 @@ If one comment covers two axes, join them with `·`.
 **C-10** `issue (blocking)` · R-D (Interface contract) · R-B (Data correctness)
 ```
 
-If any of code, label, axis code, or axis name is missing, PG5 catches it.
+A pre-existing defect (§3) adds `· pre-existing` after the label, which is always `issue (non-blocking)`.
+
+```
+**C-07** `issue (non-blocking)` · pre-existing · R-B (Data correctness)
+```
+
+If any of code, label, axis code, or axis name is missing, PG5 catches it. PG5 also fails a `pre-existing` first line labelled `issue (blocking)`.
 
 ### Put an axis legend in the summary body once
 

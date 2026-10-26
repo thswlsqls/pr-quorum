@@ -89,12 +89,15 @@ Write these files in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/` (`<stage>
 **All three stages share one run directory, so put them in the per-stage folder** — if you write everything in one place, the Stage 1 outputs that Stage 3 judges
 read to assign origin (P/Q/N) get overwritten. **If the two disagree, PG2 catches it.**
 
-- `summary.md` — review summary body (overall assessment · praise · blocking order table · one line separating measured from estimated)
+- `summary.md` — review summary body (overall assessment · praise · blocking order table · one line separating measured from estimated).
+  **The first line starts with the count**, in the PR's language — e.g. `Blocking 2 · non-blocking 3`, or `Nothing blocks the merge · non-blocking 1` when no item blocks.
+  Pre-existing defects (`00-criteria.md` §3) go in a "pre-existing defects" section of their own, at most 3, outside the blocking order table and the blocking count.
 - `comments.json` — array of inline comments. Each item is
-  `{"path","line","side":"RIGHT","body","code","axis","grade"}`.
+  `{"path","line","side":"RIGHT","body","code","axis","grade"}`, plus `"base_anchor"` (the base-side `path:line`) on a Stage 1 pre-existing defect.
   `line` is the **line number in the new file**.
 - `summary-items.json` (Stage 1) — the findings that went to the summary body instead of inline (PG1 moved them, or they sit outside the diff),
-  as `[{"code","grade","blocking","path","line"}]`; `[]` if there are none. `blocking` is `true` when the label is `issue (blocking)`.
+  as `[{"code","grade","blocking","path","line","pre_existing","base_anchor"}]`; `[]` if there are none. `blocking` is `true` when the label is `issue (blocking)`.
+  `pre_existing` is `true` for an item in the "pre-existing defects" section, with `base_anchor`; `false` otherwise. A pre-existing `critical`·`major` stops the chain at `needs-human`.
   `post-review` records it, and the merge gate holds each blocking code until Stage 2 judges it `addressed` — leaving one out lets it merge unjudged.
   Include it in the 4-5 edit; PG6 checks its count and every field.
 
