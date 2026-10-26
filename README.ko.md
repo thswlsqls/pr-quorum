@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `07b0a10`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `6ea8188`
 
 <p align="center">
   <picture>
@@ -69,7 +69,7 @@ flowchart TD
 
 Stage 2 는 저자가 Stage 1 코멘트를 고친 뒤에 돌고(그 수정이 아무것도 push 하지 않았으면 체인은 대신 빈 패스를 기록한다), Stage 3 뒤 저자의 두 번째 패스가 push 했으면 한 번 더 돈다.
 
-`regressed` 판정이 하나라도 남으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+`regressed` 판정이 하나라도 남거나, 최신 판정이 `addressed` 가 아닌 blocking 코멘트가 있으면 머지 게이트가 막힌다. 관점: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
 
 </details>
 
@@ -103,7 +103,7 @@ Stage 3 은 첫 Stage 2 뒤에 한 번 돈다.
 
 ```mermaid
 flowchart TD
-  G(["저자 루프<br/>이후"]) --> MG{"머지 게이트<br/>blocking 0<br/>regressed 0<br/>테스트 실패 0<br/>head 리뷰 완료"}
+  G(["저자 루프<br/>이후"]) --> MG{"머지 게이트<br/>blocking 0<br/>열린 blocking 0 (Stage 2)<br/>regressed 0<br/>테스트 실패 0<br/>CI 통과<br/>head 리뷰 완료"}
   MG -- "아니오" --> B[blocked]
   MG -- "Stage 3 에서<br/>놓친 critical/major<br/>발견" --> H
   MG -- "예" --> RG{"리스크 게이트<br/>0–100점"}
@@ -383,7 +383,7 @@ flowchart LR
 
 빌드와 테스트는 PR 이 정한 코드를 실행하므로, 비운 환경으로 OS 샌드박스(macOS 는 `sandbox-exec`, Linux 는 `bwrap`) 안에서 돈다. 빌드는 자격 증명 파일을 읽지 못하고, worktree·임시 폴더·자기 캐시 루트 밖에는 쓰지 못한다. 그래도 열려 있는 것은 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1 에 있다.
 
-그림에 없는 것: 머지 게이트는 저자 세션이 스스로 보고한 결과(테스트, 남은 blocker)를 그대로 믿는다.
+그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다.
 
 그 밖의 안전장치:
 

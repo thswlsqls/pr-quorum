@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `07b0a10`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `6ea8188`
 
 <p align="center">
   <picture>
@@ -69,7 +69,7 @@ flowchart TD
 
 Stage 2 在作者修复 Stage 1 的评论后运行(若这次修复没有推送任何内容，链路改为记录一次空的 pass)；Stage 3 之后作者第二次修复若有推送，会再运行一次。
 
-只要还留有 `regressed` 判定，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
+只要还留有 `regressed` 判定，或有 blocking 评论的最新判定不是 `addressed`，合并关卡就会阻断。视角见 [`rules/01-stages.md`](rules/01-stages.md) §2-1。
 
 </details>
 
@@ -103,7 +103,7 @@ Stage 3 在第一次 Stage 2 之后运行一次。
 
 ```mermaid
 flowchart TD
-  G(["作者循环<br/>结束后"]) --> MG{"合并关卡<br/>blocking 0<br/>regressed 0<br/>无测试失败<br/>已评审 head"}
+  G(["作者循环<br/>结束后"]) --> MG{"合并关卡<br/>blocking 0<br/>未关闭 blocking 0 (Stage 2)<br/>regressed 0<br/>无测试失败<br/>CI 通过<br/>已评审 head"}
   MG -- "否" --> B[blocked]
   MG -- "Stage 3 发现<br/>遗漏的<br/>critical/major" --> H
   MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
@@ -383,7 +383,7 @@ flowchart LR
 
 构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
 
-图中未画出：合并关卡信任作者会话自己的报告(测试、未解决的 blocker)。
+图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。
 
 其他防护：
 
