@@ -48,9 +48,11 @@ A reply that contains only `praise` and ``Verdict: `addressed` `` with no new re
 
 ### 1. Decide per item — the default is to fix
 
-- The default is **fix**. Follow the bot's fix (④ direction).
+- The default is **fix**. Follow the bot's fix (④ direction). If the comment lists several places in the diff, fix them all; places marked as outside the diff are not yours to fix.
 - **Decline** only in one of two cases — opening the code shows the finding is factually wrong, or it is outside this PR's scope.
   Attach the evidence `file:line` to the reason for declining.
+- **Exception — a finding marked `pre-existing`** (in its first line, or in the summary's pre-existing defects section) was there before this PR. Do not fix it;
+  put it in `declined` with a reason starting with "pre-existing". It is non-blocking, so it does not count in `blocking_open`.
 - If you decline an `issue (blocking)`, count it in `blocking_open`. The chain does not merge while this number is not 0.
 
 ### 2. Fix in a worktree

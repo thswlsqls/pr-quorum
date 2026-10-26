@@ -80,6 +80,7 @@ The aggregator parses this table. **Do not change the columns. Fill empty cells 
   Do not mix it up with the scoring judge number (`J1`–`J4`).
 - **The header lists only the axes actually assigned in that round.** In a round where `R-I` is not applicable, J3 has two axes.
 - `Grade` = only the four: `critical`·`major`·`minor`·`nit`. **Do not invent grades outside the scale.**
+- `Label` = for a pre-existing defect (Stage 1, `00-criteria.md` §3), `issue (non-blocking) · pre-existing`, with the base-side `path:line` in `Evidence (grade)`. Keep the grade as it is.
 
 From round 2 on, give each judge in the body **the list of confirmed comments on its own axis from the previous pass**.
 This keeps it from catching what is already caught. The job of that round is to find new defects, or to bring new evidence that an existing confirmation was wrong.
@@ -145,6 +146,8 @@ Challenge this review finding.
  ⑤ If it is a numeric claim, recompute it yourself.
  ⑥ **What happens if the fix this finding proposes is applied as-is?
     Does it create a new defect?** Simulate it by following the code.
+ ⑦ If it is marked pre-existing: is the same defect really at the base commit (open the base anchor with `git show <base_sha>:<path>`),
+    and does the PR's change really not reach it? If either fails, say so — it goes back to an ordinary finding.
 
  If you are not sure, give the verdict `refuted`.
 

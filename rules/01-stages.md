@@ -24,7 +24,7 @@ and merges only PRs that pass both. With `auto_merge` off, it does not merge and
 | **Target** | diff at `eval_sha` | `last_judged_sha`…`stage_sha` | changed files at `stage_sha` |
 | **Axes** | The profile's 9 axes across 4 judges. `R-I` is conditional | 4 verdict lenses (§2-1) | Same as Stage 1 + measurement |
 | **Budget** | All `critical`·`major` + 5 `minor`·`nit` + 3 rewrites of existing comments (carried over). **Correcting factual errors and fixing gate violations are outside the budget** | 3 new comments | 5 new-defect write-ups |
-| **Challenger** | If `critical`+`major` ≤10, every one. If >10, every `critical`; if that is still under 3, fill from `major` | Every `regressed` (N) verdict | Every `critical` + every `P` |
+| **Challenger** | If `critical`+`major` ≤10, every one. If >10, every `critical`; if that is still under 3, fill from `major`. A `critical`·`major` marked pre-existing (`00-criteria.md` §3) always gets one, outside this count | Every `regressed` (N) verdict | Every `critical` + every `P` |
 | **Dedup priority** | J1 > J2 > J3 > J4 — a wrong design or data is the premise for the rest | Fix accuracy > fidelity of the fix > do docs and code match > regression lock — "done right" beats "done" | Same as Stage 1 |
 | **Invalidation conditions** | The 8 common ones in `00-criteria.md` §1 | Common + **I-S2** *"Only quoted the Stage 1 comment; did not show it is still present in the current code"* | Common + **I-S3** *"No origin class (P/Q/N)"* |
 | **Exit** | S1–S3 in §4. **Round cap** — `--max-rounds N` (the chain passes `limits.stage1.max_rounds`, 3 in the template), 5 without it | Ends after one verdict pass | Ends after the `P` verdict in §5 |
@@ -153,7 +153,7 @@ Fix the body file paths for `reply`·`patch` in advance. Taking a snapshot needs
 ```
 outputs/<stage>/comments.json          new inline comments (Stage 1, Stage 3's P)
 outputs/<stage>/summary.md             review summary     (Stage 1, Stage 3's P)
-outputs/stage1/summary-items.json      findings that went to the summary body, [{code, grade, blocking, path, line}] (Stage 1)
+outputs/stage1/summary-items.json      findings that went to the summary body, [{code, grade, blocking, path, line, pre_existing, base_anchor}] (Stage 1)
 outputs/<stage>/replies/<code>.md      thread replies     (Stage 2·3)   e.g. stage2/replies/C-01.md
 outputs/<stage>/patches/<comment-id>.md  corrections and additions to existing comments (Stage 2·3)
 outputs/<stage>/pre-polish/            pre-edit snapshots of all of the above, under the same names
@@ -279,12 +279,15 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
 {
   "owner": "your-github-login", "repo": "your-repo",   // repo is also the profile key
   "pr": 12, "base_sha": "…", "eval_sha": "…", "profile": "backend",
+  "eval_body": "…",                // the PR description when init set eval_sha — F9's grounds in Stage 2·3 (00-criteria.md §3)
   "lock": {"pid": 4821, "started_at": "…", "stage": 1},   // invalid after 3 hours or if the pid is dead
   "attempts": 0,                   // consecutive Stage 1 failures. At 2, set status to held-failed
   "stage1": [{"rounds": 2, "review_id": 123, "posted_at": "…", "eval_sha": "…", "unmet": ["S3"],
               "comments": [{"id": 456, "code": "C-01", "path": "…", "line": 42,
-                            "axis": "R-B", "grade": "critical", "blocking": true}],   // blocking: the first line's label is `issue (blocking)`
-              "summary_items": [{"code": "C-07", "grade": "major", "blocking": true, "path": "…", "line": 12}]}],   // from summary-items.json, [] without it
+                            "axis": "R-B", "grade": "critical", "blocking": true, "pre_existing": false}],   // blocking: the first line's label is `issue (blocking)`
+                                                                                     // pre_existing: the first line says `pre-existing`; then base_anchor too
+              "summary_items": [{"code": "C-07", "grade": "major", "blocking": false, "path": "…", "line": 12,
+                                 "pre_existing": true, "base_anchor": "…:12"}]}],   // from summary-items.json, [] without it
   "stage2": [{"stage_sha": "…", "last_judged_sha": "…", "at": "…",
               "verdicts": {"C-01": "addressed", "C-02": "partial"},
               "replies": {"C-01": 456}, "new_comments": []}],   // the chain's own pass for an unpushed head: verdicts:{}, skipped:"no author push"
@@ -308,11 +311,11 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
 | # | Gate | How | Applies to |
 |---|---|---|---|
 | **PG1** | Is the anchor inside the diff | `pr-quorum.sh gate1` parses the `@@` hunk ranges of `files[].patch` from a **single call** to `compare/{base}...{posting SHA}` and judges line by line. Anything outside moves to the summary body | Every time new inline comments are posted (all in Stage 1, only new ones in Stage 2·3) |
-| **PG2** | Summary ↔ body, every item | Count blocking items with `grep -c` and confirm the summary table covers all of them | Postings that write a summary (Stage 1, Stage 3's `P` review) |
+| **PG2** | Summary ↔ body, every item | Count blocking items with `grep -c` and confirm the summary table covers all of them — and that the counts on the summary's first line match | Postings that write a summary (Stage 1, Stage 3's `P` review) |
 | **PG3** | Do the fixes conflict | Look for places where following both comments would waste the author's work or create a new defect | All stages |
 | **PG4** | V1 evidence · V2 quotes · V3 author challenge | Fix every factual error V1·V2 catch; for V3, choose one of reinforce · downgrade · delete | All stages |
-| **PG5** | Required items | At least 1 `praise` · every comment has anchor/label/axis · a `critical`'s first line carries `issue (blocking)` · no scores | Stage 1 |
-| **PG6** | Did the pre-post edit cut meaning | Compare with the snapshots in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/pre-polish/` — for **JSON**, are the count, `path`·`line`·`side`·`code`·`axis`·`grade`, and the body's first line all the same (for `summary-items.json`, the count and `code`·`grade`·`blocking`·`path`·`line`); for **markdown**, did anchors, numbers, and quotes survive as they were. And does every comment still have impact (②) and direction (④) | All stages — once, right before posting (§3-4) |
+| **PG5** | Required items | At least 1 `praise` · every comment has anchor/label/axis · a `critical`'s first line carries `issue (blocking)` unless it is pre-existing · a pre-existing first line does not carry `issue (blocking)` · no scores | Stage 1 |
+| **PG6** | Did the pre-post edit cut meaning | Compare with the snapshots in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/pre-polish/` — for **JSON**, are the count, `path`·`line`·`side`·`code`·`axis`·`grade`, and the body's first line all the same (for `summary-items.json`, the count and `code`·`grade`·`blocking`·`path`·`line`·`pre_existing`·`base_anchor`); for **markdown**, did anchors, numbers, and quotes survive as they were. And does every comment still have impact (②) and direction (④) | All stages — once, right before posting (§3-4) |
 
 **The machine-countable part of PG6** runs in one line: `pr-quorum.sh pg6 <outputs/<stage>[/round-NN]>`. A mismatch exits with 3.
 If the session assembles the two commands below itself, permissions deny them (L0-42·L0-51). Below is a description of what the script does.
