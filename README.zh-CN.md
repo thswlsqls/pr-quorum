@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `7d8e4d1`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `a352684`
 
 <p align="center">
   <picture>
@@ -310,7 +310,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | 在 `auto_merge: true` 下通过了两道关卡 | 无 |
 | `ready` | 通过了两道关卡，但 `auto_merge` 关闭 | 自己合并 |
-| `needs-human` | 风险为 `medium` 及以上，或 Stage 3 发现遗漏的 `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
+| `needs-human` | 风险为 `medium` 及以上，Stage 3 发现遗漏的 `critical`/`major` 缺陷，或 Stage 1 发现并非本 PR 引入的(pre-existing) `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
 | `blocked` | 合并关卡未通过、合并冲突、会话未留下记录、会话触及 `limits` 的预算或时间上限，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路。机器人还会在 PR 上发一次评论，写明原因和恢复命令 |
 
 ### 手动运行链路
