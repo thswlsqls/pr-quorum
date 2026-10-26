@@ -286,6 +286,15 @@ merge_gate() {
     chain_state "needs-human" "Stage 3 found defects the review missed: $missed — a person decides whether to rerun Stage 1"
     exit 3
   fi
+  # A critical or major defect Stage 1 marked pre-existing is not the author's to fix and does not block, but it does not merge unseen either
+  # (rules/00-criteria.md §3). Read from the Stage 1 records pr-quorum.sh wrote
+  local pre
+  pre="$(jq -r '[(.stage1[-1].comments // []) + (.stage1[-1].summary_items // []) | .[]
+                 | select(.pre_existing == true and (.grade | IN("critical", "major", "치명", "중대"))) | "\(.code)(\(.grade))"] | join(", ")' "$M")"
+  if [ -n "$pre" ]; then
+    chain_state "needs-human" "pre-existing defects near this PR: $pre — a person decides whether to merge"
+    exit 3
+  fi
 }
 
 # Risk gate (rules/03-risk.md) — only PRs that passed every other gate are scored. The scorecard is posted on the PR regardless of level.

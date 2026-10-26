@@ -313,10 +313,13 @@ cmd_init() {
   mkdir -p "$d/rounds" "$d/prompts" "$d/outputs/stage1" "$d/outputs/stage2" "$d/outputs/stage3"
   [ -f "$d/frozen.md" ] || printf '# Frozen — facts settled in this PR\n\nTo overturn one, bring *new evidence that the settled fact is wrong*.\n\n| # | Settled fact | Evidence | Round frozen |\n|---|---|---|---|\n' > "$d/frozen.md"
 
-  local j base head
+  local j base head body
   j="$(api "repos/$SLUG/pulls/$pr")"
   base="$(jq -r '.base.sha' <<<"$j")"
   head="$(jq -r '.head.sha' <<<"$j")"
+  # The PR description as of eval_sha — Stage 2·3 read F9's stated limits from this copy, not from a description the author edited later
+  # (rules/00-criteria.md §3). It lives in meta.json because sessions cannot write that file
+  body="$(jq -r '.body // ""' <<<"$j")"
 
   if [ -f "$d/meta.json" ]; then
     # Rerun. If Stage 1 has already posted, these are the pinned SHAs that review hangs on, so leave them alone —
@@ -328,13 +331,15 @@ cmd_init() {
       echo "  eval_sha=$(jq -r '.eval_sha' "$d/meta.json")  (current head=$head)"
       echo "  to rerun Stage 1 on the current head: init $repo $pr --reset-eval"
     else
-      meta_update "$repo" "$pr" '.base_sha=$b | .eval_sha=$h' --arg b "$base" --arg h "$head"
+      # eval_body follows eval_sha: set again when eval_sha moves or on --reset-eval, kept when the same eval_sha is set again
+      meta_update "$repo" "$pr" '.eval_body = (if $r == 1 or .eval_sha != $h or (has("eval_body") | not) then $body else .eval_body end)
+                                 | .base_sha=$b | .eval_sha=$h' --arg b "$base" --arg h "$head" --arg body "$body" --argjson r "$reset_eval"
       echo "meta.json updated (existing records kept): $d/meta.json"
     fi
   else
     jq -n --arg o "${SLUG%/*}" --arg r "$repo" --argjson p "$pr" \
-          --arg b "$base" --arg h "$head" --arg prof "$prof" '
-      {owner:$o, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, profile:$prof,
+          --arg b "$base" --arg h "$head" --arg body "$body" --arg prof "$prof" '
+      {owner:$o, repo:$r, pr:$p, base_sha:$b, eval_sha:$h, eval_body:$body, profile:$prof,
        lock:null, attempts:0, stage1:[], stage2:[], stage3:null, status:"pending"}
     ' > "$d/meta.json"
     echo "created: $d/meta.json"
@@ -417,9 +422,13 @@ cmd_pg5() {
   # The axis needs its name in the body, not just its code — the author must be able to read it without opening the profile.
   local noname; noname="$(jq -r '[.[] | select((.body | test("R-[A-I] \\(")) | not) | .code] | join(", ")' "$cfile")"
   [ -z "$noname" ] || die "$E_GATE" "PG5 violation — axis name missing (must be in \`R-x (Name)\` form): $noname"
-  # critical takes only the `issue (blocking)` label (rules/00-criteria.md §3) — the merge gate counts it as blocking either way
-  local unlabeled; unlabeled="$(jq -r '[.[] | select((.grade // "" | IN("critical", "치명")) and ((.body | split("\n")[0] | contains("`issue (blocking)`")) | not)) | .code] | join(", ")' "$cfile")"
+  # critical takes only the `issue (blocking)` label (rules/00-criteria.md §3) — the merge gate counts it as blocking either way.
+  # A Stage 1 pre-existing defect is the exception: it is never blocking, whatever its grade (rules/00-criteria.md §3 "Pre-existing defects")
+  local unlabeled; unlabeled="$(jq -r --arg st "$stage" '[.[] | (.body | split("\n")[0]) as $h | select((.grade // "" | IN("critical", "치명"))
+                                        and ($st == "stage1" and ($h | contains("pre-existing")) | not) and ($h | contains("`issue (blocking)`") | not)) | .code] | join(", ")' "$cfile")"
   [ -z "$unlabeled" ] || die "$E_GATE" "PG5 violation — critical without the \`issue (blocking)\` label on its first line: $unlabeled"
+  local blocked; blocked="$(jq -r '[.[] | (.body | split("\n")[0]) as $h | select(($h | contains("pre-existing")) and ($h | contains("`issue (blocking)`"))) | .code] | join(", ")' "$cfile")"
+  [ -z "$blocked" ] || die "$E_GATE" "PG5 violation — pre-existing defect labelled \`issue (blocking)\`: $blocked"
   # The summary carries the axis legend once — because the blocking order table cells hold only codes.
   if [ "$stage" = "stage1" ]; then
     grep -qE '`R-[A-I]`' "$sfile" || die "$E_GATE" "PG5 violation — summary has no axis legend (rules/00-criteria.md §6)"
@@ -440,7 +449,7 @@ cmd_pg6() {
     [ -f "$pre/comments.json" ] && [ -f "$dir/comments.json" ] \
       || die "$E_GATE" "PG6 violation — comments.json exists in only one of the copy and the current folder"
     if ! jq -e -s 'map(map({code, path, line, side:(.side//"RIGHT"), axis, grade,
-                           head:(.body | split("\n")[0])})) | .[0] == .[1]' \
+                           head:(.body | split("\n")[0]), base_anchor})) | .[0] == .[1]' \
          "$pre/comments.json" "$dir/comments.json" >/dev/null; then
       echo "PG6 violation — comments.json count, fields, or first lines differ from the copy"; bad=1
     fi
@@ -449,7 +458,7 @@ cmd_pg6() {
   if [ -f "$pre/summary-items.json" ] || [ -f "$dir/summary-items.json" ]; then
     [ -f "$pre/summary-items.json" ] && [ -f "$dir/summary-items.json" ] \
       || die "$E_GATE" "PG6 violation — summary-items.json exists in only one of the copy and the current folder"
-    if ! jq -e -s 'map(map({code, grade, blocking:(.blocking == true), path, line})) | .[0] == .[1]' "$pre/summary-items.json" "$dir/summary-items.json" >/dev/null; then
+    if ! jq -e -s 'map(map({code, grade, blocking:(.blocking == true), path, line, pre_existing:(.pre_existing == true), base_anchor})) | .[0] == .[1]' "$pre/summary-items.json" "$dir/summary-items.json" >/dev/null; then
       echo "PG6 violation — summary-items.json count or fields differ from the copy"; bad=1
     fi
   fi
@@ -745,22 +754,26 @@ record_review() {
   local repo="$1" pr="$2" stage="$3" review_id="$4" sha="$5" cfile="$6" ifile="${7:-}" tmp="$TMP" merged items='[]'
 
   # Fetch the ids of the posted inline comments and attach code/axis/grade by (path,line).
-  # blocking comes from the label on the body's first line — the merge gate reads it (rules/00-criteria.md §6)
+  # blocking comes from the label on the body's first line, pre_existing from the `pre-existing` mark there (Stage 1 only) — the chain reads both
+  # (rules/00-criteria.md §3, §6)
   api --paginate "repos/$SLUG/pulls/$pr/comments" \
     | jq -s 'add | map(select(.pull_request_review_id == '"$review_id"'))
              | map({id, path, line, body})' > "$tmp/posted.json" || return 1
 
   # Match by body first — with two comments at the same spot, (path,line) alone cannot tell them apart,
   # the ids get swapped, and Stage 2 replies in the wrong thread.
-  merged="$(jq -s '
+  merged="$(jq -s --arg st "$stage" '
       .[0] as $draft | .[1] as $posted |
       $draft | map(. as $d
         | (first($posted[] | select(.body == $d.body) | .id)
            // first($posted[] | select(.path==$d.path and .line==$d.line) | .id)) as $id
         | {id: ($id // null), code:$d.code, path:$d.path, line:$d.line,
-           axis:$d.axis, grade:($d.grade // null), blocking:($d.body | split("\n")[0] | contains("`issue (blocking)`"))})
+           axis:$d.axis, grade:($d.grade // null), blocking:($d.body | split("\n")[0] | contains("`issue (blocking)`")),
+           pre_existing:($st == "stage1" and ($d.body | split("\n")[0] | contains("pre-existing")))}
+          | if .pre_existing then .base_anchor = ($d.base_anchor // null) else . end)
     ' "$cfile" "$tmp/posted.json")" || return 1
-  [ -z "$ifile" ] || items="$(jq -c 'map({code, grade:(.grade // null), blocking:(.blocking == true), path:(.path // null), line:(.line // null)})' "$ifile")" || return 1
+  [ -z "$ifile" ] || items="$(jq -c 'map({code, grade:(.grade // null), blocking:(.blocking == true), path:(.path // null), line:(.line // null),
+                                           pre_existing:(.pre_existing == true)} + if .pre_existing == true then {base_anchor:(.base_anchor // null)} else {} end)' "$ifile")" || return 1
 
   # Each stage records in a different place. Appending stage2 to stage1 would break both the watcher's "already posted" check and
   # the stage1[].comments[].id that Stage 2 uses to find threads.
