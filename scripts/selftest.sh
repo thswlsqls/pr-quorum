@@ -168,9 +168,10 @@ out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
 case "$path" in
   */pulls/1)
     take fail-pr
-    # fork (F1–F3): its content (alice/demo, or null for a deleted fork) replaces head.repo
+    # fork (F1–F3): its content (alice/demo, or null for a deleted fork) replaces head.repo. The description is $S/body (E1–E3)
     h=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; [ ! -s "$S/head" ] || h="$(cat "$S/head")"
-    echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER"}' \
+    b=""; [ ! -s "$S/body" ] || b="$(cat "$S/body")"
+    echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER","body":"'"$b"'"}' \
       | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
   */pulls/1/files) echo '[{"filename":"docs/a.md","status":"modified","additions":3,"deletions":0,"patch":"+a"}]' ;;
   */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
@@ -362,6 +363,28 @@ t8_blocking_records() {
   [ "$rc" = 3 ] && grep -q 'summary-items' <<<"$out" || { echo "pg6 on a dropped blocking flag: exit $rc (want 3): $out"; return 1; }
 }
 check "post T8 blocking label and summary items recorded, PG5 critical label, PG6 summary items" t8_blocking_records
+# T9 — a pre-existing mark on the first line: PG5 takes it only as non-blocking, and lets a critical through without the blocking label;
+# post-review records pre_existing and base_anchor on the inline comment and the summary item
+t9_pre_existing() {
+  local c="$STUB_RUN/outputs/stage1/comments.json" rc
+  t9_pg5() {  # t9_pg5 <exit> <grade> <first line> — a one-comment draft through PG5
+    rc=0; jq -n --arg g "$2" --arg h "$3" '[{code:"C-07", path:"src/a.txt", line:2, axis:"R-B", grade:$g, base_anchor:"src/a.txt:2",
+                                             body:($h + "\nR-B (Data correctness) — b is off.")}]' > "$c"
+    stub_run "$PR_QUORUM" pg5 "$STUB_RUN/outputs/stage1/summary.md" "$c" >/dev/null 2>&1 || rc=$?
+    [ "$rc" = "$1" ] || { echo "pg5 on $2 '$3': exit $rc (want $1)"; return 1; }
+  }
+  stub_home
+  t9_pg5 3 critical '**C-07** `issue (non-blocking)` · R-B (Data correctness)' || return 1
+  t9_pg5 0 critical '**C-07** `issue (blocking)` · R-B (Data correctness)' || return 1
+  t9_pg5 3 major    '**C-07** `issue (blocking)` · pre-existing · R-B (Data correctness)' || return 1
+  t9_pg5 0 critical '**C-07** `issue (non-blocking)` · pre-existing · R-B (Data correctness)' || return 1   # the draft posted below
+  echo '[{"code":"C-08","grade":"major","blocking":false,"pre_existing":true,"base_anchor":"src/b.txt:4","path":"src/b.txt","line":4}]' \
+    > "$STUB_RUN/outputs/stage1/summary-items.json"
+  local out; out="$(stub_post 2>&1)" || { echo "$out"; return 1; }
+  [ "$(stub_meta -c '.stage1[0] | [.comments[0] | .pre_existing, .base_anchor, .blocking] + [.summary_items[0] | .pre_existing, .base_anchor]')" \
+    = '[true,"src/a.txt:2",false,true,"src/b.txt:4"]' ] || { echo "stage1 record: $(stub_meta -c '.stage1[0]')"; return 1; }
+}
+check "post T9 pre-existing: PG5 label checks, pre_existing and base_anchor recorded" t9_pre_existing
 
 # R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
 stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
@@ -663,6 +686,13 @@ check "chain G7 blocking S2- after the last author pass → blocked" g7_late_s2
 check "chain G8 failed CI check → blocked"                       g8_ci_failure
 check "chain G9 no CI checks → ready"                            g9_no_checks
 check "chain G10 CI in progress, then green → ready"             g10_ci_wait
+# G11–G13 — Stage 1 records marked pre-existing: a critical or major stops at needs-human, a minor changes nothing; an old record with no mark is unchanged
+g11_pre_existing_critical() { g_home '.stage1[0].summary_items = [{code:"C-07", grade:"critical", blocking:false, pre_existing:true}]'; g_run 3 needs-human 'pre-existing defects near this PR: C-07(critical)'; }
+g12_pre_existing_minor() { g_home '.stage1[0].comments = [{code:"C-07", grade:"minor", blocking:false, pre_existing:true}]'; g_run 0 ready ''; }
+g13_unmarked_record() { g_home '.stage1[0].summary_items = [{code:"C-07", grade:"major", blocking:false}]'; g_run 0 ready ''; }
+check "chain G11 pre-existing critical → needs-human"            g11_pre_existing_critical
+check "chain G12 pre-existing minor → ready"                     g12_pre_existing_minor
+check "chain G13 record with no pre-existing mark → ready"       g13_unmarked_record
 
 # P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
 path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>
@@ -1088,6 +1118,23 @@ check "doctor I1 --init fills config.json, or writes nothing"  i1_init_writes
 check "doctor I2 --init keeps an existing config.json"        i2_init_keeps
 check "doctor I3 a hand copy of the template fails"           i3_hand_copy
 check "doctor I4 --init adds the profile and state files, keeps an edited one" i4_init_state_files
+
+# E1–E3 — pr-quorum.sh init keeps the PR description of eval_sha as eval_body (F9 in rules/00-criteria.md §3)
+e_init() {  # e_init <description on GitHub> [--reset-eval] — prints eval_body after init
+  echo "$1" > "$STUB/state/body"; shift
+  stub_run "$PR_QUORUM" init demo 1 "$@" >/dev/null 2>&1 || { echo "init failed"; return 1; }
+  stub_meta '.eval_body'
+}
+e1_init_body() { stub_home; rm "$STUB_RUN/meta.json"; [ "$(e_init 'Limit: v1')" = 'Limit: v1' ] || { echo "eval_body $(stub_meta -c .eval_body)"; return 1; }; }
+e2_same_eval_kept() { e1_init_body || return 1; [ "$(e_init 'Limit: v2')" = 'Limit: v1' ] || { echo "eval_body $(stub_meta -c .eval_body)"; return 1; }; }
+e3_reset_eval_body() {
+  e1_init_body || return 1
+  jq '.stage1 = [{review_id:111}]' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  [ "$(e_init 'Limit: v2')" = 'Limit: v1' ] && [ "$(e_init 'Limit: v2' --reset-eval)" = 'Limit: v2' ] || { echo "eval_body $(stub_meta -c .eval_body)"; return 1; }
+}
+check "init E1 records the PR description as eval_body"          e1_init_body
+check "init E2 same eval_sha → eval_body kept"                   e2_same_eval_kept
+check "init E3 --reset-eval → eval_body set again"               e3_reset_eval_body
 
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
