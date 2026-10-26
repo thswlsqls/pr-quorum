@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `0de45b6`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `0ab51e0`
 
 <p align="center">
   <picture>
@@ -265,6 +265,8 @@ Profile 定义评审维度，以及每名评审员看什么、不看什么。按
 `doctor.sh --init` 已把 [`generic.md`](examples/profiles/generic.md) 复制到 `~/.pr-quorum/profiles/generic.md`，填好其中的 `<fill in>` 行后适用于任何技术栈；模板的 `profile` 也是 `generic`。Spring Boot 后端或 Next.js 前端请改为把 [`backend.md`](examples/profiles/backend.md) 或 [`frontend.md`](examples/profiles/frontend.md) 复制到那里，并相应设置 `profile`。只要配置文件还是未修改的样例副本或仍留有这些行，`doctor.sh` 就会给出警告。
 
 如果仓库根目录有 `REVIEW.md`，针对默认分支的 PR 评审会从 base 提交读取它，而不是从 PR 自身的改动读取，因此托管的 Code Review 也可以使用同一个文件。它可以指定要跳过的路径、降低 `minor`·`nit` 的上限、描述应定为更高等级的失败、按维度增加检查项；但不能降低等级、提高预算或改变各道关卡（[`rules/00-criteria.md`](rules/00-criteria.md) §0）。示例见 [`examples/REVIEW.md`](examples/REVIEW.md)。
+
+可选：把 [`examples/pull_request_template.md`](examples/pull_request_template.md) 复制为仓库的 `.github/pull_request_template.md`。它询问改动如何测试、可能破坏什么、以及如何回滚。评审把 PR 描述当作该 PR 声明的需求和局限来读。模板由提交 PR 的人填写，而不是 author 会话。
 
 然后用 `<plugin-dir>/scripts/doctor.sh` 检查配置。它逐行输出每项检查(命令及 Claude Code 和 git 的版本、`config.json` 及其 `limits`、每个仓库的路径、profile 和构建命令、gh 登录和组织仓库的 `trust`、令牌文件的权限、账号和读取权限、机器人是否接受了邀请、构建沙箱)，只要有一行 `FAIL` 就以 exit 2 结束。不带 `--init` 时它只读取，任何时候都不发布内容。
 
