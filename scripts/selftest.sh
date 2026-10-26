@@ -352,8 +352,13 @@ t8_blocking_records() {
   jq '.[0].grade = "critical"' "$STUB_RUN/outputs/stage1/comments.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/stage1/comments.json"
   out="$(stub_run "$PR_QUORUM" pg5 "$STUB_RUN/outputs/stage1/summary.md" "$STUB_RUN/outputs/stage1/comments.json" 2>&1)" || rc=$?
   [ "$rc" = 3 ] && grep -q 'S1-1' <<<"$out" || { echo "pg5 on a critical labelled non-blocking: exit $rc (want 3): $out"; return 1; }
+  # PG6 — an edit that drops a summary item's blocking flag is caught, though the codes are the same
+  rc=0; stub_run "$PR_QUORUM" snapshot "$STUB_RUN/outputs/stage1" >/dev/null 2>&1 || { echo "snapshot failed"; return 1; }
+  jq '.[0].blocking = false' "$STUB_RUN/outputs/stage1/summary-items.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/stage1/summary-items.json"
+  out="$(stub_run "$PR_QUORUM" pg6 "$STUB_RUN/outputs/stage1" 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && grep -q 'summary-items' <<<"$out" || { echo "pg6 on a dropped blocking flag: exit $rc (want 3): $out"; return 1; }
 }
-check "post T8 blocking label and summary items recorded, PG5 critical label" t8_blocking_records
+check "post T8 blocking label and summary items recorded, PG5 critical label, PG6 summary items" t8_blocking_records
 
 # R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
 stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }

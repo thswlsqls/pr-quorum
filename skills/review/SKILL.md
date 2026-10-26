@@ -96,7 +96,7 @@ read to assign origin (P/Q/N) get overwritten. **If the two disagree, PG2 catche
 - `summary-items.json` (Stage 1) — the findings that went to the summary body instead of inline (PG1 moved them, or they sit outside the diff),
   as `[{"code","grade","blocking","path","line"}]`; `[]` if there are none. `blocking` is `true` when the label is `issue (blocking)`.
   `post-review` records it, and the merge gate holds each blocking code until Stage 2 judges it `addressed` — leaving one out lets it merge unjudged.
-  Include it in the 4-5 edit; PG6 checks its count and codes.
+  Include it in the 4-5 edit; PG6 checks its count and every field.
 
 ### 4-5. Pre-post edit — all text going to GitHub
 

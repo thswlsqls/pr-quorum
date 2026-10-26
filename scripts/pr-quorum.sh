@@ -438,12 +438,12 @@ cmd_pg6() {
       echo "PG6 violation — comments.json count, fields, or first lines differ from the copy"; bad=1
     fi
   fi
-  # summary-items.json (Stage 1) — the same count and codes. The merge gate reads its blocking items
+  # summary-items.json (Stage 1) — the same count and the fields the merge gate reads.
   if [ -f "$pre/summary-items.json" ] || [ -f "$dir/summary-items.json" ]; then
     [ -f "$pre/summary-items.json" ] && [ -f "$dir/summary-items.json" ] \
       || die "$E_GATE" "PG6 violation — summary-items.json exists in only one of the copy and the current folder"
-    if ! jq -e -s 'map(map(.code)) | .[0] == .[1]' "$pre/summary-items.json" "$dir/summary-items.json" >/dev/null; then
-      echo "PG6 violation — summary-items.json count or codes differ from the copy"; bad=1
+    if ! jq -e -s 'map(map({code, grade, blocking:(.blocking == true), path, line})) | .[0] == .[1]' "$pre/summary-items.json" "$dir/summary-items.json" >/dev/null; then
+      echo "PG6 violation — summary-items.json count or fields differ from the copy"; bad=1
     fi
   fi
 
