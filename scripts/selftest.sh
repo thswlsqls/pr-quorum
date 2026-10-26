@@ -1045,6 +1045,16 @@ if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) refuses the target of
 if [ -n "$SB_KIND" ]; then check "build sandbox ($SB_KIND) blocks secrets, harness state, .git, user caches and env tokens" sandbox_probe
 else echo "warning — no build sandbox on this host (sandbox-exec / bwrap) — skipping its check"; fi
 
+# Release — .github/workflows/release.yml tags and releases plugin.json's version from its CHANGELOG section after merge,
+# so a version without that section must fail here, before marketplace installs already pick it up
+release_changelog_head() {
+  local v h
+  v="$(jq -r .version "$HARNESS_DIR/.claude-plugin/plugin.json")" || return 1
+  h="$(grep -m1 '^## ' "$HARNESS_DIR/CHANGELOG.md")"
+  [ "$h" = "## $v" ] || { echo "plugin.json is $v, CHANGELOG.md's first heading is '$h'"; return 1; }
+}
+check "release CHANGELOG head = plugin.json version" release_changelog_head
+
 [ -d "$RUNS" ] || { echo "no runs/ — skipping PG5/PG6"; echo "selftest — passed $pass · failed $fail"; [ "$fail" = 0 ] || exit 3; exit 0; }
 
 # PG5 — folders with both a summary and comments. The stage comes from the path (in early runs, outputs/ itself is Stage 1).
