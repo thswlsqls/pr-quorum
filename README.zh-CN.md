@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `dbc9456`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `7bceec1`
 
 <p align="center">
   <picture>
@@ -10,6 +10,13 @@
     <img src="assets/logo-light.svg" alt="pr-quorum" width="240">
   </picture>
 </p>
+
+<p align="center">
+  <img src="assets/review-summary-zh-CN.png" alt="机器人在 PR #69 上留下的评审总结" width="49%">
+  <img src="assets/inline-comment-zh-CN.png" alt="PR #69 的行内评论与后续判定" width="49%">
+</p>
+
+上图是机器人在真实 PR #69 上留下的评审。评审文字跟随 PR 的语言。Stage 1 留下了 1 条 nitpick 和 2 条表扬。Stage 2 判定这条 nitpick 为 `addressed`，Stage 3 未发现遗漏，风险分 0(`low`)，链路完成了合并。
 
 一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
 
@@ -119,16 +126,6 @@ flowchart TD
 </details>
 
 风险关卡不评判代码质量，只看改了哪些文件、改了多少。涉及认证、密钥、CI、构建脚本或 harness 自身的 PR 分数更高，不会被自动合并；改动 `repos.<name>.always_human` 中所列路径的 PR 也一样。规则见 [`rules/03-risk.md`](rules/03-risk.md)。
-
-### 示例
-
-机器人在一个真实 PR 上留下的评审。评审文字跟随 PR 的语言。
-
-![机器人在 PR #69 上留下的评审总结](assets/review-summary-zh-CN.png)
-
-![PR #69 的行内评论与后续判定](assets/inline-comment-zh-CN.png)
-
-Stage 1 留下了 1 条 nitpick 和 2 条表扬。Stage 2 判定这条 nitpick 为 `addressed`，Stage 3 未发现遗漏，风险分 0(`low`)，链路完成了合并。
 
 ## 设计取舍
 
