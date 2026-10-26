@@ -9,6 +9,13 @@
   </picture>
 </p>
 
+<p align="center">
+  <img src="assets/review-summary-en.png" alt="Review summary the bot left on PR #67" width="49%">
+  <img src="assets/inline-comment-en.png" alt="Inline comment and follow-up verdict on PR #67" width="49%">
+</p>
+
+Above: a review the bot left on PR #67, a real PR. The review follows the PR's language. Stage 1 left 2 nits and 1 praise. Stage 2 judged both nits `addressed`, Stage 3 found nothing missed, the risk score was 0 (`low`), and the chain merged it.
+
 A Claude Code plugin that reviews your GitHub PRs with several Claude sessions, has an author session apply the review, checks the fixes, re-runs the build and tests, and uses a risk score to decide whether to merge.
 
 Each PR costs about $11–30 in Claude usage on Claude Code's default model and takes 19–47 minutes (as of 2026-10). Sessions now run on Sonnet by default: in a 3-PR benchmark it found the same planted defects for about $2 per PR, against $15.5 on the default model. It needs a second GitHub account for the bot and an always-on machine (Requirements).
@@ -117,16 +124,6 @@ A session that hits its `limits` budget or time cap also stops the chain at `blo
 </details>
 
 The risk gate scores only which files changed and by how much, not code quality. PRs that touch authentication, secrets, CI, build scripts, or the harness itself score higher and are never merged automatically, and so are PRs touching a path you list in `repos.<name>.always_human`. Rules: [`rules/03-risk.md`](rules/03-risk.md).
-
-### Example
-
-A review the bot left on a real PR. The review follows the PR's language.
-
-![Review summary the bot left on PR #67](assets/review-summary-en.png)
-
-![Inline comment and follow-up verdict on PR #67](assets/inline-comment-en.png)
-
-Stage 1 left 2 nits and 1 praise. Stage 2 judged both nits `addressed`, Stage 3 found nothing missed, the risk score was 0 (`low`), and the chain merged it.
 
 ## Design choices
 
