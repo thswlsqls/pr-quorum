@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+No new `config.json` keys.
+
+- The merge gate holds every blocking comment until Stage 2 judges it `addressed`. Before this it read only the author session's own count of open blockers, so a blocking comment the author reported as fixed merged even when Stage 2 judged it `partial` or `not-addressed`, or when Stage 2 was skipped because nothing was pushed. Verdicts are merged across all Stage 2 passes, latest first, and a blocking code with no verdict holds too. Blocking means the comment's first line is labelled `issue (blocking)` (now recorded as `blocking` in `stage1[].comments`) or it is `critical`; old records count only `critical`. A blocking `S2-` comment raised after the last author pass stops with its own reason. The stop notice says a person can check the codes and merge by hand.
+- Stage 1 writes the findings that went to the summary body to `summary-items.json` next to `summary.md`. `post-review` records them as `stage1[].summary_items` (`[]` without the file), the merge gate counts their blocking codes, Stage 2 judges them by code, and PG6 checks that the pre-post edit kept their count and codes.
+- PG5 fails a `critical` comment whose first line is not labelled `issue (blocking)`.
+- The merge gate reads the head's CI checks. A failed check run (anything but success, neutral or skipped) or a failed or errored commit status blocks, naming the check. Checks still running are read again every 30 seconds for up to 10 minutes, then the chain stops at `blocked` with "run the chain again". A repository with no checks merges as before. The last read is kept in `chain.ci`.
+
 ## 0.10.1
 
 - `watch.sh --cron` prints the two crontab lines with the plugin folder, `$HOME` and the same `PATH` as `--plist`, quoting the folder, lock and log for cron's `/bin/sh`. README Setup §5 uses it instead of a crontab with placeholders.

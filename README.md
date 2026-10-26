@@ -67,7 +67,7 @@ flowchart TD
 
 Stage 2 runs after the author fixes the Stage 1 comments (the chain records an empty pass instead when that fix pushed nothing), and again after the author's second pass (following Stage 3) if that pass pushed.
 
-Any `regressed` verdict left blocks the merge gate. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
+Any `regressed` verdict left blocks the merge gate, and so does a blocking comment whose latest verdict is not `addressed`. Lenses: [`rules/01-stages.md`](rules/01-stages.md) §2-1.
 
 </details>
 
@@ -101,7 +101,7 @@ What cannot be measured is reported as `not measured`. Origin classes: [`rules/0
 
 ```mermaid
 flowchart TD
-  G(["After the<br/>author loop"]) --> MG{"Merge gate<br/>0 blocking<br/>0 regressed<br/>no failed tests<br/>head reviewed"}
+  G(["After the<br/>author loop"]) --> MG{"Merge gate<br/>0 blocking<br/>0 open blocking (Stage 2)<br/>0 regressed<br/>no failed tests<br/>CI green<br/>head reviewed"}
   MG -- no --> B[blocked]
   MG -- "Stage 3 found<br/>missed<br/>critical/major" --> H
   MG -- yes --> RG{"Risk gate<br/>0–100 points"}
@@ -381,7 +381,7 @@ flowchart LR
 
 Builds and tests run code the PR controls, so they run in an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with an emptied environment: the build cannot read credential files or write outside the worktree, the temp folder, and its own cache root. What it still leaves open is in [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1.
 
-Not shown: the merge gate trusts the author session's own report (tests, open blockers).
+Not shown: the merge gate holds every blocking comment until Stage 2 judges it `addressed`, rather than taking the author's word that it was fixed, and reads the head's CI checks if the repository has any. It still trusts the author session's report of its test run, and the Stage 1 session's record of which summary-body findings are blocking.
 
 Other safeguards:
 
