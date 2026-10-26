@@ -264,6 +264,8 @@ A profile defines the review axes and what each judge does and does not look at.
 
 If the repository has a `REVIEW.md` at its root, reviews of PRs into the default branch read it from the base commit, never from the PR's own changes, so the same file can serve managed Code Review too. It can name paths to skip, lower the `minor`·`nit` cap, describe failures to grade higher, and add checks per axis; it cannot lower a grade, raise the budget, or change the gates ([`rules/00-criteria.md`](rules/00-criteria.md) §0). See [`examples/REVIEW.md`](examples/REVIEW.md).
 
+Optionally, copy [`examples/pull_request_template.md`](examples/pull_request_template.md) to the repository's `.github/pull_request_template.md`. It asks how the change was tested, what could break, and how to revert it. Reviews read the description as the PR's stated requirements and limits, and the person who opened the PR fills it in, not the author session.
+
 Then check the setup with `<plugin-dir>/scripts/doctor.sh`. It prints one line per check (commands and the Claude Code and git versions, `config.json` and its `limits`, each repository's path, profile and build commands, the gh login and `trust` for an organization's repository, the token file's mode, account and read access, the bot's invitation, the build sandbox) and exits 2 if any line is `FAIL`. Without `--init` it reads only, and it never posts.
 
 ### 5. Watcher (optional)
