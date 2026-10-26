@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+No new `config.json` keys.
+
+- A comment on a defect that is a pattern lists every place in the diff with the same pattern and the command that found them ("0 others" when there are none); places outside the diff go on their own line and the author does not fix them. The author fixes every listed place in the diff.
+- Stage 1 can mark a defect the PR did not introduce as pre-existing: the same defect is at the base commit and the PR's change does not reach it. It keeps its grade, is labelled `issue (non-blocking) · pre-existing`, goes in the summary's pre-existing section (at most 3), and stays out of the blocking table and `blocking_open`; the author declines it with a reason starting "pre-existing". A pre-existing `critical`·`major` always gets a challenger. Stage 2 and 3 do not use the mark.
+- `post-review` records `pre_existing` (from the comment's first line) and `base_anchor` on Stage 1 comments and summary items; PG6 compares both. After the merge gate, a pre-existing `critical` or `major` stops the chain at `needs-human` ("pre-existing defects near this PR: …").
+- PG5 fails a `pre-existing` first line labelled `issue (blocking)`, and no longer asks a pre-existing `critical` for that label.
+- `pr-quorum.sh init` copies the PR description into `meta.json` as `eval_body` when it sets `eval_sha` (again on `--reset-eval` or a new `eval_sha`, not on the same one). In Stage 2·3, F9 downgrades only for limits stated by Stage 1 — `eval_body` and the `TODO` comments and design docs at `eval_sha` — so a limit the author writes into the description after the review no longer lowers a grade. Old runs with no `eval_body` do not use the description in Stage 2·3.
+- The Stage 1 summary's first line starts with the blocking count; PG2 checks it against the body.
+
 ## 0.12.0
 
 New optional `config.json` key `repos.<name>.always_human`. Without it the chain behaves as in 0.11.0.

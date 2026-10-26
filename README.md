@@ -308,7 +308,7 @@ The chain ends in one of these states (`chain.state`):
 |---|---|---|
 | `merged` | Passed both gates with `auto_merge: true` | Nothing |
 | `ready` | Passed both gates; `auto_merge` is off | Merge it yourself |
-| `needs-human` | Risk is `medium` or higher, or Stage 3 found missed `critical`/`major` defects | Review and decide yourself. The risk scorecard is on the PR |
+| `needs-human` | Risk is `medium` or higher, Stage 3 found missed `critical`/`major` defects, or Stage 1 found `critical`/`major` defects the PR did not introduce (pre-existing) | Review and decide yourself. The risk scorecard is on the PR |
 | `blocked` | Merge gate failed, a merge conflict, a session left no record, a session hit its `limits` budget or time cap, or the head moved | Read `chain.reason`, fix the cause, then run the chain again. The bot also posts the reason and the command to resume once as a comment on the PR |
 
 ### Run the chain by hand
