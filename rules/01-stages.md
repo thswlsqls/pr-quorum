@@ -92,11 +92,13 @@ A `P` claim is a negative statement — "it is not in the review" — so missing
 - From `~/.pr-quorum/learnings.md`, the entries for that axis + the `common` entries (older files: `공통`)
 - **The `CLAUDE.md` files on the changed file paths** — for each changed file, walk up the parent folders to the root and read the **base commit**'s version with `git show <base_sha>:<folder>/CLAUDE.md` (for the root, `<base_sha>:CLAUDE.md`; skip if missing),
   and include it with its original path as grade-A evidence. A subfolder's rules apply only to files under that folder. If the PR changed a `CLAUDE.md`, that change is under review, not evidence
+- **The root `REVIEW.md`** — only when the PR's base is the repository's default branch (compare the PR's `.base.ref` with the repository's `.default_branch`, both read with `gh-get.sh`), read `git show <base_sha>:REVIEW.md` (skip if missing)
+  and include it as grade-A evidence, together with the `00-criteria.md` §0 table of what it can and cannot change. Give it to challengers and V1–V3 too. Subfolder `REVIEW.md` files and `@` includes are not read. If the PR changed `REVIEW.md`, that change is under review, not evidence
 - Per-axis extra instructions from the round prompt
 - **Deciding whether `R-I` triggers** — run the five signal commands in the conditional-axis block of `profiles/backend.md` §1 as written,
   and record the match counts and applies/does-not-apply in `rounds/round-NN.md`. If it applies, put the `R-I` section in the J3 prompt before `R-E`
 
-**Exception** — for files inside the repo under review (except the `CLAUDE.md` above — the worktree is at head and may differ from base), **give the absolute path and "`Read` it as your first action"** instead.
+**Exception** — for files inside the repo under review (except the `CLAUDE.md` and `REVIEW.md` above — the worktree is at head and may differ from base), **give the absolute path and "`Read` it as your first action"** instead.
 What does not get read is URL links. Rules, invalidation conditions, and quotes are knowledge from outside the repo, so put them in the body as they are.
 
 > **The "angles not yet covered" that a round prompt gives are hypotheses, not instructions.**
