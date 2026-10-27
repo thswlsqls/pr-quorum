@@ -132,12 +132,20 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   if jq -e 'type == "object"' <<<"$out" >/dev/null 2>&1; then
     # subtype is why the session ended (success, error_max_budget_usd, error_max_turns, …)
     [ "$(jq -r '.subtype // empty' <<<"$out")" != "error_max_budget_usd" ] || SESSION_CAP="budget cap \$$budget reached"
+    # Subagents the session launched (judges, verifiers, lenses), counted from the transcripts Claude Code keeps next to the session's own.
+    # The merge gate stops a Stage 1 that launched none. null when the session's transcript is not found there — unknown, not 0
+    local sid tdir subs=null
+    sid="$(jq -r '.session_id // empty' <<<"$out")"
+    if [ -n "$sid" ] && tdir="$(claude_project_dir "$REPO_ROOT")" && { [ -f "$tdir/$sid.jsonl" ] || [ -d "$tdir/$sid" ]; }; then
+      subs=0; [ ! -d "$tdir/$sid/subagents" ] || subs="$(find "$tdir/$sid/subagents" -maxdepth 1 -name '*.jsonl' | wc -l | tr -d ' ')"
+    fi
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w,
       session_id:$r.session_id, subtype:$r.subtype, duration_ms:$r.duration_ms, cost_usd:$r.total_cost_usd, num_turns:$r.num_turns, is_error:$r.is_error,
       permission_denials:($r.permission_denials | if type == "array" then length else null end),
-      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end)}
+      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end), subagents:$sa}
       + (if $to then {timed_out:true} else {} end)])' \
       --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson r "$out" --argjson to "$timed_out" \
+      --argjson sa "$subs" \
       || log "could not write the session record to meta.json"
   else
     # Leave at least one line so failed tries are not missing from the record
@@ -215,7 +223,10 @@ merge_gate() {
   [ "$(jq -r '.state' <<<"$pr_json")" = "OPEN" ] || reasons+=("PR is not open")
   [ "$(jq -r '.isDraft' <<<"$pr_json")" = "false" ] || reasons+=("PR is a draft")
   [ "$(jq -r '.mergeable' <<<"$pr_json")" = "MERGEABLE" ] || reasons+=("mergeable=$(jq -r '.mergeable' <<<"$pr_json")")
-  [ "$(jq -r '.tests.result' "$a")" != "fail" ] || reasons+=("tests failed in the last author pass")
+  # Tests from the newest author pass that ran them — a later pass with nothing to answer writes "skip", which must not hide a fail
+  [ "$(find "$AUTHOR_DIR" -name 'round-*.json' | sort | tr '\n' '\0' \
+        | xargs -0 jq -rs '[.[].tests.result | select(. != null and . != "skip")] | last // empty')" != "fail" ] \
+    || reasons+=("tests failed in the last author pass that ran them")
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
   [ "$(jq '[.stage2[-1].verdicts // {} | .[] | select(. == "regressed" or . == "역행")] | length' "$M")" = "0" ] \
     || reasons+=("the last Stage 2 verdicts include regressed")
@@ -277,6 +288,16 @@ merge_gate() {
     chain_state "blocked" "merge gate: $(IFS='; '; echo "${reasons[*]}")"
     exit 3
   fi
+
+  # Stage 1 must launch its judges, small PR or not (skills/review/SKILL.md §3). Read from the subagent counts run_session recorded;
+  # a Stage 1 with no count (transcript not found, or a run from before the count) is not checked. Stage 1 has posted, so it is not rerun
+  local judges
+  judges="$(jq -r '[.chain.sessions[]? | select(.step == "stage1") | .subagents | numbers] | if length == 0 then "unknown" else add end' "$M")"
+  if [ "$judges" = 0 ]; then
+    chain_state "needs-human" "Stage 1 ran without judges (0 subagents) — a person checks the review"
+    exit 3
+  fi
+  [ "$judges" != unknown ] || log "Stage 1 subagent count unknown (no session transcript found) — judges not checked"
 
   # If Stage 3 found a critical or major defect the review missed (P), a person decides whether to rerun Stage 1 (rules/01-stages.md §5).
   # Judged from the P comment grades pr-quorum.sh recorded, not from the verdict text the session writes. A P with no grade also stops

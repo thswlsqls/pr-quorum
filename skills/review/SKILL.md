@@ -74,7 +74,7 @@ It is not just one comment dropped — the review does not go up at all. Give th
 
 ### 3. Run Phase 0 – 6 as in the `01-stages.md` §3 table
 
-- Launch the four judges **at the same time in one message.** Run them one after another and later judges get contaminated by earlier results.
+- Launch the four judges **at the same time in one message.** Run them one after another and later judges get contaminated by earlier results. Launch them even on a small PR: in chain mode the chain stops at `needs-human` when Stage 1 launched no subagents.
 - When launching judges, challengers, and V1–V3, give the Agent tool `subagent_type` as `pr-quorum:judge`. This agent has no Write or Edit tools, and its invariants forbid writing files (`agents/judge.md`). Bash is open for lookups only.
 - **Paste rules, invalidation conditions, the frozen list, and axis sections into the prompt body.** Given as links, they are not read.
   Only files inside the repo under review may be replaced by an absolute path plus "`Read` it as your first action".
