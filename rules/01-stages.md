@@ -77,7 +77,7 @@ A `P` claim is a negative statement — "it is not in the review" — so missing
 | **3.5 Verify** | PG1–PG5 | PG1·PG3·PG4 | PG1·PG3·PG4 |
 | **3.7 Pre-post edit** | **Once, in the last round** — tighten the body right before posting (§3-4) | Tighten reply and correction bodies (§3-4) | Tighten replies, `P` comments, summary (§3-4) |
 | **4 Record** | Update `rounds/` · learning candidates go in `learning-candidates.md` (§10) | Same | Same |
-| **5 Self-check** | Check the §7 signal table | Same | Same |
+| **5 Self-check** | Check the §10 signal table | Same | Same |
 | **6 Branch** | §3-2 loop | Post and finish | Post + report the §5 verdict to a human |
 
 ### 3-1. Phase 0 — hard rules for assembling prompts
@@ -350,7 +350,7 @@ break the parsing. Instead, **exclude files without a `patch` (large files) from
 | Phase 3.5 PG4 | *Does the finished review hold up* | V1 evidence / V2 quotes / V3 author challenge | Fix V1·V2; for V3, choose one of reinforce · downgrade · delete |
 
 **Facts are judged by challenge, form by gates.** Do not mix them.
-Do not use A/B comparison — §6 "two-line declaration before writing a paragraph" takes its place.
+Do not use A/B comparison — `00-criteria.md` §6 "two-line declaration before writing a paragraph" takes its place.
 
 ---
 

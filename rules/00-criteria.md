@@ -284,8 +284,7 @@ Length targets — these are targets, not caps. If there is reason to exceed the
 
 ## 7. Fix safety — even a correct finding can carry a fix that creates a new bug
 
-- Challenger question ⑥ (**"what happens if this fix is applied?"**) runs only on findings raised by judges.
-  **For fixes in comments the aggregator wrote itself, the aggregator applies ⑥ itself.**
+- Challenger question ⑥ (**"what happens if this fix is applied?"**) covers judge findings; for fixes the aggregator wrote itself, see `02-judges.md` §5.
 - **Compare the fixes in the same pass against each other** — look for places where following both comments would be wasted work or create a new defect (PG3).
 - **Cross-check outputs** — read the posted comment and the reply you are about to write side by side. The author sees both side by side in the thread.
 - **Whole-pass check — "do the premises behind the grades I gave in this pass agree with each other?"** Grades are set one comment at a time, but

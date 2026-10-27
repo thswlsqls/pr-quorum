@@ -35,7 +35,6 @@ Include `00-criteria.md` §3 · §4 · §5 in full.
 
 ### Standard of judgment
 
-Not *"is this the ideal design?"* but *"does this make code health worse?"*
 If you are not sure, do not raise a finding; write it under `unverified concern`. That is not posted.
 
 ---
