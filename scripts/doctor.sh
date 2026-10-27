@@ -132,6 +132,9 @@ for r in $(cfg '.repos | keys[]'); do
   # Without commands, build and test are auto-detected from gradlew or package.json (pr-quorum.sh build)
   [ "$(cfg --arg r "$r" '.repos[$r].commands | type')" = object ] || [ -f "$p/gradlew" ] || [ -f "$p/package.json" ] \
     || warn "$r has no commands and no gradlew or package.json: builds and tests will be \"not measured\""
+  # The npm fallback's test is tsc --noEmit, which fails without a tsconfig.json; tsc also looks in parent folders, so only a warning
+  [ "$(cfg --arg r "$r" '.repos[$r].commands | type')" = object ] || [ -f "$p/gradlew" ] || [ ! -f "$p/package.json" ] || [ -f "$p/tsconfig.json" ] \
+    || warn "$r has no commands and $p has package.json but no tsconfig.json: auto-detected test runs tsc --noEmit and fails in a JavaScript repo — set repos.$r.commands.test (README Setup §3)"
 done
 
 # 4) gh login (the owner's account) — a mismatch with owner is only a warning

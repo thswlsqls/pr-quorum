@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7609b3e`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `c0ab845`
 
 <p align="center">
   <picture>
@@ -247,7 +247,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `trust` | 누구의 PR 이 체인을 돌리는지. `authors`(로그인 목록) 또는 `associations`(GitHub `author_association` 값). 없으면 `associations` 는 `["OWNER"]`. GitHub 가 쓰지 않는 값이 있으면 watcher 와 체인이 exit 2 로 멈추고, `OWNER`, `MEMBER`, `COLLABORATOR` 밖의 값은 경고를 남긴다. 조직이라면 로그인 목록이 낫다. `MEMBER` 는 조직 전원이다 |
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
 | `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
-| `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 명령이 없는 종류는 `not measured` 로 기록된다 |
+| `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 이 테스트는 TypeScript 타입 검사라서, TypeScript 가 아닌 저장소는 `commands.test` 를 지정한다. 명령이 없는 종류는 `not measured` 로 기록된다 |
 | `repos.<name>.always_human` | 언제나 사람에게 넘길 경로 접두사(glob 아님, 예: `["src/billing/", "scripts/release.sh"]`). 이 가운데 하나를 건드린 PR 은 위험도가 적어도 `medium` 이 되어 체인이 `needs-human` 에서 멈춘다. 점수는 바뀌지 않는다. 없으면: 없음([`rules/03-risk.md`](rules/03-risk.md) Levels) |
 | `build.sandbox` | `"require"`(기본): 빌드와 테스트를 OS 샌드박스 안에서 돌리고, 샌드박스가 뜨지 않는 머신에서는 `not measured` 로 기록한다. `"off"`: 샌드박스 없이 돌린다. Docker, 키체인, 또는 샌드박스가 가리는 `~/.npmrc`·`~/.m2/settings.xml` 의 사설 레지스트리 자격 증명이 필요한 빌드용이다 |
 | `build.env_passthrough` | 빌드가 추가로 넘겨받을 환경 변수 이름(기본 `[]`. 이 밖에는 비운 환경으로 시작한다). 자격 증명처럼 보이는 이름(`*TOKEN*`, `*SECRET*`, `*KEY*`)은 거부하므로, 레지스트리 자격 증명은 이 길로 넘길 수 없다 |

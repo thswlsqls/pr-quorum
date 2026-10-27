@@ -1085,11 +1085,19 @@ d4_commands() {
   doctor_home || return 1; out="$(stub_doctor)"
   ! grep -q 'commands\.' <<<"$out" || { echo "no commands: $out"; return 1; }
 }
+d4b_tsc_without_tsconfig() {
+  local out; doctor_home || return 1
+  touch "$STUB/repo/demo/package.json"; out="$(stub_doctor)"
+  grep -q 'warn — demo has no commands and .* has package.json but no tsconfig.json' <<<"$out" || { echo "package.json only: $out"; return 1; }
+  touch "$STUB/repo/demo/tsconfig.json"; out="$(stub_doctor)"
+  ! grep -q 'tsconfig' <<<"$out" || { echo "with tsconfig.json: $out"; return 1; }
+}
 check "doctor D1 template values, one line"            d1_template_values
 check "doctor D2 repository 404 is not 'not a collaborator'" d2_repo_404
 check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborator_error
 check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
 check "doctor D4 commands that cannot start"           d4_commands
+check "doctor D4b package.json without tsconfig.json warns" d4b_tsc_without_tsconfig
 
 # D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
 # repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh
