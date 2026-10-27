@@ -4,7 +4,7 @@
 
 No new `config.json` keys.
 
-- Fixed two wrong section references the orchestrator followed: the Phase 5 row of `rules/01-stages.md` points to the §10 signal table (was §7, the posting gates), and the A/B note points to `00-criteria.md` §6 (was §6, SHA pinning).
+- Fixed two wrong section references the orchestrator followed: the Phase 5 row of `rules/01-stages.md` points to the §10 signal table (was §7, the posting gates), and the A/B note points to `00-criteria.md` §6 (was a bare §6, which in that file is SHA pinning).
 - The review skill names the pair PG2 compares (`summary.md` and the comment bodies in `comments.json`), and its paste rule now carries the `CLAUDE.md`/`REVIEW.md` exception from `01-stages.md` §3-1.
 - Removed two sentences that were given twice: the "ideal design / code health" line judges received from both `00-criteria.md` §3 and `02-judges.md` §1, and the challenger ⑥ rule repeated in `00-criteria.md` §7 (kept in `02-judges.md` §5).
 
