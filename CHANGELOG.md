@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.1
+
+No new `config.json` keys.
+
+- `doctor.sh` warns when a repository has no `commands`, no `gradlew`, and a `package.json` without a `tsconfig.json`: the auto-detected test is `tsc --noEmit`, which fails in a JavaScript repository, so set `repos.<name>.commands.test`.
+
 ## 0.15.0
 
 No new `config.json` keys.
