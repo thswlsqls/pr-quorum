@@ -114,7 +114,7 @@ flowchart TD
   MG -- "否" --> B[blocked]
   MG -- "Stage 3 发现<br/>遗漏的<br/>critical/major" --> H
   MG -- "pre-existing<br/>critical/major" --> H
-  MG -- "Stage 1<br/>未启动评审" --> H
+  MG -- "Stage 1<br/>未启动评审员" --> H
   MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]

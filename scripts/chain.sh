@@ -137,7 +137,7 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
     local sid tdir subs=null
     sid="$(jq -r '.session_id // empty' <<<"$out")"
     if [ -n "$sid" ] && tdir="$(claude_project_dir "$REPO_ROOT")" && { [ -f "$tdir/$sid.jsonl" ] || [ -d "$tdir/$sid" ]; }; then
-      subs=0; [ ! -d "$tdir/$sid/subagents" ] || subs="$(find "$tdir/$sid/subagents" -maxdepth 1 -name '*.jsonl' | wc -l | tr -d ' ')"
+      subs=0; [ ! -d "$tdir/$sid/subagents" ] || subs="$(find "$tdir/$sid/subagents" -maxdepth 1 -name '*.jsonl' | wc -l | tr -d ' ')" || subs=null
     fi
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w,
       session_id:$r.session_id, subtype:$r.subtype, duration_ms:$r.duration_ms, cost_usd:$r.total_cost_usd, num_turns:$r.num_turns, is_error:$r.is_error,
@@ -223,10 +223,14 @@ merge_gate() {
   [ "$(jq -r '.state' <<<"$pr_json")" = "OPEN" ] || reasons+=("PR is not open")
   [ "$(jq -r '.isDraft' <<<"$pr_json")" = "false" ] || reasons+=("PR is a draft")
   [ "$(jq -r '.mergeable' <<<"$pr_json")" = "MERGEABLE" ] || reasons+=("mergeable=$(jq -r '.mergeable' <<<"$pr_json")")
-  # Tests from the newest author pass that ran them — a later pass with nothing to answer writes "skip", which must not hide a fail
-  [ "$(find "$AUTHOR_DIR" -name 'round-*.json' | sort | tr '\n' '\0' \
-        | xargs -0 jq -rs '[.[].tests.result | select(. != null and . != "skip")] | last // empty')" != "fail" ] \
-    || reasons+=("tests failed in the last author pass that ran them")
+  # Tests from the newest author pass that ran them — a later pass with nothing to answer writes "skip", which must not hide a fail.
+  # Read newest first; a record that cannot be read stops the gate rather than being passed over
+  local f res tests=""
+  while IFS= read -r f; do
+    res="$(jq -r '.tests.result // empty' "$f" 2>/dev/null)" || { reasons+=("could not read $f"); break; }
+    [ -z "$res" ] || [ "$res" = skip ] || { tests="$res"; break; }
+  done < <(find "$AUTHOR_DIR" -name 'round-*.json' | sort -r)
+  [ "$tests" != fail ] || reasons+=("tests failed in the last author pass that ran them")
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
   [ "$(jq '[.stage2[-1].verdicts // {} | .[] | select(. == "regressed" or . == "역행")] | length' "$M")" = "0" ] \
     || reasons+=("the last Stage 2 verdicts include regressed")
@@ -290,14 +294,16 @@ merge_gate() {
   fi
 
   # Stage 1 must launch its judges, small PR or not (skills/review/SKILL.md §3). Read from the subagent counts run_session recorded;
-  # a Stage 1 with no count (transcript not found, or a run from before the count) is not checked. Stage 1 has posted, so it is not rerun
+  # if any Stage 1 try has no count (transcript not found, unreadable result, or a run from before the count), the total is unknown and
+  # not checked — a try that launched judges and then died must not make a later try's 0 look like the whole. Stage 1 has posted, so it is not rerun
   local judges
-  judges="$(jq -r '[.chain.sessions[]? | select(.step == "stage1") | .subagents | numbers] | if length == 0 then "unknown" else add end' "$M")"
+  judges="$(jq -r '[.chain.sessions[]? | select(.step == "stage1") | .subagents]
+                   | if length == 0 or any(.[]; type != "number") then "unknown" else add end' "$M")"
   if [ "$judges" = 0 ]; then
     chain_state "needs-human" "Stage 1 ran without judges (0 subagents) — a person checks the review"
     exit 3
   fi
-  [ "$judges" != unknown ] || log "Stage 1 subagent count unknown (no session transcript found) — judges not checked"
+  [ "$judges" != unknown ] || log "Stage 1 subagent count unknown for some try — judges not checked"
 
   # If Stage 3 found a critical or major defect the review missed (P), a person decides whether to rerun Stage 1 (rules/01-stages.md §5).
   # Judged from the P comment grades pr-quorum.sh recorded, not from the verdict text the session writes. A P with no grade also stops

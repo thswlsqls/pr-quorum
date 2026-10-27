@@ -703,13 +703,17 @@ author_tests() {  # author_tests <round-01 result> <round-02 result>
 g14_fail_then_skip() { g_home .; author_tests fail skip; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
 g15_fail_then_pass() { g_home .; author_tests fail pass; g_run 0 ready ''; }
 check "chain G14 tests fail, then a skip pass → blocked"         g14_fail_then_skip
+g15b_unreadable_then_fail() { g_home .; author_tests pass fail; echo '{' > "$STUB_RUN/outputs/author/round-01.json"; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
 check "chain G15 tests fail, then pass → ready"                  g15_fail_then_pass
+check "chain G15b unreadable round-01, round-02 fail → blocked"  g15b_unreadable_then_fail
 # G16–G19 — a Stage 1 whose sessions launched no subagents stops at needs-human; an unknown count (null, missing) does not block
 g16_no_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"author", try:1, subagents:0}]'; g_run 3 needs-human 'Stage 1 ran without judges (0 subagents)'; }
 g17_unknown_count() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:null}, {step:"stage1", try:2}]'; g_run 0 ready ''; }
 g18_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:4}, {step:"stage2", try:1, subagents:0}]'; g_run 0 ready ''; }
 g19_retry_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"stage1", try:2, subagents:4}]'; g_run 0 ready ''; }
+g19b_died_try_then_zero() { g_home '.chain.sessions = [{step:"stage1", try:1, json:false}, {step:"stage1", try:2, subagents:0}]'; g_run 0 ready ''; }
 check "chain G16 Stage 1 with 0 subagents → needs-human"         g16_no_judges
+check "chain G19b uncounted try, then a try with 0 → ready"      g19b_died_try_then_zero
 check "chain G17 Stage 1 subagent count unknown → ready"         g17_unknown_count
 check "chain G18 Stage 1 with 4 subagents → ready"               g18_judges
 check "chain G19 Stage 1 retry launched judges → ready"          g19_retry_judges
@@ -723,7 +727,8 @@ s_count() {  # s_count <transcripts to create, or "none"> <want: unique subagent
     for (( i=1; i<=$1; i++ )); do : > "$STUB/home/.claude/projects/$key/stub/subagents/agent-$i.jsonl" "$STUB/home/.claude/projects/$key/stub/subagents/agent-$i.meta.json"; done
   fi
   k_chain 0 ready 0 1 || return 1
-  [ "$(stub_meta -c '[.chain.sessions[] | .subagents] | unique')" = "$2" ] || { echo "subagents $(stub_meta -c '[.chain.sessions[] | .subagents]') (want $2)"; return 1; }
+  [ "$(stub_meta -c '[.chain.sessions[] | if has("subagents") then .subagents else "missing" end] | unique')" = "$2" ] \
+    || { echo "subagents $(stub_meta -c '[.chain.sessions[] | .subagents]') (want $2)"; return 1; }
 }
 s3_key() {
   local out
