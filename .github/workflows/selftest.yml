@@ -27,6 +27,13 @@ jobs:
           command -v sandbox-exec bwrap jq git || true
       - name: bash -n
         run: for f in scripts/*.sh; do /bin/bash -n "$f"; done
+      # Preinstalled on ubuntu-24.04. Not required yet: measuring the error count first
+      - name: shellcheck (Linux)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          shellcheck --version
+          shellcheck -S error scripts/*.sh
       - name: selftest (macOS, /bin/bash 3.2)
         if: runner.os == 'macOS'
         # /bin first so the scripts' #!/usr/bin/env bash also picks 3.2 over Homebrew's bash
