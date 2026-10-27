@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # config.sh — reads ~/.pr-quorum/config.json. Sourced by the scripts that use its values.
 # PR_QUORUM_HOME is fixed so an environment variable cannot change it. This keeps anyone from handing the scripts the session calls (author-push.sh etc.)
 # a different config.json to change owner.

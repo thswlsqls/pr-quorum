@@ -27,10 +27,9 @@ jobs:
           command -v sandbox-exec bwrap jq git || true
       - name: bash -n
         run: for f in scripts/*.sh; do /bin/bash -n "$f"; done
-      # Preinstalled on ubuntu-24.04. Not required yet: measuring the error count first
+      # Preinstalled on ubuntu-24.04. Sourced fragments declare their shell with a `# shellcheck shell=bash` first line
       - name: shellcheck (Linux)
         if: runner.os == 'Linux'
-        continue-on-error: true
         run: |
           shellcheck --version
           shellcheck -S error scripts/*.sh
