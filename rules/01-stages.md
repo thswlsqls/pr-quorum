@@ -282,7 +282,7 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
   "owner": "your-github-login", "repo": "your-repo",   // repo is also the profile key
   "pr": 12, "base_sha": "…", "eval_sha": "…", "profile": "backend",
   "eval_body": "…",                // the PR description when init set eval_sha — F9's grounds in Stage 2·3 (00-criteria.md §3)
-  "stage1": [{"rounds": 2, "review_id": 123, "eval_sha": "…", "unmet": ["S3"],
+  "stage1": [{"review_id": 123, "eval_sha": "…",
               "comments": [{"id": 456, "code": "C-01", "path": "…", "line": 42,
                             "axis": "R-B", "grade": "critical", "blocking": true, "pre_existing": false}],   // blocking: the first line's label is `issue (blocking)`
                                                                                      // pre_existing: the first line says `pre-existing`; then base_anchor too
@@ -301,7 +301,7 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
 }
 ```
 
-The chain also keeps `lock`, `attempts`, `chain`, and the posting timestamps in `meta.json` for itself (`docs/harness.md` §2–3); sessions neither read nor write them.
+The chain also keeps `lock`, `attempts`, `chain`, and the posting timestamps in `meta.json` for itself (`docs/harness.md` §2–3); sessions do not edit them (`lock`·`unlock` manage `lock`).
 
 ---
 
