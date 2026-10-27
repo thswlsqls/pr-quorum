@@ -253,7 +253,7 @@ stub_home() {  # a fresh fake HOME: config.json (repo demo), bot.env, and runs/d
 }
 stub_run() {  # stub_run <command...> — runs it against the fake HOME and the stub gh, with no retry wait
   ( export HOME="$STUB/home" PATH="$STUB/bin:$PATH" STUB_STATE="$STUB/state" PR_QUORUM_API_BACKOFF="0 0" PR_QUORUM_CI_POLL_SECS=0
-    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT CLAUDE_CODE_SUBAGENT_MODEL
+    unset PR_QUORUM_BOT_ENV GH_HOST GH_TOKEN GITHUB_TOKEN PR_QUORUM_LOCK_PID GIT_CONFIG_COUNT CLAUDE_CODE_SUBAGENT_MODEL CLAUDE_CONFIG_DIR
     "$@" )
 }
 stub_post() {  # stub_post [stage] — post-review of that stage's draft
@@ -693,6 +693,51 @@ g13_unmarked_record() { g_home '.stage1[0].summary_items = [{code:"C-07", grade:
 check "chain G11 pre-existing critical → needs-human"            g11_pre_existing_critical
 check "chain G12 pre-existing minor → ready"                     g12_pre_existing_minor
 check "chain G13 record with no pre-existing mark → ready"       g13_unmarked_record
+# G14–G15 — the tests check reads the newest author pass that ran tests: a later "skip" (nothing to answer) does not hide a fail
+author_tests() {  # author_tests <round-01 result> <round-02 result>
+  local n=1 r
+  for r in "$@"; do
+    jq --arg r "$r" '.tests.result = $r' "$STUB_RUN/outputs/author/round-0$n.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/author/round-0$n.json"; n=$((n+1))
+  done
+}
+g14_fail_then_skip() { g_home .; author_tests fail skip; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+g15_fail_then_pass() { g_home .; author_tests fail pass; g_run 0 ready ''; }
+check "chain G14 tests fail, then a skip pass → blocked"         g14_fail_then_skip
+g15b_unreadable_then_fail() { g_home .; author_tests pass fail; echo '{' > "$STUB_RUN/outputs/author/round-01.json"; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+check "chain G15 tests fail, then pass → ready"                  g15_fail_then_pass
+check "chain G15b unreadable round-01, round-02 fail → blocked"  g15b_unreadable_then_fail
+# G16–G19 — a Stage 1 whose sessions launched no subagents stops at needs-human; an unknown count (null, missing) does not block
+g16_no_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"author", try:1, subagents:0}]'; g_run 3 needs-human 'Stage 1 ran without judges (0 subagents)'; }
+g17_unknown_count() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:null}, {step:"stage1", try:2}]'; g_run 0 ready ''; }
+g18_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:4}, {step:"stage2", try:1, subagents:0}]'; g_run 0 ready ''; }
+g19_retry_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"stage1", try:2, subagents:4}]'; g_run 0 ready ''; }
+g19b_died_try_then_zero() { g_home '.chain.sessions = [{step:"stage1", try:1, json:false}, {step:"stage1", try:2, subagents:0}]'; g_run 0 ready ''; }
+check "chain G16 Stage 1 with 0 subagents → needs-human"         g16_no_judges
+check "chain G19b uncounted try, then a try with 0 → ready"      g19b_died_try_then_zero
+check "chain G17 Stage 1 subagent count unknown → ready"         g17_unknown_count
+check "chain G18 Stage 1 with 4 subagents → ready"               g18_judges
+check "chain G19 Stage 1 retry launched judges → ready"          g19_retry_judges
+# S1–S2 — run_session counts the subagent transcripts in the session's Claude Code project folder, or records null when there is none
+s_count() {  # s_count <transcripts to create, or "none"> <want: unique subagents of the session records>
+  local key i
+  k_home 'author-1.sh=author false' 'author-2.sh=author false'
+  if [ "$1" != none ]; then
+    key="$(cd "$STUB/repo/demo" && printf '%s' "$(pwd -P)" | tr -c 'A-Za-z0-9' '-')"
+    mkdir -p "$STUB/home/.claude/projects/$key/stub/subagents"; : > "$STUB/home/.claude/projects/$key/stub.jsonl"
+    for (( i=1; i<=$1; i++ )); do : > "$STUB/home/.claude/projects/$key/stub/subagents/agent-$i.jsonl" "$STUB/home/.claude/projects/$key/stub/subagents/agent-$i.meta.json"; done
+  fi
+  k_chain 0 ready 0 1 || return 1
+  [ "$(stub_meta -c '[.chain.sessions[] | if has("subagents") then .subagents else "missing" end] | unique')" = "$2" ] \
+    || { echo "subagents $(stub_meta -c '[.chain.sessions[] | .subagents]') (want $2)"; return 1; }
+}
+s3_key() {
+  local out
+  out="$(bash -c 'source "$1/scripts/config.sh"; claude_project_key /Users/m1/workspace/tech-n-ai/tech-n-ai-backend; echo; claude_project_key "/a/b_c.d e"' _ "$HARNESS_DIR")"
+  [ "$out" = $'-Users-m1-workspace-tech-n-ai-tech-n-ai-backend\n-a-b-c-d-e' ] || { echo "keys: $out"; return 1; }
+}
+check "chain S1 session subagent transcripts counted"           s_count 3 '[3]'
+check "chain S2 no session transcript → subagents null"          s_count none '[null]'
+check "chain S3 Claude Code project folder key"                  s3_key
 
 # P1–P3 — a command missing from PATH (launchd and cron start with a short one) stops at start with its name, exit 2, and nothing written
 path_without() {  # path_without <cmd> — a folder of links to every command on the stub PATH (the first folder wins) except <cmd>

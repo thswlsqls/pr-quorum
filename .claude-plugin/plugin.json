@@ -1,6 +1,6 @@
 {
   "name": "pr-quorum",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "A Claude Code harness in which several judges review a PR with graded evidence, then check the fixes, re-measure, and use a risk score to decide whether to merge",
   "author": {
     "name": "thswlsqls",

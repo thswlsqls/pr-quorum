@@ -112,6 +112,7 @@ flowchart TD
   MG -- no --> B[blocked]
   MG -- "Stage 3 found<br/>missed<br/>critical/major" --> H
   MG -- "pre-existing<br/>critical/major" --> H
+  MG -- "Stage 1 ran<br/>no judges" --> H
   MG -- yes --> RG{"Risk gate<br/>0–100 points"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -311,7 +312,7 @@ The chain ends in one of these states (`chain.state`):
 |---|---|---|
 | `merged` | Passed both gates with `auto_merge: true` | Nothing |
 | `ready` | Passed both gates; `auto_merge` is off | Merge it yourself |
-| `needs-human` | Risk is `medium` or higher (always, for a path in `always_human`), Stage 3 found missed `critical`/`major` defects, or Stage 1 found `critical`/`major` defects the PR did not introduce (pre-existing) | Review and decide yourself. The risk scorecard is on the PR |
+| `needs-human` | Risk is `medium` or higher (always, for a path in `always_human`), Stage 3 found missed `critical`/`major` defects, Stage 1 found `critical`/`major` defects the PR did not introduce (pre-existing), or Stage 1 launched no judges | Review and decide yourself. The risk scorecard is on the PR |
 | `blocked` | Merge gate failed, a merge conflict, a session left no record, a session hit its `limits` budget or time cap, or the head moved | Read `chain.reason`, fix the cause, then run the chain again. The bot also posts the reason and the command to resume once as a comment on the PR |
 
 ### Run the chain by hand
@@ -385,7 +386,7 @@ flowchart LR
 
 Builds and tests run code the PR controls, so they run in an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with an emptied environment: the build cannot read credential files or write outside the worktree, the temp folder, and its own cache root. What it still leaves open is in [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1.
 
-Not shown: the merge gate holds every blocking comment until Stage 2 judges it `addressed`, rather than taking the author's word that it was fixed, and reads the head's CI checks if the repository has any. It still trusts the author session's report of its test run, and the Stage 1 session's record of which summary-body findings are blocking.
+Not shown: the merge gate holds every blocking comment until Stage 2 judges it `addressed`, rather than taking the author's word that it was fixed, reads the head's CI checks if the repository has any, reads the test result of the newest author pass that ran tests, and stops at `needs-human` when Stage 1 launched no judges. It still trusts the author session's report of its test run, and the Stage 1 session's record of which summary-body findings are blocking.
 
 Other safeguards:
 

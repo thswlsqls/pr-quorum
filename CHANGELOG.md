@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.0
+
+No new `config.json` keys.
+
+- The chain records on each session in `chain.sessions[]` how many subagents it launched (`subagents`), counted from the transcripts Claude Code keeps under `~/.claude/projects/` (`null` when the session's transcript is not found). After the merge gate, a Stage 1 whose sessions launched no subagents stops the chain at `needs-human` ("Stage 1 ran without judges (0 subagents) — a person checks the review"); an unknown count does not block. Stage 1 is not rerun, since it has already posted.
+- The merge gate reads the test result from the newest author pass that ran tests, so a later pass with nothing to answer (`tests.result: "skip"`) no longer hides an earlier `fail`.
+
 ## 0.14.1
 
 No new `config.json` keys.

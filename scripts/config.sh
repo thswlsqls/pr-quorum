@@ -79,6 +79,15 @@ is_trusted() {
   [ "$r" = true ]
 }
 
+# claude_project_key <path> — the folder name Claude Code gives a working folder under ~/.claude/projects: every character other than
+# an ASCII letter or digit becomes '-' (measured: /private/tmp/claude-501/-Users-m1 → -private-tmp-claude-501--Users-m1)
+claude_project_key() { printf '%s' "$1" | LC_ALL=C sed 's/[^A-Za-z0-9]/-/g'; }
+# claude_project_dir <folder> — where Claude Code keeps transcripts of sessions started in that folder. Keyed by the real path (/tmp → /private/tmp)
+claude_project_dir() {
+  local real; real="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  printf '%s/projects/%s\n' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "$(claude_project_key "$real")"
+}
+
 # require_dotcom — only github.com is supported. On another GH_HOST, gh uses GH_ENTERPRISE_TOKEN instead of GH_TOKEN, so the bot token
 # would be ignored and posts could go out under the user's stored credentials. Exit 2 before anything is read or posted
 require_dotcom() {
