@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # build-sandbox.sh — runs one build command with an emptied environment inside an OS sandbox (Seatbelt on macOS, bubblewrap on Linux).
 # Sourced by pr-quorum.sh (cmd_build), doctor.sh and selftest.sh. The build reads files the PR controls (build.gradle, package.json scripts),
 # so whatever runs here is treated as untrusted: no credentials, no harness state, no writes outside the worktree, temp and its own cache root.
