@@ -363,6 +363,7 @@ And tests are code that has to be maintained too.
 | Number of `@SpringBootTest` | 1, `@Disabled` | `grep -rl '@SpringBootTest' --include='*.java' .` | 2026-08-20 | — |
 | Local infrastructure | **No** Redis or MongoDB (only kafka · 4 mysql · observability stack) | `grep -iE 'redis\|mongo' docker-compose.yml` | 2026-08-20 | This command cannot see remote dependencies such as Atlas or ElastiCache |
 | Tracked design documents | 5 of 12 local | `git ls-files docs/reference/design/` | 2026-08-20 | Untracked documents cannot be used as grade-A evidence |
+| lint | **Java: cannot run** — no static-analysis plugin in any Gradle file, no `commands.lint`. Terraform: `devops/terraform/.tflint.hcl` exists, but the harness does not run it | `git grep -lE 'checkstyle\|spotbugs\|pmd\|errorprone' -- '*.gradle' '*.gradle.kts'` (no match in 25 files); `ls devops/terraform/.tflint.hcl` | 2026-10-27 | Findings that cite a linter cannot be written for Java. A style finding on `.tf` may cite `.tflint.hcl` as I-6 grounds |
 
 **Stage 3 measurements** — `test` and `build` of the affected module through `pr-quorum.sh build`, and `EXPLAIN` on the problem query.
 `docker-compose.yml` has neither Redis nor MongoDB, so checking that a service runs is `not measured` unless both are available.
