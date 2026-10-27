@@ -282,9 +282,7 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
   "owner": "your-github-login", "repo": "your-repo",   // repo is also the profile key
   "pr": 12, "base_sha": "…", "eval_sha": "…", "profile": "backend",
   "eval_body": "…",                // the PR description when init set eval_sha — F9's grounds in Stage 2·3 (00-criteria.md §3)
-  "lock": {"pid": 4821, "started_at": "…", "stage": 1},   // invalid after 3 hours or if the pid is dead
-  "attempts": 0,                   // consecutive Stage 1 failures. At 2, set status to held-failed
-  "stage1": [{"rounds": 2, "review_id": 123, "posted_at": "…", "eval_sha": "…", "unmet": ["S3"],
+  "stage1": [{"review_id": 123, "eval_sha": "…",
               "comments": [{"id": 456, "code": "C-01", "path": "…", "line": 42,
                             "axis": "R-B", "grade": "critical", "blocking": true, "pre_existing": false}],   // blocking: the first line's label is `issue (blocking)`
                                                                                      // pre_existing: the first line says `pre-existing`; then base_anchor too
@@ -293,18 +291,17 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
   "stage2": [{"stage_sha": "…", "last_judged_sha": "…", "at": "…",
               "verdicts": {"C-01": "addressed", "C-02": "partial"},
               "replies": {"C-01": 456}, "new_comments": []}],   // the chain's own pass for an unpushed head: verdicts:{}, skipped:"no author push"
-  "stage3": {"stage_sha": "…", "at": "…", "review_id": 789, "posted_at": "…",
+  "stage3": {"stage_sha": "…", "review_id": 789,
              "comments": [{"id": 999, "code": "P-01", "path": "…", "line": 25,
                            "axis": "R-A · R-B", "grade": "minor"}],
              "replies": {"C-02": 1001}},   // thread replies. Replies made before posting collect in stage3_replies and post-review merges them here
                                            // (if reply creates .stage3, the chain treats Stage 3 as done before it is posted)
   "stage3_history": [],            // when Stage 3 is re-posted with a different stage_sha, the previous pass's stage3 moves here
-  "chain": {"sessions": [{"step": "stage1", "try": 1, "at": "…", "session_id": "…", "duration_ms": 0, "cost_usd": 0, "num_turns": 0, "is_error": false}],   // chain.sh appends one per session
-            "ci": {"sha": "…", "checks": 2, "failing": ["build is FAILURE"], "pending": []}},   // the merge gate's last read of the head's CI checks
-
   "status": "pending|running|done|held-large|held-fork|held-failed"   // the watcher skips held-*
 }
 ```
+
+The chain also keeps `lock`, `attempts`, `chain`, and the posting timestamps in `meta.json` for itself (`docs/harness.md` §2–3); sessions do not edit them (`lock`·`unlock` manage `lock`).
 
 ---
 
@@ -320,28 +317,8 @@ Without `meta.json`, Stage 2·3 do not run. **Stage N runs only if `meta.json` h
 | **PG6** | Did the pre-post edit cut meaning | Compare with the snapshots in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/pre-polish/` — for **JSON**, are the count, `path`·`line`·`side`·`code`·`axis`·`grade`, and the body's first line all the same (for `summary-items.json`, the count and `code`·`grade`·`blocking`·`path`·`line`·`pre_existing`·`base_anchor`); for **markdown**, did anchors, numbers, and quotes survive as they were. And does every comment still have impact (②) and direction (④) | All stages — once, right before posting (§3-4) |
 
 **The machine-countable part of PG6** runs in one line: `pr-quorum.sh pg6 <outputs/<stage>[/round-NN]>`. A mismatch exits with 3.
-If the session assembles the two commands below itself, permissions deny them (L0-42·L0-51). Below is a description of what the script does.
-There are two output shapes, so there are two checks.
-
-JSON (`comments.json`) — are the fields and the body's first line unchanged. If `false`, revert the changed comments from the snapshot.
-
-```bash
-d=~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>
-jq -s 'map(map({code, path, line, side:(.side//"RIGHT"), axis, grade,
-                head:(.body | split("\n")[0])})) | .[0] == .[1]' \
-   "$d/pre-polish/comments.json" "$d/comments.json"
-```
-
-Markdown (`summary.md` · `replies/*.md` · `patches/*.md`) — did anchors and numbers disappear.
-If tokens show up that exist only in the snapshot, the edit removed evidence.
-
-```bash
-tok() { grep -ohE '[A-Za-z0-9_./-]+\.[a-z]+:[0-9]+|[0-9]+(\.[0-9]+)?' "$@" | sort -u; }
-comm -23 <(tok "$d"/pre-polish/summary.md "$d"/pre-polish/replies/*.md "$d"/pre-polish/patches/*.md) \
-         <(tok "$d"/summary.md "$d"/replies/*.md "$d"/patches/*.md)
-```
-
-Empty output is a pass. Check the printed tokens one by one — **reducing an anchor written twice to once while merging sentences
+Do not assemble the comparison yourself — permissions deny it (L0-42·L0-51). The script checks `comments.json` (count, the fields above, the body's first line) and `summary-items.json` (count and fields) against the snapshot,
+and prints the anchor and number tokens of `summary.md` · `replies/*.md` · `patches/*.md` that exist only in the snapshot. Revert a changed comment from the snapshot; for a printed token, **reducing an anchor written twice to once while merging sentences
 is a pass**, but if an evidence `file:line` or a number dropped out entirely, revert.
 
 Whether impact (②) and direction (④) survived cannot be counted. **Reread each item** to judge.

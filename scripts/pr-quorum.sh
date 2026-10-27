@@ -910,7 +910,8 @@ cmd_whoami() { load_bot_token; api user --jq '.login'; [ $# -eq 0 ] || { SLUG="$
 # Sessions block reads outside their working folders, and ~/.pr-quorum itself is not opened (that would expose every other PR's runs/).
 # These two print the only state files the skills read there, so a session needs no Read access to ~/.pr-quorum
 cmd_config() { cat "$PR_QUORUM_HOME/config.json"; }
-cmd_learnings() { [ ! -f "$PR_QUORUM_HOME/learnings.md" ] || cat "$PR_QUORUM_HOME/learnings.md"; }
+# learnings stops before the "Already in the rules" section (older files: 규칙에 이미 박은 것) — sessions do not need it; dream.sh reads the file itself
+cmd_learnings() { [ ! -f "$PR_QUORUM_HOME/learnings.md" ] || awk '/^## (Already in the rules|규칙에 이미 박은 것)/ { exit } { print }' "$PR_QUORUM_HOME/learnings.md"; }
 
 # ---------- Entry point ----------
 

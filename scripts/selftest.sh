@@ -1142,6 +1142,21 @@ check "init E1 records the PR description as eval_body"          e1_init_body
 check "init E2 same eval_sha → eval_body kept"                   e2_same_eval_kept
 check "init E3 --reset-eval → eval_body set again"               e3_reset_eval_body
 
+# LN — pr-quorum.sh learnings stops before the "Already in the rules" section (older files: 규칙에 이미 박은 것) and keeps the middle one
+ln_learnings_cut() {
+  local f="$STUB/home/.pr-quorum/learnings.md" out h
+  stub_home
+  [ -z "$(stub_run "$PR_QUORUM" learnings)" ] || { echo "missing file printed something"; return 1; }
+  for h in '## Already in the rules' '## 규칙에 이미 박은 것'; do
+    printf '# Learnings\n| row |\n## Inherited from the original harness\nkept\n%s\ndropped\n' "$h" > "$f"
+    out="$(stub_run "$PR_QUORUM" learnings)" || return 1
+    [ "$out" = "$(printf '# Learnings\n| row |\n## Inherited from the original harness\nkept')" ] || { echo "$h: $out"; return 1; }
+  done
+  printf '# Learnings\n| row |\n### Already in the rules\nkept\n' > "$f"
+  [ "$(stub_run "$PR_QUORUM" learnings)" = "$(cat "$f")" ] || { echo "file without the heading was cut"; return 1; }
+}
+check "learnings LN cuts the Already-in-the-rules section, en and ko"  ln_learnings_cut
+
 # Build sandbox (scripts/build-sandbox.sh) — under a fake HOME, the build shell must not read a fake ~/.config/pr-quorum file or ~/.npmrc, write into
 # ~/.pr-quorum, the git dir or the user's ~/.gradle, or see a token from the environment, while the worktree and its own cache root
 # stay writable, and on macOS must not run osascript. No network, no gh.

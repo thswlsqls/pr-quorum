@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.1
+
+No new `config.json` keys.
+
+- `pr-quorum.sh learnings` stops before the `## Already in the rules` section of `learnings.md` (older files: `## 규칙에 이미 박은 것`); a file without that heading prints whole. Dream sessions still read the whole file.
+- Review sessions run `init`, `lock` and `sha` as one Bash call joined with `&&`, then `ranges` on its own; the skill says not to append `echo $?`, `cd` or shell variables, which chain permissions deny, or `;`, so a failing step stops the call.
+- `rules/01-stages.md` no longer spells out the commands `pr-quorum.sh pg6` runs, and its `meta.json` schema lists only the fields sessions read or write; `lock` and `attempts` are described in `docs/harness.md`.
+
 ## 0.14.0
 
 No new `config.json` keys.
