@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `7bceec1`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `1412936`
 
 <p align="center">
   <picture>
@@ -114,6 +114,7 @@ flowchart TD
   MG -- "否" --> B[blocked]
   MG -- "Stage 3 发现<br/>遗漏的<br/>critical/major" --> H
   MG -- "pre-existing<br/>critical/major" --> H
+  MG -- "Stage 1<br/>未启动评审" --> H
   MG -- "是" --> RG{"风险关卡<br/>0–100 分"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -313,7 +314,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | 在 `auto_merge: true` 下通过了两道关卡 | 无 |
 | `ready` | 通过了两道关卡，但 `auto_merge` 关闭 | 自己合并 |
-| `needs-human` | 风险为 `medium` 及以上(`always_human` 中的路径总是如此)，Stage 3 发现遗漏的 `critical`/`major` 缺陷，或 Stage 1 发现并非本 PR 引入的(pre-existing) `critical`/`major` 缺陷 | 自己评审并决定。风险评分表在 PR 上 |
+| `needs-human` | 风险为 `medium` 及以上(`always_human` 中的路径总是如此)，Stage 3 发现遗漏的 `critical`/`major` 缺陷，Stage 1 发现并非本 PR 引入的(pre-existing) `critical`/`major` 缺陷，或 Stage 1 没有启动任何评审员 | 自己评审并决定。风险评分表在 PR 上 |
 | `blocked` | 合并关卡未通过、合并冲突、会话未留下记录、会话触及 `limits` 的预算或时间上限，或 head 发生了变化 | 查看 `chain.reason`，解决原因后重新运行链路。机器人还会在 PR 上发一次评论，写明原因和恢复命令 |
 
 ### 手动运行链路
@@ -387,7 +388,7 @@ flowchart LR
 
 构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
 
-图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。
+图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。
 
 其他防护：
 

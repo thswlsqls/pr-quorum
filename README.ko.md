@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7bceec1`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `1412936`
 
 <p align="center">
   <picture>
@@ -114,6 +114,7 @@ flowchart TD
   MG -- "아니오" --> B[blocked]
   MG -- "Stage 3 에서<br/>놓친 critical/major<br/>발견" --> H
   MG -- "pre-existing<br/>critical/major" --> H
+  MG -- "Stage 1 이<br/>심사위원 0명" --> H
   MG -- "예" --> RG{"리스크 게이트<br/>0–100점"}
   RG -- "low (0–14)" --> A{"auto_merge"}
   A -- true --> M["merged<br/>(gh pr merge)"]
@@ -313,7 +314,7 @@ jq '{status, chain}' ~/.pr-quorum/runs/<repo>-pr<pr>/meta.json
 |---|---|---|
 | `merged` | `auto_merge: true` 에서 두 게이트를 통과했다 | 없음 |
 | `ready` | 두 게이트를 통과했지만 `auto_merge` 가 꺼져 있다 | 직접 머지한다 |
-| `needs-human` | 리스크가 `medium` 이상이거나(`always_human` 경로는 항상 해당), Stage 3 이 놓친 `critical`/`major` 결함을 찾았거나, Stage 1 이 이 PR 이 들여오지 않은(pre-existing) `critical`/`major` 결함을 찾았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
+| `needs-human` | 리스크가 `medium` 이상이거나(`always_human` 경로는 항상 해당), Stage 3 이 놓친 `critical`/`major` 결함을 찾았거나, Stage 1 이 이 PR 이 들여오지 않은(pre-existing) `critical`/`major` 결함을 찾았거나, Stage 1 이 심사위원을 하나도 띄우지 않았다 | 직접 보고 판단한다. 리스크 점수표가 PR 에 있다 |
 | `blocked` | 머지 게이트 실패, 머지 충돌, 세션이 기록을 남기지 않음, 세션이 `limits` 의 예산·시간 상한에 걸림, head 가 바뀜 중 하나 | `chain.reason` 을 보고 원인을 고친 뒤 체인을 다시 돌린다. 봇도 그 이유와 재개 명령을 PR 에 코멘트로 한 번 남긴다 |
 
 ### 체인 직접 돌리기
@@ -387,7 +388,7 @@ flowchart LR
 
 빌드와 테스트는 PR 이 정한 코드를 실행하므로, 비운 환경으로 OS 샌드박스(macOS 는 `sandbox-exec`, Linux 는 `bwrap`) 안에서 돈다. 빌드는 자격 증명 파일을 읽지 못하고, worktree·임시 폴더·자기 캐시 루트 밖에는 쓰지 못한다. 그래도 열려 있는 것은 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1 에 있다.
 
-그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다.
+그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 테스트 결과는 테스트를 실제로 돌린 가장 최근 저자 패스에서 읽고, Stage 1 이 심사위원을 하나도 띄우지 않았으면 `needs-human` 에서 멈춘다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다.
 
 그 밖의 안전장치:
 
