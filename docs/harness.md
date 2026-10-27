@@ -78,7 +78,7 @@ The order `J1`–`J4` is not a score but **deduplication priority** — if the d
 |---|---|---|---|
 | `sha` | `<repo> <pr>` | Prints the current head SHA | Not needed |
 | `meta` | `<repo> <pr>` | Prints `meta.json` | Not needed |
-| `config` · `learnings` | (none) | Print `~/.pr-quorum/config.json` · `learnings.md` (nothing if missing). Sessions read these two through here because `~/.pr-quorum` itself is not a working folder of theirs (§6-2) | Not needed |
+| `config` · `learnings` | (none) | Print `~/.pr-quorum/config.json` · `learnings.md` (nothing if missing; `learnings` stops before the `## Already in the rules` section, or the older `## 규칙에 이미 박은 것`). Sessions read these two through here because `~/.pr-quorum` itself is not a working folder of theirs (§6-2) | Not needed |
 | `precheck` | `<repo> <pr>` | Large-PR cutoff check (50 files / 3000 lines) | Not needed |
 | `ranges` | `<repo> <pr> <sha>` | Emits the line ranges that can take inline anchors, plus the diff body with line numbers (deleted lines carry old-file numbers, so they cannot be anchored). **It is loaded into the judge prompt to prevent anchors outside the diff in the first place** | Not needed |
 | `gate1` | `<repo> <pr> <sha> <comments.json>` | **PG1** — checks line by line that anchors are inside that SHA's diff | Not needed |
