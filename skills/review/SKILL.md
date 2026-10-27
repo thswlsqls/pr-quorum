@@ -77,7 +77,7 @@ It is not just one comment dropped — the review does not go up at all. Give th
 - Launch the four judges **at the same time in one message.** Run them one after another and later judges get contaminated by earlier results. Launch them even on a small PR.
 - When launching judges, challengers, and V1–V3, give the Agent tool `subagent_type` as `pr-quorum:judge`. This agent has no Write or Edit tools, and its invariants forbid writing files (`agents/judge.md`). Bash is open for lookups only.
 - **Paste rules, invalidation conditions, the frozen list, and axis sections into the prompt body.** Given as links, they are not read.
-  Only files inside the repo under review may be replaced by an absolute path plus "`Read` it as your first action".
+  Only files inside the repo under review may be replaced by an absolute path plus "`Read` it as your first action" — except `CLAUDE.md` and `REVIEW.md` (`01-stages.md` §3-1).
 - **Do not skip adversarial verification.** Only findings that survive the challenge are confirmed.
 - Do not exceed the budget (`01-stages.md` §2). Anything over it is carried over, marked `unverified`.
 - Launch V1·V2·V3 at the same time in one message too.
@@ -89,7 +89,7 @@ It is not just one comment dropped — the review does not go up at all. Give th
 
 Write these files in `~/.pr-quorum/runs/<repo>-pr<N>/outputs/<stage>/` (`<stage>` = `stage1`·`stage2`·`stage3`).
 **All three stages share one run directory, so put them in the per-stage folder** — if you write everything in one place, the Stage 1 outputs that Stage 3 judges
-read to assign origin (P/Q/N) get overwritten. **If the two disagree, PG2 catches it.**
+read to assign origin (P/Q/N) get overwritten. **If `summary.md` and the comment bodies in `comments.json` disagree, PG2 catches it.**
 
 - `summary.md` — review summary body (overall assessment · praise · blocking order table · one line separating measured from estimated).
   **The first line starts with the count**, in the PR's language — e.g. `Blocking 2 · non-blocking 3`, or `Nothing blocks the merge · non-blocking 1` when no item blocks.
