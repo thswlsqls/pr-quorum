@@ -21,6 +21,7 @@
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh stage2-begin:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh verdicts:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh stage3-replies:*)",
+      "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh origins:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh ranges:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh gate1:*)",
       "Bash(__PLUGIN_ROOT__/scripts/pr-quorum.sh pg5:*)",

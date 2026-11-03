@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <strong>한국어</strong> | <a href="./README.zh-CN.md">简体中文</a>
 </p>
 
-> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `7bfc695`
+> 이 문서는 [영어판](./README.md)을 옮긴 것이다. 내용이 다르면 영어판이 맞다. 기준: `README.md` @ `d1e23a0`
 
 <p align="center">
   <picture>
@@ -244,17 +244,20 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `owner` | 본인 GitHub 로그인. `repos` 중 소유자를 따로 지정하지 않은 저장소의 소유자다. watcher 는 소유자마다 그 저장소들에서 리뷰 요청을 찾는다 |
 | `bot` | 1단계에서 만든 봇 로그인. 토큰의 계정과 같아야 한다 |
 | `auto_merge` | 두 게이트를 지난 PR 을 체인이 머지할지. 기본값 `false` 면 체인은 `ready` 에서 멈춘다. 리스크 규칙의 경로 패턴은 처음 만든 저장소에 맞춰져 있으니, 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 가 자기 저장소에 맞는지 확인한다 |
+| `require_tests` | `true` 면 저자 패스가 테스트를 `pass` 로 잰 경우에만 머지 게이트를 통과한다. `not measured` 나 테스트를 돌리지 않은 경우도 막는다. 기본값 `false` 면 앞 패스가 실패하지 않은 한 `not measured` 는 통과한다 |
+| `mcp` | `false` 면 체인 세션에 MCP 서버를 하나도 붙이지 않는다. 기본값 `true` 면 [`mcp.json`](mcp.json) 의 context7 문서 서버(제3자)를 붙인다 |
 | `trust` | 누구의 PR 이 체인을 돌리는지. `authors`(로그인 목록) 또는 `associations`(GitHub `author_association` 값). 없으면 `associations` 는 `["OWNER"]`. GitHub 가 쓰지 않는 값이 있으면 watcher 와 체인이 exit 2 로 멈추고, `OWNER`, `MEMBER`, `COLLABORATOR` 밖의 값은 경고를 남긴다. 조직이라면 로그인 목록이 낫다. `MEMBER` 는 조직 전원이다 |
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |
 | `repos.<name>.owner` | 그 저장소의 GitHub 소유자(사용자 또는 조직). 없으면 최상위 `owner` |
 | `repos.<name>.commands` | 세션이 PR worktree 에서 돌리는 `build`, `test`, `lint` 명령. 명령 안의 `<target>` 은 실행마다 채워진다. 없으면 Gradle worktree 에서는 `./gradlew [<target>:]build` 와 `test`, 그 밖에는 `npm run build`, `npm run lint`, 테스트로 `npx --no -- tsc --noEmit` 을 돌린다. 이 테스트는 TypeScript 타입 검사라서, TypeScript 가 아닌 저장소는 `commands.test` 를 지정한다. 명령이 없는 종류는 `not measured` 로 기록된다 |
 | `repos.<name>.always_human` | 언제나 사람에게 넘길 경로 접두사(glob 아님, 예: `["src/billing/", "scripts/release.sh"]`). 이 가운데 하나를 건드린 PR 은 위험도가 적어도 `medium` 이 되어 체인이 `needs-human` 에서 멈춘다. 점수는 바뀌지 않는다. 없으면: 없음([`rules/03-risk.md`](rules/03-risk.md) Levels) |
+| `repos.<name>.peers` | 이 저장소의 세션이 읽어도 되는 다른 등록 저장소 목록(예: `["backend"]`, 없으면 `[]`). 키가 없으면 등록된 모든 저장소와 그 worktree 를 연다 |
 | `build.sandbox` | `"require"`(기본): 빌드와 테스트를 OS 샌드박스 안에서 돌리고, 샌드박스가 뜨지 않는 머신에서는 `not measured` 로 기록한다. `"off"`: 샌드박스 없이 돌린다. Docker, 키체인, 또는 샌드박스가 가리는 `~/.npmrc`·`~/.m2/settings.xml` 의 사설 레지스트리 자격 증명이 필요한 빌드용이다 |
 | `build.env_passthrough` | 빌드가 추가로 넘겨받을 환경 변수 이름(기본 `[]`. 이 밖에는 비운 환경으로 시작한다). 자격 증명처럼 보이는 이름(`*TOKEN*`, `*SECRET*`, `*KEY*`)은 거부하므로, 레지스트리 자격 증명은 이 길로 넘길 수 없다 |
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
 | `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 `claude-sonnet-5-5`, `""` 이면 Claude Code 기본값 |
 
-`repos.<name>.always_human` 과 `repos.<name>.commands` 를 뺀 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
+`repos.<name>.always_human`, `repos.<name>.commands`, `repos.<name>.peers` 를 뺀 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 
@@ -388,9 +391,9 @@ flowchart LR
 
 빌드와 테스트는 PR 이 정한 코드를 실행하므로, 비운 환경으로 OS 샌드박스(macOS 는 `sandbox-exec`, Linux 는 `bwrap`) 안에서 돈다. 빌드는 자격 증명 파일을 읽지 못하고, worktree·임시 폴더·자기 캐시 루트 밖에는 쓰지 못한다. 그래도 열려 있는 것은 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1 에 있다.
 
-그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 테스트 결과는 테스트를 실제로 돌린 가장 최근 저자 패스에서 읽고, Stage 1 이 심사위원을 하나도 띄우지 않았으면 `needs-human` 에서 멈춘다. 테스트 결과가 `not measured`(명령이 없거나 이 호스트에 샌드박스가 없음)면 통과시키되, 앞 패스가 실패했으면 막는다. push 한 저자 패스에 결과가 없거나, `pass`·`fail`·`skip`·`not measured` 가 아닌 값이면 막는다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다. Stage 3 이 기존 스레드에 단 `Q`·`N` 답글은 게이트가 읽지 않는다 — 새 `P` 코멘트와 이후 Stage 2 판정만 읽는다.
+그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 테스트 결과는 테스트를 실제로 돌린 가장 최근 저자 패스에서 읽고, Stage 1 이 심사위원을 하나도 띄우지 않았으면 `needs-human` 에서 멈춘다. 테스트 결과가 `not measured`(명령이 없거나 이 호스트에 샌드박스가 없음)면 통과시키되, 앞 패스가 실패했으면 막는다. push 한 저자 패스에 결과가 없거나, `pass`·`fail`·`skip`·`not measured` 가 아닌 값이면 막는다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다. Stage 3 은 결함마다 출처 분류와 등급을 기록한다(`pr-quorum.sh origins`). 이후 Stage 2 가 `addressed` 로 판정하지 않은 `critical`·`major` `Q`·`N` 이 있으면 `needs-human` 에서 멈춘다. Stage 1 이 리뷰한 커밋에서 head 사이에 테스트 파일이 지워졌거나, skip 표시가 붙었거나, 테스트 파일의 assert 줄이 줄었을 때도 멈춘다. diff 로 세므로 기대값만 바꾼 경우는 잡지 못한다.
 
-데이터가 가는 곳: 코드와 PR 텍스트는 Claude Code 를 거쳐 Anthropic 으로 간다. 세션에는 [`mcp.json`](mcp.json) 의 [context7](https://context7.com) 문서 서버(제3자)도 붙는다. 그 질의는 토큰 검사를 거치지 않고, 끄는 스위치도 없다. 체인 세션은 PR 저장소만이 아니라 `config.json` 에 등록된 모든 저장소와 그 worktree 를 읽을 수 있으니, 서로의 리뷰에 코드가 나와도 되는 저장소끼리만 등록한다.
+데이터가 가는 곳: 코드와 PR 텍스트는 Claude Code 를 거쳐 Anthropic 으로 간다. 세션에는 [`mcp.json`](mcp.json) 의 [context7](https://context7.com) 문서 서버(제3자)도 붙는다. 그 질의는 토큰 검사를 거치지 않으며, `"mcp": false` 로 끈다. 체인 세션은 PR 저장소만이 아니라 `config.json` 에 등록된 모든 저장소와 그 worktree 를 읽을 수 있다. `repos.<name>.peers` 로 그 목록을 좁힐 수 있다.
 
 그 밖의 안전장치:
 

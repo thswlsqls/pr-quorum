@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `7bfc695`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `d1e23a0`
 
 <p align="center">
   <picture>
@@ -244,17 +244,20 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `owner` | 你的 GitHub 登录名。`repos` 中未单独指定所有者的仓库都以它为所有者；watcher 按所有者分别查找其仓库中的评审请求 |
 | `bot` | 第 1 步创建的机器人登录名。必须与令牌的账号一致 |
 | `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready`。风险规则的路径模式是按最初编写它的仓库定的：开启之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq) |
+| `require_tests` | `true`：只有作者轮次把测试测为 `pass` 时才通过合并关卡；`not measured` 和未运行测试也会阻断。默认 `false`：除非之前的轮次失败，`not measured` 放行 |
+| `mcp` | `false`：链路会话不接入任何 MCP 服务器。默认 `true`：接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 context7 |
 | `trust` | 谁的 PR 运行链路：`authors`(登录名列表)或 `associations`(GitHub 的 `author_association` 值)。缺省时 `associations` 为 `["OWNER"]`。含 GitHub 不使用的值时，watcher 和链路以 exit 2 停止；`OWNER`、`MEMBER`、`COLLABORATOR` 以外的值会记录警告。组织建议列登录名：`MEMBER` 指组织里的所有人 |
 | `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
 | `repos.<name>.owner` | 该仓库的 GitHub 所有者(用户或组织)。缺省时为顶层 `owner` |
 | `repos.<name>.commands` | 会话在 PR worktree 中运行的 `build`、`test`、`lint` 命令；命令中的 `<target>` 每次运行时填入。缺省时，Gradle worktree 用 `./gradlew [<target>:]build` 和 `test`，否则用 `npm run build`、`npm run lint`，测试用 `npx --no -- tsc --noEmit`。该测试是 TypeScript 类型检查：非 TypeScript 仓库需设置 `commands.test`。没有命令的类别记为 `not measured` |
 | `repos.<name>.always_human` | 始终交给人处理的路径前缀(不支持 glob，例如 `["src/billing/", "scripts/release.sh"]`)：改动其中任一路径的 PR 风险至少为 `medium`，因此链路停在 `needs-human`。分数不变。缺省：无([`rules/03-risk.md`](rules/03-risk.md) Levels) |
+| `repos.<name>.peers` | 本仓库会话可以读取的其他已登记仓库，例如 `["backend"]`；`[]` 表示不读取。缺省时打开所有已登记仓库及其 worktree |
 | `build.sandbox` | `"require"`(默认)：构建和测试在操作系统沙箱中运行，沙箱无法启动的机器上记为 `not measured`。`"off"`：不用沙箱，适用于需要 Docker、钥匙串，或需要沙箱屏蔽的 `~/.npmrc`、`~/.m2/settings.xml` 中私有仓库凭据的构建 |
 | `build.env_passthrough` | 构建额外保留的环境变量名(默认 `[]`；除此之外构建从清空的环境启动)。看起来像凭据的名字(`*TOKEN*`、`*SECRET*`、`*KEY*`)会被拒绝，所以私有仓库凭据不能从这里传入 |
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
 | `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值 |
 
-除 `repos.<name>.always_human` 和 `repos.<name>.commands` 外，所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
+除 `repos.<name>.always_human`、`repos.<name>.commands`、`repos.<name>.peers` 外，所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
 `learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
@@ -388,9 +391,9 @@ flowchart LR
 
 构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
 
-图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。测试结果为 `not measured`（没有命令，或本机没有沙箱）时放行，但之前的轮次失败过则阻断；推送了却没有结果的作者轮次，或不是 `pass`、`fail`、`skip`、`not measured` 的值，也会阻断。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。Stage 3 在已有线程上的 `Q`、`N` 回复不被关卡读取——它只读新的 `P` 意见和之后的 Stage 2 判定。
+图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。测试结果为 `not measured`（没有命令，或本机没有沙箱）时放行，但之前的轮次失败过则阻断；推送了却没有结果的作者轮次，或不是 `pass`、`fail`、`skip`、`not measured` 的值，也会阻断。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。Stage 3 为每个缺陷记录来源分类和等级（`pr-quorum.sh origins`）；之后的 Stage 2 未判定为 `addressed` 的 `critical`、`major` 级 `Q` 或 `N` 会停在 `needs-human`。在 Stage 1 评审的提交与 head 之间删除测试文件、加上 skip 标记或减少测试文件中的 assert 行，也会停在那里——按 diff 计数，所以只改期望值的情况抓不到。
 
-数据去向：代码和 PR 文本经 Claude Code 发往 Anthropic。会话还会接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 [context7](https://context7.com)；其查询不经过令牌扫描，也没有关闭开关。每个链路会话都能读取 `config.json` 中登记的所有仓库及其 worktree，而不只是该 PR 的仓库，所以只登记彼此的代码可以出现在对方评审中的仓库。
+数据去向：代码和 PR 文本经 Claude Code 发往 Anthropic。会话还会接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 [context7](https://context7.com)；其查询不经过令牌扫描，可用 `"mcp": false` 关闭。每个链路会话都能读取 `config.json` 中登记的所有仓库及其 worktree，而不只是该 PR 的仓库，可用 `repos.<name>.peers` 缩小范围。
 
 其他防护：
 

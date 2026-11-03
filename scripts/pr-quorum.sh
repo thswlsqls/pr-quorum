@@ -51,6 +51,7 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     stage2-begin <repo> <pr> <stage_sha> <last_judged_sha>   open this Stage 2 pass's record (merges into an unfinished one)
     verdicts   <repo> <pr> <stage_sha> <verdicts.json>   write {code: verdict} into that record (addressed|partial|not-addressed|regressed)
     stage3-replies <repo> <pr>               move stage3_replies into stage3.replies (when finishing without post-review)
+    origins <repo> <pr> <file>               record Stage 3 origin classes {code: {class: P|Q|N, grade}} for the merge gate
 
   Build (no bot token needed)
     build      <repo> <pr> <worktree> build|test|lint [target]
@@ -546,6 +547,20 @@ cmd_stage3_replies() {
   echo "stage3 replies — $(jq -r '.stage3.replies | length' "$(meta_path "$repo" "$pr")") recorded"
 }
 
+# Stage 3 origin classes per code (rules/01-stages.md §2-2). Replies record only ids, so without this the gate cannot tell a fix-made (N)
+# or half-fixed (Q) critical from a minor. Kept at the top level, like stage3_replies, so recording it does not make stage3_done true
+cmd_origins() {
+  local repo="$1" pr="$2" ofile="$3" bad; need_meta "$repo" "$pr"
+  jq -e 'type == "object" and length > 0' "$ofile" >/dev/null 2>&1 \
+    || die "$E_USAGE" "$ofile must be a non-empty JSON object of {code: {class, grade}}"
+  bad="$(jq -r '[to_entries[] | select((.key | test("^[A-Za-z0-9][A-Za-z0-9_-]*$") | not)
+                 or (.value.class | IN("P", "Q", "N") | not) or (.value.grade | IN("critical", "major", "minor", "nit") | not))
+                 | .key] | join(", ")' "$ofile")"
+  [ -z "$bad" ] || die "$E_USAGE" "origins need class P|Q|N and grade critical|major|minor|nit, keyed by comment code: $bad"
+  meta_update "$repo" "$pr" '.stage3_origins = ((.stage3_origins // {}) + $o[0])' --slurpfile o "$ofile"
+  echo "origins recorded — $(jq 'length' "$ofile")"
+}
+
 # ---------- Build ----------
 
 # The only way sessions run a build, test, or lint. The command comes from repos.<repo>.commands.<kind> in config.json, which sessions cannot edit;
@@ -955,6 +970,7 @@ case "$sub" in
   stage2-begin) [ $# -eq 4 ] || usage; need_full_sha "$3"; need_full_sha "$4"; cmd_stage2_begin "$@" ;;
   verdicts)    [ $# -eq 4 ] || usage; need_full_sha "$3"; need_run_file "$4"; cmd_verdicts "$@" ;;
   stage3-replies) [ $# -eq 2 ] || usage; cmd_stage3_replies "$@" ;;
+  origins)     [ $# -eq 3 ] || usage; need_run_file "$3"; cmd_origins "$@" ;;
   build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
   author-build) [ $# -ge 4 ] && [ $# -le 5 ] || usage; BUILD_AUTHOR=1; cmd_build "$@" ;;
   post-review) [ $# -ge 5 ] || usage; need_sha "$3"; need_run_file "$4"; need_run_file "$5"; need_clean_body "$4" "$5"; need_clean_json "$5"; cmd_post_review "$@" ;;

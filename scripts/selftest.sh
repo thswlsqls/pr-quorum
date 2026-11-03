@@ -188,7 +188,7 @@ case "$path" in
     echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER","body":"'"$b"'"}' \
       | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
   */pulls/1/files) echo '[{"filename":"docs/a.md","status":"modified","additions":3,"deletions":0,"patch":"+a"}]' ;;
-  */compare/*) jq -n '{files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out ;;
+  */compare/*) if [ -f "$S/compare.json" ]; then out < "$S/compare.json"; else jq -n '{status:"ahead", files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out; fi ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
     # The server creates the review and its comments first — fail-post then loses only the response
@@ -749,6 +749,42 @@ g22_regressed_then_fixed() { g_home '.stage1[0].comments = [{code:"C-02", grade:
 check "chain G20 regressed in the last pass → blocked"           g20_regressed_last
 check "chain G21 regressed in an earlier pass only → blocked"    g21_regressed_earlier
 check "chain G22 regressed, then addressed → ready"              g22_regressed_then_fixed
+# G23–G24 — Stage 3 Q/N origins: a major N that no later Stage 2 judged addressed stops at needs-human; one judged addressed after Stage 3 passes
+g23_origin_n() { g_home '.stage3.posted_at = "2026-11-03T01:00:00Z" | .stage3_origins = {"C-02":{class:"N", grade:"major"}, "C-03":{class:"Q", grade:"minor"}}'; g_run 3 needs-human 'C-02(N major)'; }
+g24_origin_n_fixed() { g_home '.stage3.posted_at = "2026-11-03T01:00:00Z" | .stage3_origins = {"C-02":{class:"N", grade:"major"}} | .stage2 += [{posted_at:"2026-11-03T02:00:00Z", verdicts:{"C-02":"addressed"}, stage_sha:$h}]'; g_run 0 ready ''; }
+check "chain G23 Stage 3 N major not addressed → needs-human"   g23_origin_n
+check "chain G24 Stage 3 N major addressed later → ready"        g24_origin_n_fixed
+# G25–G26 — tests weakened between the reviewed commit and the head (compare diff) stop at needs-human; an unrelated diff passes
+g25_weakened() {
+  g_home '.eval_sha = "cccccccccccccccccccccccccccccccccccccccc"'
+  python3 -c 'import json; print(json.dumps({"status":"ahead","files":[{"filename":"src/test/a/ATest.java","status":"modified","patch":"@@\n-    assertEquals(1, x);\n+    // gone\n"}]}))' > "$STUB/state/compare.json"
+  g_run 3 needs-human 'ATest.java 1 fewer assert line(s)'
+}
+g26_not_weakened() { g_home '.eval_sha = "cccccccccccccccccccccccccccccccccccccccc"'; g_run 0 ready ''; }
+g26b_rewritten() { g_home '.eval_sha = "cccccccccccccccccccccccccccccccccccccccc"'; echo '{"status":"diverged","files":[]}' > "$STUB/state/compare.json"; g_run 3 needs-human 'history is diverged'; }
+g26c_moved_out() { g_home '.eval_sha = "cccccccccccccccccccccccccccccccccccccccc"'; echo '{"status":"ahead","files":[{"filename":"src/main/A.java","previous_filename":"src/test/a/ATest.java","status":"renamed"}]}' > "$STUB/state/compare.json"; g_run 3 needs-human 'moved out of the tests'; }
+check "chain G25 assert removed since the review → needs-human"  g25_weakened
+check "chain G26 unrelated diff since the review → ready"        g26_not_weakened
+check "chain G26b rewritten history since the review → needs-human" g26b_rewritten
+check "chain G26c test file moved out of the tests → needs-human" g26c_moved_out
+# G27 — require_tests: a run where no pass measured the tests stops
+g27_require_tests() {
+  g_home .; author_tests pass "not measured"
+  jq '.require_tests = true' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  g_run 3 blocked 'require_tests is on'
+}
+check "chain G27 require_tests with nothing measured → blocked"  g27_require_tests
+# O1 — origins accepts {code: {class, grade}} and refuses an unknown class
+o1_origins() {
+  local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home
+  echo '{"C-02":{"class":"N","grade":"major"}}' > "$f"
+  local out; out="$(stub_run "$PR_QUORUM" origins demo 1 "$f" 2>&1)" && [ "$(stub_meta '.stage3_origins["C-02"].class')" = N ] \
+    || { echo "origins not recorded: $out"; return 1; }
+  echo '{"C-02":{"class":"X","grade":"major"}}' > "$f"
+  stub_run "$PR_QUORUM" origins demo 1 "$f" >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 0 ] || { echo "origins accepted class X"; return 1; }
+}
+check "post O1 origins record and class check"                  o1_origins
 # G16–G19 — a Stage 1 whose sessions launched no subagents stops at needs-human; an unknown count (null, missing) does not block
 g16_no_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"author", try:1, subagents:0}]'; g_run 3 needs-human 'Stage 1 ran without judges (0 subagents)'; }
 g17_unknown_count() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:null}, {step:"stage1", try:2}]'; g_run 0 ready ''; }
