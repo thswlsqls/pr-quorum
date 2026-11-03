@@ -732,9 +732,13 @@ g15b_unreadable_then_fail() { g_home .; author_tests pass fail; echo '{' > "$STU
 check "chain G15 tests fail, then pass → ready"                  g15_fail_then_pass
 check "chain G15b unreadable round-01, round-02 fail → blocked"  g15b_unreadable_then_fail
 g15c_unknown_result() { g_home .; author_tests pass passed; g_run 3 blocked "unknown test result 'passed'"; }
-g15d_not_measured() { g_home .; author_tests fail "not measured"; g_run 0 ready ''; }
+g15d_not_measured() { g_home .; author_tests fail "not measured"; g_run 3 blocked 'later passes could not measure them'; }
+g15e_only_unmeasured() { g_home .; author_tests skip "not measured"; g_run 0 ready ''; }
+g15f_pushed_no_result() { g_home .; author_tests pass ""; jq '.pushed = true | del(.tests)' "$STUB_RUN/outputs/author/round-02.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/author/round-02.json"; g_run 3 blocked 'round-02.json pushed with no test result'; }
 check "chain G15c unknown test result → blocked"                 g15c_unknown_result
-check "chain G15d not measured after a fail → ready (documented)" g15d_not_measured
+check "chain G15d not measured after a fail → blocked"          g15d_not_measured
+check "chain G15e only not measured → ready (documented)"       g15e_only_unmeasured
+check "chain G15f author pass pushed with no result → blocked"  g15f_pushed_no_result
 # G20–G22 — regressed reads the latest verdict per code across passes, blocking or not
 g20_regressed_last() { g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2[0].verdicts = {"C-02":"regressed"}'; g_run 3 blocked 'latest verdict is regressed: C-02'; }
 g21_regressed_earlier() { g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2 = [{verdicts:{"C-02":"역행"}}, {verdicts:{"C-05":"addressed"}, stage_sha:$h}]'; g_run 3 blocked 'latest verdict is regressed: C-02'; }
