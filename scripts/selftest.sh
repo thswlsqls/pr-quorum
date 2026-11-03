@@ -92,6 +92,9 @@ check "risk id_rsa"                  risk_json '[{"filename":"deploy/id_rsa","ad
 check "risk .pypirc secret"          risk_json '[{"filename":".pypirc","additions":1,"deletions":0,"patch":"+password = hunter2hunter2"}]' 30 critical
 check "risk .env two suffixes"       risk_json '[{"filename":".env.production.local","additions":1,"deletions":0,"patch":"+A=b"}]' 30 critical
 check "risk config with no patch"    risk_json '[{"filename":"config/app.yml","additions":5,"deletions":0}]' 0 medium
+check "risk middleware folder JS"    risk_json "[{\"filename\":\"src/middleware/verifyToken.js\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk Laravel auth middleware" risk_json "[{\"filename\":\"app/Http/Middleware/Authenticate.php\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk pure rename, no patch"   risk_json '[{"filename":"config/b.yml","previous_filename":"config/a.yml","status":"renamed","additions":0,"deletions":0}]' 0 low
 check "risk HCL Action ="            risk_json '[{"filename":"iam.tf","additions":2,"deletions":0,"patch":"+  Action = \"s3:*\""}]' 30 medium
 # Level table — files that get executed stay medium or above even with a test file alongside (a test file alone would make the PR low)
 while read -r f score; do
