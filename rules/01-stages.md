@@ -39,7 +39,7 @@ Fold the fixes of rolled-back findings into the surviving comment body as a unio
 | L1 Fidelity of the fix | Did it go in as the review prescribed, in the steps the review gave |
 | L2 Fix accuracy · regression | Did it fall into the trap the review warned about. Did the fix break something else |
 | L3 Do docs and code match | Do the PR description, design docs, and comments still match the changed code |
-| L4 Regression lock | Would it be caught if the same thing broke again (were tests or checks added). Did the fix commit make tests pass by deleting them, disabling them, or weakening assertions |
+| L4 Regression lock | Would it be caught if the same thing broke again (were tests or checks added). Did the fix commit make tests pass by deleting them, disabling them, or weakening assertions. The chain also counts this from the diff at the merge gate (removed test files, added skip markers, fewer assert lines); a changed expected value is left to this lens |
 
 Give each comment a **four-level verdict** — `addressed` / `partial` / `not-addressed` / `regressed`.
 **Judge the blocking items of the Stage 1 summary body per code too** (`summary-items.json`, recorded as `stage1[-1].summary_items`).
@@ -54,6 +54,8 @@ The posted verdict line is ``Verdict: `addressed` `` — the ID verbatim, with t
 | **P** | There is a defect here and it is **nowhere in the Stage 1 review** | A coverage hole in the review — the only input to the §5 verdict. Posted as a new review |
 | **Q** | The review caught it but it was only partly fixed | Sent to the Stage 2 thread (the Stage 1 thread if Stage 2 was `skipped`) |
 | **N** | The fix itself created it | Sent to the Stage 2 thread (the Stage 1 thread if Stage 2 was `skipped`) |
+
+Record every defect's class and grade with `pr-quorum.sh origins` (`skills/review/SKILL.md`) — replies keep only ids, and the merge gate stops on a `critical`·`major` `Q`/`N` that no later Stage 2 judged `addressed`.
 
 **What separates `P` from `Q` is the fix, not the location.** Even in the same file and line, if the review's fix does not
 resolve this defect, it is `P`.

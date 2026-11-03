@@ -62,8 +62,11 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() caps=() r p d out rc=0 started
   local budget timeout_min model sub_model secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
   SESSION_CAP=""   # Set when the session was cut by a cap — step() then stops instead of retrying
-  # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each
+  # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each.
+  # repos.<this repo>.peers, when set, narrows the others to that list ([] = none) — a session can quote whatever it can read (README Security)
+  local peers; peers="$(cfg --arg r "$REPO" '.repos[$r] | if has("peers") then (.peers // [] | join(" ")) else "*" end')"
   for r in $(cfg '.repos | keys[]'); do
+    [ "$r" = "$REPO" ] || [ "$peers" = "*" ] || [[ " $peers " == *" $r "* ]] || continue
     p="$(cfg --arg r "$r" '.repos[$r].path')"
     # Created up front: a session reads only folders opened at start, and its git worktree add lands here
     mkdir -p "$(dirname "$p")/$r-worktrees" 2>/dev/null || true
@@ -93,11 +96,14 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   # Runs in the background so the watchdog below can stop it — macOS has no timeout command. exec makes $! the claude process itself,
   # and set -m gives it its own process group, so a kill on -$pid also reaches the processes it started (MCP servers, tool commands)
   set -m
+  # "mcp": false in config.json gives sessions no MCP server at all (context7 is a third party — README Security)
+  local mcp="$HARNESS_DIR/mcp.json"
+  [ "$(cfg '.mcp != false')" = true ] || mcp='{"mcpServers":{}}'
   ( cd "$REPO_ROOT"
     [ -z "$sub_model" ] || export CLAUDE_CODE_SUBAGENT_MODEL="$sub_model"
     exec claude -p --output-format json --permission-mode dontAsk \
       --settings "$settings" --setting-sources "" --plugin-dir "$HARNESS_DIR" \
-      --mcp-config "$HARNESS_DIR/mcp.json" --strict-mcp-config \
+      --mcp-config "$mcp" --strict-mcp-config \
       --disallowedTools AskUserQuestion \
       --append-system-prompt "This is chain mode. No human will respond. Do not ask a person or wait for confirmation; choose the option the rule documents recommend and continue. Append each decision to $RUN/decisions.md as one line, 'time · step · situation · choice · reason', using the Edit or Write tool (mv and cp are denied by permissions, so do not use the '> tmp && mv' pattern)." \
       ${caps[0]+"${caps[@]}"} ${add_dirs[0]+--add-dir "${add_dirs[@]}"} \
@@ -211,6 +217,32 @@ pr_state() {
 }
 
 # ---------- Merge gate — judged from records and GitHub state, not from the session's self-report ----------
+# Test weakening (lens L4, rules/01-stages.md §2-1) counted from the diff instead of only judged by a session. From the commit Stage 1 reviewed
+# to the head the gate passed: a test file removed, a skip marker added, or fewer assert lines than before in a test file sends the PR to a person.
+# The author skill allows changing a test only when the review asked, so a hit is not necessarily wrong — a person checks it
+test_weakening() {
+  local from weak
+  from="$(jq -r '.eval_sha // empty' "$M")"
+  [ -n "$from" ] && [ "$from" != "$GATE_SHA" ] || return 0
+  weak="$(gh api "repos/$SLUG/compare/$from...$GATE_SHA" | jq -r '
+    def test_file: test("(^|/)src/test/|(^|/)__tests__/|(^|/)tests?/|Tests?\\.(java|kt)$|\\.(test|spec)\\.[jt]sx?$|(^|/)test_[^/]*\\.py$|_test\\.(py|go)$");
+    def lines($c): (.patch // "") | split("\n") | map(select(startswith($c) and (startswith($c + $c + $c) | not)) | .[1:]);
+    def asserts: map(select(test("assert|expect\\(|verify\\(|should"; "i"))) | length;
+    [.files[]? | select(.filename | test_file)
+     | ([lines("+")[] | select(test("@Disabled|@Ignore|\\.skip\\(|\\bx(it|describe|test)\\(|@pytest\\.mark\\.(skip|xfail)|\\bt\\.Skip|#\\[ignore\\]"))] | length) as $skips
+     | (lines("-") | asserts) as $gone | (lines("+") | asserts) as $new
+     | if .status == "removed" then "\(.filename) removed"
+       elif $skips > 0 then "\(.filename) +\($skips) skip marker(s)"
+       elif $gone > $new then "\(.filename) \($gone - $new) fewer assert line(s)"
+       else empty end] | join(", ")')" \
+    || { chain_state "needs-human" "could not read the diff from $from to $GATE_SHA to check for weakened tests — a person checks it"; exit 3; }
+  meta_set '.chain.test_weakening = $w' --arg w "$weak" || log "could not write test_weakening to meta.json"
+  if [ -n "$weak" ]; then
+    chain_state "needs-human" "tests changed since the reviewed commit: $weak — a person checks the review asked for it"
+    exit 3
+  fi
+}
+
 merge_gate() {
   local a head pr_json reasons=()
   a="$(last_author)"
@@ -239,6 +271,10 @@ merge_gate() {
   fi
   # "not measured" alone passes (README Security) — only a value outside the author skill's set stops, so a typo cannot read as a pass
   case "$tests" in ""|pass|fail) ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
+  # "require_tests": true in config.json — only a measured pass merges; "not measured" and no test run stop too
+  if [ "$(cfg '.require_tests == true')" = true ] && [ "$tests" != pass ] && [ "$tests" != fail ]; then
+    reasons+=("require_tests is on and no author pass measured the tests as pass$($unmeasured && echo ' (not measured)' || true)")
+  fi
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
   # Latest verdict per code across passes, as for blocking comments below — a later pass judges only the codes it covered,
   # so a regressed left in an earlier pass and not judged again still counts
@@ -325,6 +361,18 @@ merge_gate() {
     chain_state "needs-human" "Stage 3 found defects the review missed: $missed — a person decides whether to rerun Stage 1"
     exit 3
   fi
+  # A critical or major Q (half-fixed) or N (made by a fix) from Stage 3 (pr-quorum.sh origins) that no later Stage 2 judged addressed.
+  # A run with no origins record (before 0.17.0, or a session that skipped it) is not checked
+  local qn
+  qn="$(jq -r '(.stage3.posted_at // "") as $t
+               | (reduce (.stage2[]? | select((.posted_at // "") > $t) | .verdicts) as $v ({}; . + ($v // {}))) as $after
+               | [(.stage3_origins // {}) | to_entries[] | select(.value.class != "P" and (.value.grade | IN("critical", "major")))
+                  | select($after[.key] != "addressed") | "\(.key)(\(.value.class) \(.value.grade))"] | join(", ")' "$M")"
+  if [ -n "$qn" ]; then
+    chain_state "needs-human" "Stage 3 found fixes that are partial or made a defect, not judged addressed since: $qn — a person checks them"
+    exit 3
+  fi
+  test_weakening
   # A critical or major defect Stage 1 marked pre-existing is not the author's to fix and does not block, but it does not merge unseen either
   # (rules/00-criteria.md §3). Read from the Stage 1 records pr-quorum.sh wrote
   local pre
