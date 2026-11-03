@@ -2,6 +2,8 @@
   "owner": "__OWNER__",
   "bot": "__BOT__",
   "auto_merge": false,
+  "require_tests": false,
+  "mcp": true,
   "trust": { "authors": [], "associations": ["OWNER"] },
   "build": { "sandbox": "require", "env_passthrough": [] },
   "repos": {
