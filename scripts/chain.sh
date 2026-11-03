@@ -82,7 +82,7 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   budget="$(cfg --arg s "$name" '.limits[$s].budget_usd // empty')"
   timeout_min="$(cfg --arg s "$name" '.limits[$s].timeout_min // empty')"
   [ -n "$budget" ] && caps+=(--max-budget-usd "$budget")
-  # A null or missing model is Sonnet (a 3-PR benchmark found the same defects at about 1/8 the cost); "" leaves Claude Code's default
+  # A null or missing model is Sonnet (picked on a 3-PR, 6-defect benchmark at about 1/8 the cost — too small a sample to call quality equal); "" leaves Claude Code's default
   model="$(cfg '.models.session // "claude-sonnet-5-5"')"
   [ -n "$model" ] && caps+=(--model "$model")
   sub_model="$(cfg '.models.subagent // "claude-sonnet-5-5"')"
@@ -231,9 +231,15 @@ merge_gate() {
     [ -z "$res" ] || [ "$res" = skip ] || { tests="$res"; break; }
   done < <(find "$AUTHOR_DIR" -name 'round-*.json' | sort -r)
   [ "$tests" != fail ] || reasons+=("tests failed in the last author pass that ran them")
+  # "not measured" passes (README Merge gate) — only a value outside the author skill's set stops, so a typo cannot read as a pass
+  case "$tests" in ""|pass|fail|"not measured") ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
-  [ "$(jq '[.stage2[-1].verdicts // {} | .[] | select(. == "regressed" or . == "역행")] | length' "$M")" = "0" ] \
-    || reasons+=("the last Stage 2 verdicts include regressed")
+  # Latest verdict per code across passes, as for blocking comments below — a later pass judges only the codes it covered,
+  # so a regressed left in an earlier pass and not judged again still counts
+  local regressed
+  regressed="$(jq -r '[reduce .stage2[]?.verdicts as $v ({}; . + ($v // {})) | to_entries[]
+                       | select(.value == "regressed" or .value == "역행") | .key] | join(", ")' "$M")"
+  [ -z "$regressed" ] || reasons+=("Stage 2's latest verdict is regressed: $regressed")
   # The current head must be a commit someone judged — the one the last Stage 2 saw, or one where the author said nothing more needed fixing
   if [ "$head" != "$(jq -r '.stage2[-1].stage_sha // empty' "$M")" ] \
      && ! { [ "$(jq -r '.pushed' "$a")" = "false" ] && [ "$head" = "$(jq -r '.to_sha' "$a")" ]; }; then

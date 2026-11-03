@@ -76,6 +76,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh author-build $0 $1 <absolute path of 
 
 The command is `repos.$0.commands.test` in `~/.pr-quorum/config.json`; `target` fills its `<target>` (the affected module or path, e.g. `:api-auth`). `build` and `lint` work the same way.
 **If they fail, do not push.** If you cannot fix them to pass, write `tests.result` as `fail` and finish.
+If the wrapper refuses to run them (no command configured, no sandbox), write `tests.result` as `not measured` — the merge gate stops on any value other than `pass`, `fail`, `skip`, or `not measured`.
 **Do not make tests pass by deleting them, disabling them with a skip marker (`@Disabled`, `@Ignore`, `@pytest.mark.skip`, `it.skip`/`xit`, `t.Skip()`, `#[ignore]`, …), or changing assertions or expected values.** The only exception is when the review asked to change that test.
 
 If you fixed anything, put it in one commit and push from inside the worktree with `${CLAUDE_PLUGIN_ROOT}/scripts/author-push.sh $0 $1`.
