@@ -20,7 +20,7 @@
 
 一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
 
-使用 Claude Code 默认模型时，每个 PR 约消耗 $11–30 的 Claude 用量，耗时 19–47 分钟（截至 2026-10）。现在会话默认使用 Sonnet：在 3 个 PR 的基准测试中，它以每个 PR 约 $2 找出了相同的预埋缺陷，默认模型则为 $15.5。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
+会话默认使用 Sonnet。在一个后端仓库上，从评审到合并关卡跑完的 21 条链（2026-10-25–28）消耗 $1.4–19.3 的 Claude 用量（中位数 $3.1），耗时 4–43 分钟（中位数 10）；使用 Claude Code 默认模型时为 $11–30、19–47 分钟。Sonnet 是根据含 6 个预埋缺陷的 3 个 PR 基准选定的，标注由 Claude 而非人完成：各跑一次时两者都找到全部 6 个（每个 PR 约 $2 对 $15.5），之后的 Sonnet 运行找到 5–6 个。这个样本不足以说明两者质量相同。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
 
 在 PR 上把机器人账号设为评审人，其余流程无人值守地完成。评审像人类评审一样发布：一条总结，加上挂在代码行上的行内评论。
 
@@ -28,7 +28,7 @@
 
 | 阶段 | 做什么 |
 |---|---|
-| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对每条 `critical`(致命)/`major`(重大) 意见对照代码复查，三名核验者重读评审。属于某种模式的缺陷会在一条意见中列出 diff 内的所有位置；并非本 PR 引入的缺陷标为 pre-existing，不阻止合并。总结以 blocking 意见的数量开头。默认最多 5 轮(`limits.stage1.max_rounds`) |
+| Stage 1 · review | 四名评审员分担评审维度，互不知晓对方结果地评审。质询者对照代码复查 `critical`(致命)/`major`(重大) 意见（10 条以内全部；超过时全部 `critical`，不足 3 条用 `major` 补足），三名核验者重读评审。属于某种模式的缺陷会在一条意见中列出 diff 内的所有位置；并非本 PR 引入的缺陷标为 pre-existing，不阻止合并。总结以 blocking 意见的数量开头。最多 `limits.stage1.max_rounds` 轮（模板为 3，没有该键时为 5）。这个上限由会话遵守，链路只强制 `limits` 的时间和费用 |
 | 作者 | 独立的会话(`/pr-quorum:author`)修改代码，用你的 gh 账号推送到 PR 分支。从不强制推送、合并或批准 |
 | Stage 2 · followup | 在每个讨论串中回复 `addressed`(已落实)、`partial`(部分)、`not-addressed`(未落实) 或 `regressed`(倒退，修复引入了新缺陷) |
 | Stage 3 · measured | 在修复后的提交上重新运行构建和测试，查找评审遗漏的缺陷(`P`) |
@@ -169,7 +169,7 @@ Google eng-practices 仓库已归档(最后一次推送 2024-09-19)，上述引�
 - [Claude Code](https://code.claude.com/docs) 2.1.257 或更高版本、用你自己的账号登录的 `gh`、`jq`、`git` 2.31 或更高版本
 - Linux 上需要构建沙箱用的 `bwrap`(bubblewrap)。macOS 自带 `sandbox-exec`
 - 一个单独的 GitHub 机器人账号(见[配置](#1-机器人账号))
-- 一台常开的机器：watcher 在其上轮询，每条链也在其上无人值守地运行 19–47 分钟
+- 一台常开的机器：watcher 在其上轮询，每条链也在其上无人值守地运行，使用 Sonnet 约 4–43 分钟
 - github.com 上的仓库。不支持 GitHub Enterprise Server 和 ghe.com
 - 默认只运行仓库所有者开的 PR，其余跳过。要运行队友的 PR，把他们加入 `trust.authors` 或 `trust.associations`；组织的仓库需设置 `repos.<name>.owner`([配置 §3](#3-pr-quorumconfigjson))。受信任作者的 PR 描述和 diff 会直接进入以你的 gh 账号推送和合并的会话，所以只信任你愿意让其这样做的人
 
@@ -254,7 +254,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
 | `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值 |
 
-除 `repos.<name>.always_human` 外，所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
+除 `repos.<name>.always_human` 和 `repos.<name>.commands` 外，所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 
 `learnings.md` 汇集跨 PR 的经验，由评审会话读取。`human-labels.md` 用于由人给机器人的评论打分。每个 PR 会在仓库克隆旁的 `<repo-name>-worktrees/` 下得到一个 worktree。
 
@@ -353,7 +353,7 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 把以往运行中的经验候选，以及 author 按类别(`wrong`、`intentional`、`out-of-scope`)拒绝的意见，整理到 `~/.pr-quorum/runs/_dream/<time>/proposal.md`。反复出现的意见可能被提议为仓库中的 lint 规则或测试。是否写入 `learnings.md` 由你决定 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 列出最近 N 个已合并 PR(默认 30)的风险分，并对照 14 天内的修复或回滚 PR，用于调整自动合并阈值 |
 | `<plugin-dir>/scripts/selftest.sh` | 修改关卡脚本后。不用 LLM，在以往产出上重跑关卡 |
-| `<plugin-dir>/scripts/doctor.sh` | 配置完成后、修改 `config.json` 后，或 watcher 不再接收请求时。只读；有 `FAIL` 时 exit 2 |
+| `<plugin-dir>/scripts/doctor.sh` | 配置完成后、修改 `config.json` 后。只读；有 `FAIL` 时 exit 2。它不检查 watcher 是否在运行——那要看日志（launchd 为 `~/Library/Logs/pr-quorum-watch.log`，cron 为 `~/.pr-quorum/watch.log`） |
 
 Marketplace 安装在 `version` 提升后可用 `claude plugin update pr-quorum@pr-quorum` 获取新版本。变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
@@ -388,13 +388,15 @@ flowchart LR
 
 构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
 
-图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。
+图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。测试结果为 `not measured`（没有命令，或本机没有沙箱）时放行；不是 `pass`、`fail`、`skip`、`not measured` 的值则阻断。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。Stage 3 在已有线程上的 `Q`、`N` 回复不被关卡读取——它只读新的 `P` 意见和之后的 Stage 2 判定。
+
+数据去向：代码和 PR 文本经 Claude Code 发往 Anthropic。会话还会接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 [context7](https://context7.com)；其查询不经过令牌扫描，也没有关闭开关。每个链路会话都能读取 `config.json` 中登记的所有仓库及其 worktree，而不只是该 PR 的仓库，所以只登记彼此的代码可以出现在对方评审中的仓库。
 
 其他防护：
 
 - 只运行受信任作者的 PR：默认是仓库所有者，另加 `trust.authors` 或 `trust.associations` 中的人。信任只来自 `config.json` 和 GitHub API。Watcher 先过滤，`chain.sh` 再检查一次。受信任作者的 PR 文本会进入以你的账号推送和合并的会话，所以信任列表就是边界。
 - 会话不能直接调用构建工具。构建和测试只通过 `pr-quorum.sh build`(评审：PR 固定的 SHA 上的干净 worktree)和 `pr-quorum.sh author-build`(作者的 worktree)运行，二者执行 `repos.<name>.commands` 中的命令或 Gradle/npm 默认命令。
-- 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。
+- 每次发布和推送前都先扫描令牌。`pr-quorum.sh`、`author-reply.sh`、`author-push.sh` 拒绝含 GitHub 令牌、Anthropic API 密钥、AWS 访问密钥 ID、私钥头模式，或含机器人、`GH_TOKEN`、`GITHUB_TOKEN`、你的 gh 令牌值的正文或提交；`author-push.sh` 逐个扫描要推送的提交，而不只是最终 diff。只匹配字面值：被拆开、倒序或编码的令牌会漏过。
 - 会话不能编辑 `meta.json`：合并关卡读取它，它也保存着 Stage 1 时的 PR 描述。Stage 2 和 Stage 3 的记录通过 `pr-quorum.sh` 子命令写入。
 - PR 描述、评论和 diff 被当作数据而非指令。作者会话只从机器人的评论中领取任务。
 

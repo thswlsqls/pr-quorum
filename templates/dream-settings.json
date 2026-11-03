@@ -24,6 +24,11 @@
       "Read(//**/.env.production)",
       "Read(//**/.env.staging)",
       "Read(//**/.env.test)",
+      "Read(//**/.env.prod)",
+      "Read(//**/.env.dev)",
+      "Read(//**/*.pem)",
+      "Read(//**/id_rsa)",
+      "Read(//**/id_ed25519)",
       "Read(//**/.envrc)",
       "Read(~/.claude/**)"
     ]

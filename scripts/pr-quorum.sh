@@ -414,8 +414,13 @@ cmd_pg5() {
   [ -f "$sfile" ] || die "$E_USAGE" "summary file is missing: $sfile"
   [ -f "$cfile" ] || die "$E_USAGE" "comments file is missing: $cfile"
   if [ "$stage" = "stage1" ]; then
-    grep -q 'praise' "$sfile" || jq -e '[.[] | select(.body | test("praise"))] | length > 0' "$cfile" >/dev/null \
+    # The praise label, not the word — "no praise" in a sentence must not pass (rules/00-criteria.md §3)
+    local pr='`praise`|\*\*praise\*\*|^praise([^a-z]|$)'
+    grep -qE "$pr" "$sfile" || jq -e --arg r "$pr" '[.[] | select(.body | test($r; "m"))] | length > 0' "$cfile" >/dev/null \
       || die "$E_GATE" "PG5 violation — no praise comment"
+    # Budget: at most 5 minor·nit (rules/01-stages.md §1 Budget) — the cap that keeps noise down, counted rather than left to the session
+    local mn; mn="$(jq '[.[] | select(.grade // "" | IN("minor", "nit"))] | length' "$cfile")"
+    [ "$mn" -le 5 ] || die "$E_GATE" "PG5 violation — $mn minor·nit comments (budget 5)"
   fi
   jq -e '[.[] | select((.code|not) or (.axis|not) or (.body|not))] | length == 0' "$cfile" >/dev/null \
     || die "$E_GATE" "PG5 violation — a comment is missing code/axis/body"

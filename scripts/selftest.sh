@@ -82,6 +82,17 @@ check "risk owner list, no hit"   risk_json '[{"filename":"src/other/A.java","ad
 check "risk cfg secret"           risk_json '[{"filename":"setup.cfg","additions":1,"deletions":0,"patch":"+api_key = \"sk_live_abcdefgh1234\""}]' 30
 check "risk nested mcp.json stays" risk_score "examples/mcp.json" 10   # scope only
 check "risk nested action.yml stays" risk_score "tools/x/action.yml" 10   # only root and .github/ action.yml count
+# Auth code of other stacks, credential files, plural controllers/, and config files GitHub sent no patch for (rules/03-risk.md, 2026-11-03)
+PYT='{"filename":"tests/test_a.py","additions":1,"deletions":0}'
+check "risk Go auth dir with tests"  risk_json "[{\"filename\":\"internal/auth/middleware.go\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk Python auth with tests"  risk_json "[{\"filename\":\"app/jwt_utils.py\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk plain JS stays low"      risk_json "[{\"filename\":\"src/store/cart.js\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 0 low
+check "risk controllers/ with tests" risk_json "[{\"filename\":\"src/controllers/user.js\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk id_rsa"                  risk_json '[{"filename":"deploy/id_rsa","additions":5,"deletions":0,"patch":"+x"}]' 30 critical
+check "risk .pypirc secret"          risk_json '[{"filename":".pypirc","additions":1,"deletions":0,"patch":"+password = hunter2hunter2"}]' 30 critical
+check "risk .env two suffixes"       risk_json '[{"filename":".env.production.local","additions":1,"deletions":0,"patch":"+A=b"}]' 30 critical
+check "risk config with no patch"    risk_json '[{"filename":"config/app.yml","additions":5,"deletions":0}]' 0 medium
+check "risk HCL Action ="            risk_json '[{"filename":"iam.tf","additions":2,"deletions":0,"patch":"+  Action = \"s3:*\""}]' 30 medium
 # Level table — files that get executed stay medium or above even with a test file alongside (a test file alone would make the PR low)
 while read -r f score; do
   check "risk level $f with tests" risk_json "[{\"filename\":\"$f\",\"additions\":3,\"deletions\":0,\"patch\":\"+RUN x\"},{\"filename\":\"src/test/a/ATest.java\",\"additions\":1,\"deletions\":0}]" "$score" medium
@@ -385,6 +396,20 @@ t9_pre_existing() {
     = '[true,"src/a.txt:2",false,true,"src/b.txt:4"]' ] || { echo "stage1 record: $(stub_meta -c '.stage1[0]')"; return 1; }
 }
 check "post T9 pre-existing: PG5 label checks, pre_existing and base_anchor recorded" t9_pre_existing
+# T10 — PG5 counts the minor·nit budget and wants the praise label, not the word (rules/01-stages.md §1, 00-criteria.md §3)
+t10_pg5_budget_praise() {
+  local d="$STUB/pg5" rc
+  mkdir -p "$d"; printf 'Legend `R-A`\n**praise** clear names\n' > "$d/s.md"
+  jq -n '[range(6) | {code:"C-0\(.)", axis:"R-A", grade:"nit", body:"R-A (Readability) — x"}]' > "$d/six.json"
+  rc=0; "$PR_QUORUM" pg5 "$d/s.md" "$d/six.json" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "pg5 with 6 nits: exit $rc (want 3)"; return 1; }
+  jq '.[:5]' "$d/six.json" > "$d/five.json"
+  "$PR_QUORUM" pg5 "$d/s.md" "$d/five.json" >/dev/null 2>&1 || { echo "pg5 with 5 nits failed"; return 1; }
+  printf 'Legend `R-A` — no praise this time\n' > "$d/s.md"
+  rc=0; "$PR_QUORUM" pg5 "$d/s.md" "$d/five.json" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "pg5 with only the word praise: exit $rc (want 3)"; return 1; }
+}
+check "post T10 PG5 minor·nit budget and praise label"  t10_pg5_budget_praise
 
 # R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
 stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
@@ -706,6 +731,17 @@ check "chain G14 tests fail, then a skip pass → blocked"         g14_fail_then
 g15b_unreadable_then_fail() { g_home .; author_tests pass fail; echo '{' > "$STUB_RUN/outputs/author/round-01.json"; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
 check "chain G15 tests fail, then pass → ready"                  g15_fail_then_pass
 check "chain G15b unreadable round-01, round-02 fail → blocked"  g15b_unreadable_then_fail
+g15c_unknown_result() { g_home .; author_tests pass passed; g_run 3 blocked "unknown test result 'passed'"; }
+g15d_not_measured() { g_home .; author_tests fail "not measured"; g_run 0 ready ''; }
+check "chain G15c unknown test result → blocked"                 g15c_unknown_result
+check "chain G15d not measured after a fail → ready (documented)" g15d_not_measured
+# G20–G22 — regressed reads the latest verdict per code across passes, blocking or not
+g20_regressed_last() { g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2[0].verdicts = {"C-02":"regressed"}'; g_run 3 blocked 'latest verdict is regressed: C-02'; }
+g21_regressed_earlier() { g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2 = [{verdicts:{"C-02":"역행"}}, {verdicts:{"C-05":"addressed"}, stage_sha:$h}]'; g_run 3 blocked 'latest verdict is regressed: C-02'; }
+g22_regressed_then_fixed() { g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2 = [{verdicts:{"C-02":"regressed"}}, {verdicts:{"C-02":"addressed"}, stage_sha:$h}]'; g_run 0 ready ''; }
+check "chain G20 regressed in the last pass → blocked"           g20_regressed_last
+check "chain G21 regressed in an earlier pass only → blocked"    g21_regressed_earlier
+check "chain G22 regressed, then addressed → ready"              g22_regressed_then_fixed
 # G16–G19 — a Stage 1 whose sessions launched no subagents stops at needs-human; an unknown count (null, missing) does not block
 g16_no_judges() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:0}, {step:"author", try:1, subagents:0}]'; g_run 3 needs-human 'Stage 1 ran without judges (0 subagents)'; }
 g17_unknown_count() { g_home '.chain.sessions = [{step:"stage1", try:1, subagents:null}, {step:"stage1", try:2}]'; g_run 0 ready ''; }

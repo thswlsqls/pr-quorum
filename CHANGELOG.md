@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.16.0
+
+No new `config.json` keys. Changes from an adversarial review of the plugin against its own claims.
+
+- Merge gate: `regressed` now counts from Stage 2's latest verdict per code across passes, as blocking comments already did — a `regressed` left in an earlier pass and not judged again used to pass when the code was not blocking (README: "Any `regressed` verdict left blocks"). A test result other than `pass`, `fail`, `skip`, or `not measured` (a typo, a missing value) stops the gate; `not measured` still passes, and the README now says so. The author skill writes `not measured` when the build wrapper refuses to run.
+- PG5 counts the `minor`·`nit` budget (at most 5 in a Stage 1 post, `rules/01-stages.md` §1) and wants the `praise` label (`` `praise` ``, `**praise**`, or `praise` opening a line) rather than the word anywhere in the summary. Every past Stage 1 output in `runs/` still passes.
+- Risk score (`rules/03-risk.md`, observation log 2026-11-03): Python, Go, and plain JS auth paths, `controllers/`, credential files (`id_rsa` and friends, `.pfx`, `.keystore`, `.ppk`, `.env` with two suffixes), `.netrc`/`.pypirc`/`.git-credentials` contents, `.envrc`, and HCL `Action =` are scored; a config or `.tf` file GitHub sent without a patch makes the PR at least `medium`. The last 30 merged backend PRs re-score the same.
+- `doctor.sh` warns when `auto_merge` is on and a repository has no `always_human`.
+- Security: the build sandbox also refuses shell startup files (`~/.zshrc`, `~/.profile`, …), `~/.vault-token`, `~/.pgpass`, `~/.azure`, `~/.boto`, `~/.terraform.d`; the token scan also catches Anthropic API keys, AWS access key IDs, and private key headers; `gh-get.sh` refuses a method-override header in any letter case; the session templates deny reading `.env.prod`, `.env.dev`, `*.pem`, `id_rsa`, `id_ed25519`. The review skill reads the root `CLAUDE.md` at the PR's base commit, not from the local clone's working tree. README Security and `docs/harness.md` §3-1 now list where data goes (Anthropic, context7), cross-repository reads, and the scan's limits.
+- Rules: the S3 exit condition no longer counts a verifier that checked nothing as 0 findings; right after Phase 2 the session writes the challenger's settled facts to `frozen.md`; the Stage 1 round cap is stated as kept by the session.
+- README: cost and time now lead with measured Sonnet chains ($1.4–19.3, median $3.1; 4–43 minutes, median 10, 21 chains on one repository). The 0.10.0 note "found the same planted defects" overstated a one-run, 6-defect benchmark labelled by Claude; later Sonnet runs found 5–6.
+
 ## 0.15.2
 
 No new `config.json` keys.

@@ -27,7 +27,7 @@ and merges only PRs that pass both. With `auto_merge` off, it does not merge and
 | **Challenger** | If `critical`+`major` ≤10, every one. If >10, every `critical`; if that is still under 3, fill from `major`. A `critical`·`major` marked pre-existing (`00-criteria.md` §3) always gets one, outside this count | Every `regressed` (N) verdict | Every `critical` + every `P` |
 | **Dedup priority** | J1 > J2 > J3 > J4 — a wrong design or data is the premise for the rest | Fix accuracy > fidelity of the fix > do docs and code match > regression lock — "done right" beats "done" | Same as Stage 1 |
 | **Invalidation conditions** | The 8 common ones in `00-criteria.md` §1 | Common + **I-S2** *"Only quoted the Stage 1 comment; did not show it is still present in the current code"* | Common + **I-S3** *"No origin class (P/Q/N)"* |
-| **Exit** | S1–S3 in §4. **Round cap** — `--max-rounds N` (the chain passes `limits.stage1.max_rounds`, 3 in the template), 5 without it | Ends after one verdict pass | Ends after the `P` verdict in §5 |
+| **Exit** | S1–S3 in §4. **Round cap** — `--max-rounds N` (the chain passes `limits.stage1.max_rounds`, 3 in the template), 5 without it. The session keeps this cap and the 4-rewrite stop in §10; the chain does not count rounds — its hard stops are `limits.<step>.timeout_min` and `budget_usd` | Ends after one verdict pass | Ends after the `P` verdict in §5 |
 
 Dedupe **by fix, not by location.** Even at the same location, if one axis's fix does not resolve the other, keep both.
 Fold the fixes of rolled-back findings into the surviving comment body as a union.
@@ -195,7 +195,7 @@ outputs/<stage>/pre-polish/            pre-edit snapshots of all of the above, u
 |---|---|---|
 | **S1 Coverage** | Every review axis that **applies** to the area the PR touched has a "defects found (#N) / no defects" verdict with evidence. And every item on the **externally sourced lists** is handled | Whether an axis applies is decided by the `00-criteria.md` §5 adjustments-by-file-type table. Externally sourced lists = requirements in the PR description and linked issues · list of CI failures · list of changed files |
 | **S2 Convergence** | **≤2 new confirmed defects** this round and **≤3 carried over** | Set difference from the previous confirmed list / the Phase 3 carry-over list |
-| **S3 Verification** | PG1–PG5 pass + 0 V1·V2 **`factual-error`** findings from **locations newly written or changed this round** + 0 comments deleted by a V3 challenge | Phase 3.5. Fix every `notation-error`, but do not count them here (`02-judges.md` §6) |
+| **S3 Verification** | PG1–PG5 pass + 0 V1·V2 **`factual-error`** findings from **locations newly written or changed this round** + 0 comments deleted by a V3 challenge. **A verifier that checked nothing does not count as 0** — V1 must report at least one anchor opened in its scope line, and V2 at least one source checked (or state that the draft has no grade B source); a verifier stopped by a tool denial or error leaves S3 unmet | Phase 3.5. Fix every `notation-error`, but do not count them here (`02-judges.md` §6) |
 
 > **The coverage list must come from outside.** If the harness used its own outputs as the coverage standard,
 > it would be self-referential and the condition would always be true.
@@ -420,7 +420,7 @@ If it is written all at once in Phase 4 and the session dies before then, the ju
 | When | What to append |
 |---|---|
 | Right after Phase 1 | The four judges' confirmed-defect tables (grade / anchor / evidence / axis) |
-| Right after Phase 2 | Challenge drop-out list and reasons · evidence-narrowing instructions |
+| Right after Phase 2 | Challenge drop-out list and reasons · evidence-narrowing instructions. **Also append to `frozen.md`** each fact the challenger settled by opening the code — an `upheld` defect's anchor and what the code does there, and a `refuted` claim with the anchor that refutes it — one row each with that evidence, so the next round does not argue it again without new evidence (I-4) |
 | Right after Phase 3 | What was included / what was carried over (mark carry-overs `unverified`) |
 | Right after Phase 3.5 | PG4 results — what V1·V2·V3 caught and how it was handled (fixed / downgraded / deleted + reason) |
 | Right after Phase 3.7 (Stage 1 in the last round, Stage 2·3 right before posting) | Pre-post edit result — total lines before → after · number of items reverted by PG6 and reasons |

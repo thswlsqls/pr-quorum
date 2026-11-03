@@ -20,7 +20,7 @@
 
 GitHub PR 리뷰를 여러 Claude 세션에 나눠 맡기는 Claude Code 플러그인이다. 저자 세션이 리뷰를 반영하면 반영 여부를 확인하고 빌드·테스트를 다시 돌린 뒤, 리스크 점수로 머지 여부를 정한다.
 
-Claude Code 기본 모델로는 PR 하나에 Claude 사용료가 약 $11~30 들고 19~47분이 걸린다(2026-10 기준). 이제 세션은 기본으로 Sonnet 으로 돈다. PR 3건 벤치마크에서 Sonnet 은 같은 심어 둔 결함을 PR 당 약 $2 로 찾았고, 기본 모델은 $15.5 가 들었다. 봇용 GitHub 계정이 하나 더 필요하고, 상시 켜 둔 머신이 있어야 한다(Requirements).
+세션은 기본으로 Sonnet 으로 돈다. 백엔드 저장소 하나에서 리뷰부터 머지 게이트까지 끝까지 돈 체인 21건(2026-10-25~28)은 Claude 사용료 $1.4~19.3(중앙값 $3.1), 4~43분(중앙값 10분)이 들었다. Claude Code 기본 모델로는 $11~30, 19~47분이었다. Sonnet 은 심어 둔 결함 6개짜리 PR 3건 벤치마크로 골랐고, 라벨은 사람이 아니라 Claude 가 매겼다. 한 번씩 돌렸을 때 둘 다 6개를 모두 찾았고(PR 당 약 $2 대 $15.5), 그 뒤 Sonnet 실행은 5~6개를 찾았다. 둘의 품질이 같다고 말할 표본은 아니다. 봇용 GitHub 계정이 하나 더 필요하고, 상시 켜 둔 머신이 있어야 한다(Requirements).
 
 PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다. 리뷰는 사람 리뷰어처럼 요약 한 건과 코드 줄에 붙는 인라인 코멘트로 올라간다.
 
@@ -28,7 +28,7 @@ PR 에 봇 계정을 리뷰어로 지정하면 나머지는 사람 없이 돈다
 
 | 스테이지 | 하는 일 |
 |---|---|
-| Stage 1 · review | 위원 4인이 리뷰 축을 나눠 맡아 서로의 결과를 모른 채 리뷰한다. 반박자가 `critical`(치명)·`major`(중대) 지적을 하나씩 코드로 다시 확인하고, 검증자 셋이 리뷰를 다시 읽는다. 패턴인 결함은 diff 안의 모든 위치를 한 지적에 나열하고, 이 PR 이 들여오지 않은 결함은 pre-existing 으로 표시해 머지를 막지 않는다. 요약은 blocking 지적 개수로 시작한다. 기본 최대 5라운드(`limits.stage1.max_rounds`) |
+| Stage 1 · review | 위원 4인이 리뷰 축을 나눠 맡아 서로의 결과를 모른 채 리뷰한다. 반박자가 `critical`(치명)·`major`(중대) 지적을 코드로 다시 확인하고(10건까지는 전부, 넘으면 `critical` 전부에 `major` 로 3건까지 채움), 검증자 셋이 리뷰를 다시 읽는다. 패턴인 결함은 diff 안의 모든 위치를 한 지적에 나열하고, 이 PR 이 들여오지 않은 결함은 pre-existing 으로 표시해 머지를 막지 않는다. 요약은 blocking 지적 개수로 시작한다. 최대 `limits.stage1.max_rounds` 라운드(템플릿 3, 키가 없으면 5). 이 상한은 세션이 지키고, 체인이 강제하는 것은 `limits` 의 시간·비용뿐이다 |
 | 저자 | 별도 세션(`/pr-quorum:author`)이 코드를 고쳐 사용자의 gh 계정으로 PR 브랜치에 push 한다. force push·머지·승인은 하지 않는다 |
 | Stage 2 · followup | 스레드마다 `addressed`(반영)·`partial`(부분)·`not-addressed`(미반영)·`regressed`(역행, 고치다가 새 결함을 만듦) 중 하나로 답한다 |
 | Stage 3 · measured | 고친 커밋으로 빌드와 테스트를 다시 돌리고, 리뷰가 놓친 결함(`P`)을 찾는다 |
@@ -169,7 +169,7 @@ Google eng-practices 저장소는 아카이브 상태이며(마지막 push 2024-
 - [Claude Code](https://code.claude.com/docs) 2.1.257 이상, 본인 계정으로 로그인한 `gh`, `jq`, `git` 2.31 이상
 - Linux 에서는 빌드 샌드박스용 `bwrap`(bubblewrap). macOS 에는 `sandbox-exec` 가 기본으로 들어 있다
 - 별도의 GitHub 봇 계정([설정](#1-봇-계정) 참고)
-- 상시 켜 둔 머신. watcher 가 여기서 폴링하고, 체인도 여기서 사람 없이 19~47분 돈다
+- 상시 켜 둔 머신. watcher 가 여기서 폴링하고, 체인도 여기서 사람 없이 Sonnet 기준 약 4~43분 돈다
 - github.com 의 저장소. GitHub Enterprise Server 와 ghe.com 은 지원하지 않는다
 - 기본으로는 저장소 소유자가 연 PR 만 돌고 나머지는 건너뛴다. 팀원의 PR 도 돌리려면 `trust.authors` 나 `trust.associations` 에 넣고, 조직 저장소는 `repos.<name>.owner` 를 지정한다([설정 §3](#3-pr-quorumconfigjson)). 신뢰한 저자의 PR 본문과 diff 는 본인 gh 계정으로 push·머지하는 세션에 그대로 들어가므로, 그렇게 해도 되는 사람만 신뢰한다
 
@@ -254,7 +254,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | 단계(`stage1`, `stage2`, `stage3`, `author`)마다 `budget_usd` 와 `timeout_min`(실제 경과 시간). `stage1.max_rounds` 는 Stage 1 라운드 상한(없으면 5). 키가 없으면 상한도 없다. 상한에 걸려 끊긴 세션은 재시도하지 않고 체인은 `blocked` 로 멈춘다 |
 | `models` | `session` 은 체인 세션마다 쓸 모델, `subagent` 는 위원 등 서브에이전트의 모델. `null` 이거나 없으면 `claude-sonnet-5-5`, `""` 이면 Claude Code 기본값 |
 
-`repos.<name>.always_human` 을 뺀 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
+`repos.<name>.always_human` 과 `repos.<name>.commands` 를 뺀 모든 키와 예시 값은 [`templates/config.json`](templates/config.json) 에 있다. 0.3.0 과 0.4.0 에서 추가된 키는 선택이고, 없으면 체인은 전과 같이 동작한다. 다만 빌드는 샌드박스 안에서 돌고, 0.10.0 부터 세션은 Sonnet 으로 돈다(`models`). 템플릿에는 예시 `limits`(Stage 1 은 3 라운드)가 들어 있으니, 그 상한을 쓰지 않으려면 키를 지운다.
 
 `learnings.md` 는 PR 을 거치며 쌓이는 학습 기록으로, 리뷰 세션이 읽는다. `human-labels.md` 는 사람이 봇 코멘트를 채점하는 곳이다. PR 마다 저장소 clone 옆 `<repo-name>-worktrees/` 아래에 worktree 가 생긴다.
 
@@ -353,7 +353,7 @@ claude --settings ~/.pr-quorum/settings.json --setting-sources "" --plugin-dir <
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | 지난 run 들의 학습 후보와, author 가 거절한 지적을 종류별(`wrong`·`intentional`·`out-of-scope`)로 `~/.pr-quorum/runs/_dream/<time>/proposal.md` 에 정리한다. 반복되는 지적은 저장소에 넣을 린트 규칙이나 테스트로 제안될 수 있다. `learnings.md` 에 넣을지는 사람이 정한다 |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | 최근 머지된 PR N건(기본 30)의 리스크 점수를 14일 안에 뒤따른 수정·revert PR 과 나란히 보여 준다. 자동 머지 기준을 조정할 때 쓴다 |
 | `<plugin-dir>/scripts/selftest.sh` | 게이트 스크립트를 고친 뒤. LLM 없이 지난 산출물에 게이트를 다시 돌린다 |
-| `<plugin-dir>/scripts/doctor.sh` | 설정 직후나 `config.json` 을 고친 뒤, 또는 watcher 가 요청을 집지 않을 때. 읽기만 하며 `FAIL` 이 있으면 exit 2 |
+| `<plugin-dir>/scripts/doctor.sh` | 설정 직후나 `config.json` 을 고친 뒤. 읽기만 하며 `FAIL` 이 있으면 exit 2. watcher 가 돌고 있는지는 보지 않는다 — 그건 로그를 본다(launchd 는 `~/Library/Logs/pr-quorum-watch.log`, cron 은 `~/.pr-quorum/watch.log`) |
 
 마켓플레이스 설치본은 `version` 이 오르면 `claude plugin update pr-quorum@pr-quorum` 으로 새 판을 받는다. 바뀐 내용은 [`CHANGELOG.md`](CHANGELOG.md) 에 있다.
 
@@ -388,13 +388,15 @@ flowchart LR
 
 빌드와 테스트는 PR 이 정한 코드를 실행하므로, 비운 환경으로 OS 샌드박스(macOS 는 `sandbox-exec`, Linux 는 `bwrap`) 안에서 돈다. 빌드는 자격 증명 파일을 읽지 못하고, worktree·임시 폴더·자기 캐시 루트 밖에는 쓰지 못한다. 그래도 열려 있는 것은 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1 에 있다.
 
-그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 테스트 결과는 테스트를 실제로 돌린 가장 최근 저자 패스에서 읽고, Stage 1 이 심사위원을 하나도 띄우지 않았으면 `needs-human` 에서 멈춘다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다.
+그림에 없는 것: 머지 게이트는 저자가 고쳤다는 말만 믿지 않고, Stage 2 가 `addressed` 로 판정할 때까지 blocking 코멘트마다 머지를 막는다. 저장소에 CI 가 있으면 head 의 CI 체크도 읽는다. 테스트 결과는 테스트를 실제로 돌린 가장 최근 저자 패스에서 읽고, Stage 1 이 심사위원을 하나도 띄우지 않았으면 `needs-human` 에서 멈춘다. 테스트 결과가 `not measured`(명령이 없거나 이 호스트에 샌드박스가 없음)면 통과시키고, `pass`·`fail`·`skip`·`not measured` 가 아닌 값이면 막는다. 저자 세션이 보고한 테스트 결과와, 요약 본문의 지적 중 무엇이 blocking 인지에 대한 Stage 1 세션의 기록은 여전히 그대로 믿는다. Stage 3 이 기존 스레드에 단 `Q`·`N` 답글은 게이트가 읽지 않는다 — 새 `P` 코멘트와 이후 Stage 2 판정만 읽는다.
+
+데이터가 가는 곳: 코드와 PR 텍스트는 Claude Code 를 거쳐 Anthropic 으로 간다. 세션에는 [`mcp.json`](mcp.json) 의 [context7](https://context7.com) 문서 서버(제3자)도 붙는다. 그 질의는 토큰 검사를 거치지 않고, 끄는 스위치도 없다. 체인 세션은 PR 저장소만이 아니라 `config.json` 에 등록된 모든 저장소와 그 worktree 를 읽을 수 있으니, 서로의 리뷰에 코드가 나와도 되는 저장소끼리만 등록한다.
 
 그 밖의 안전장치:
 
 - 신뢰한 저자의 PR 만 돈다. 기본은 저장소 소유자이고, `trust.authors` 나 `trust.associations` 에 든 사람이 더해진다. 신뢰는 `config.json` 과 GitHub API 에서만 정해진다. watcher 가 PR 을 거르고 `chain.sh` 가 다시 확인한다. 신뢰한 저자의 PR 텍스트는 본인 계정으로 push·머지하는 세션에 들어가므로, 신뢰 목록이 곧 경계다.
 - 세션은 빌드 도구를 직접 부르지 못한다. 빌드와 테스트는 `pr-quorum.sh build`(리뷰: PR 이 고정한 SHA 의 깨끗한 worktree)와 `pr-quorum.sh author-build`(저자의 worktree)로만 돌고, 이 둘은 `repos.<name>.commands` 의 명령이나 Gradle/npm 기본 명령을 실행한다.
-- 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다.
+- 모든 게시와 push 는 먼저 토큰 검사를 거친다. `pr-quorum.sh`, `author-reply.sh`, `author-push.sh` 는 GitHub 토큰·Anthropic API 키·AWS 액세스 키 ID·개인 키 헤더 패턴이나 봇·`GH_TOKEN`·`GITHUB_TOKEN`·본인 gh 토큰 값이 든 본문이나 커밋을 거부한다. `author-push.sh` 는 최종 diff 만이 아니라 push 할 커밋을 하나하나 검사한다. 글자 그대로 일치하는 것만 잡으므로, 나누거나 뒤집거나 인코딩한 토큰은 통과한다.
 - 세션은 머지 게이트가 읽고 Stage 1 시점의 PR 설명을 보관하는 `meta.json` 을 고치지 못한다. Stage 2·Stage 3 기록은 `pr-quorum.sh` 서브커맨드로 쓴다.
 - PR 본문·코멘트·diff 는 지시가 아니라 데이터로 다룬다. 저자 세션은 봇의 코멘트에서만 할 일을 가져온다.
 

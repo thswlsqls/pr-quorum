@@ -7,7 +7,7 @@ def test_file:  test("(^|/)src/test/|(^|/)__tests__/|Tests?\\.(java|kt)$|\\.(tes
 # Code that can have tests. .tf, .sql, and .sh have no test tooling in this repository, and their risk is already counted by "Hard-to-reverse changes".
 # .rs is left out — Rust unit tests sit in the same file, so a path cannot tell whether tests changed
 def testable:   test("\\.(java|kt|ts|tsx|js|jsx|mjs|py|go)$");
-def conf_file:  test("\\.(ya?ml|properties|json|env|tfvars|conf|xml|toml|ini|cfg)$|(^|/)\\.env[^/]*$|(^|/)\\.npmrc$");
+def conf_file:  test("\\.(ya?ml|properties|json|env|tfvars|conf|xml|toml|ini|cfg)$|(^|/)\\.env[^/]*$|(^|/)\\.(npmrc|netrc|pypirc|git-credentials)$");
 # Lock files are counted by the dependency signal. They are generated, so they are left out of the scope line count.
 # poetry.lock, uv.lock, Cargo.lock, and go.sum are not added here — that would lower the scope points of PRs already scored
 def lock_file:  test("(^|/)package-lock\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$");
@@ -31,9 +31,11 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
     category("Security"; 30; [
       sig("Authentication/authorization code"; 15; $nd | hits((.filename | test_file | not) and (.filename | test(
         "(^|/)common/security/|(Security|Auth|Jwt|OAuth|Cors|Password|Permission|Role|Bcrypt|Principal|Credential|(Refresh|Access|Secure)Token|ApiKey)[A-Za-z0-9]*\\.(java|kt|ts|tsx)$|(^|/)api/gateway/.*/filter/"
-        + "|(^|/)(middleware|proxy)\\.[jt]s$|(^|/)lib/(auth[^/]*|cookie-config)\\.ts$|(^|/)contexts/auth-context\\.tsx$|/api/bff/auth/")))),
+        + "|(^|/)(middleware|proxy)\\.[jt]s$|(^|/)lib/(auth[^/]*|cookie-config)\\.ts$|(^|/)contexts/auth-context\\.tsx$|/api/bff/auth/"
+        # Python, Go, and plain JS name files in lower or snake case (auth.py, jwt_middleware.go), so for these extensions the words match anywhere in the path, case-insensitively
+        + "|(?i:(auth|jwt|security|permission|password|credential)[^\\n]*\\.(py|go|js|jsx|mjs|cjs))$")))),
       sig("credentials-secrets"; 30; $all | hits(.status != "removed" and (
-        ((.filename | test("(^|/)\\.env(\\.[a-z]+)?$|\\.(pem|key|p12|jks)$")) and (.filename | test("example|template|sample") | not))
+        ((.filename | test("(^|/)\\.env(\\.[a-z]+)*$|\\.(pem|key|p12|jks|pfx|keystore|ppk)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$")) and (.filename | test("example|template|sample") | not))
         or ((.filename | conf_file) and (added | test(
           "(?i)(password|passwd|secret([_-]?key)?|api[_-]?key|access[_-]?key|private[_-]?key|token)[\"']?\\s*[:=]\\s*[\"']?[^\\s\"'$<{]{8,}")))))),
       # This gate and the review harness itself. Rule documents (.md) are run-time rules the session follows, so the document exclusion does not apply. At 15 points this signal alone moves a PR out of low
@@ -43,16 +45,16 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
         "(^|/)(CLAUDE(\\.local)?|AGENTS)\\.md$|(^|/)\\.claude/|(^|/)\\.github/workflows/|(^|/)Jenkinsfile[^/]*$|\\.gradle(\\.kts)?$|(^|/)gradle\\.properties$|(^|/)gradle/wrapper/|(^|/)gradlew(\\.bat)?$"
         + "|(^|/)pom\\.xml$|(^|/)mvnw(\\.cmd)?$|(^|/)\\.mvn/wrapper/|(^|/)pyproject\\.toml$|(^|/)setup\\.py$"
         + "|(^|/)buildSrc/|(^|/)Makefile$|(^|/)\\.npmrc$|(^|/)\\.yarnrc(\\.yml)?$|(^|/)conftest\\.py$|(^|/)[^/]+\\.config\\.[mc]?[jt]s$"
-        + "|(^|/)\\.github/actions/|^action\\.ya?ml$|(^|/)\\.github/(.*/)?action\\.ya?ml$|(^|/)\\.husky/|(^|/)\\.pre-commit-config\\.ya?ml$|(^|/)tox\\.ini$|(^|/)noxfile\\.py$|(^|/)build\\.rs$|(^|/)\\.mcp\\.json$|(^|/)CODEOWNERS$"
+        + "|(^|/)\\.github/actions/|^action\\.ya?ml$|(^|/)\\.github/(.*/)?action\\.ya?ml$|(^|/)\\.husky/|(^|/)\\.envrc$|(^|/)\\.pre-commit-config\\.ya?ml$|(^|/)tox\\.ini$|(^|/)noxfile\\.py$|(^|/)build\\.rs$|(^|/)\\.mcp\\.json$|(^|/)CODEOWNERS$"
         + "|(^|/)([^/]*\\.)?([Dd]ockerfile|[Cc]ontainerfile)(\\.[^/]*)?$|(^|/)(docker-)?compose[^/]*\\.ya?ml$"))),
       sig("Dependencies"; 15; $nd | hits(.filename | test(
         "\\.gradle(\\.kts)?$|libs\\.versions\\.toml$|gradle-wrapper\\.properties$|(^|/)package(-lock)?\\.json$|pnpm-lock\\.yaml$|yarn\\.lock$|\\.terraform\\.lock\\.hcl$"
         + "|(^|/)pom\\.xml$|(^|/)pyproject\\.toml$|(^|/)setup\\.py$|(^|/)requirements[^/]*\\.txt$|(^|/)(poetry|uv|Cargo)\\.lock$|(^|/)go\\.(mod|sum)$|(^|/)Cargo\\.toml$"))),
-      sig("Infrastructure permissions (IAM)"; 15; $nd | hits((.filename | test("\\.tf$")) and ((.patch // "") | test("aws_iam_|\"Action\"|actions\\s*=|iam:"))))
+      sig("Infrastructure permissions (IAM)"; 15; $nd | hits((.filename | test("\\.tf$")) and ((.patch // "") | test("aws_iam_|\"Action\"|(?i:\\bactions?)\\s*=|iam:"))))
     ]),
     category("Breaking changes"; 25; [
       sig("API contract"; 15; $nd | hits((.filename | test_file | not) and (.filename | test(
-        "(^|/)controller/|Controller\\.(java|kt)$|(^|/)dto/(request|response)/|(Request|Response)\\.(java|kt)$|\\.proto$|openapi")))),
+        "(^|/)controllers?/|Controller\\.(java|kt)$|(^|/)dto/(request|response)/|(Request|Response)\\.(java|kt)$|\\.proto$|openapi")))),
       sig("DB schema (entities/documents)"; 15; $nd | hits((.filename | test_file | not) and (.filename | test(
         "(^|/)entity/|Entity\\.(java|kt)$|(^|/)document/")))),   # A *Document suffix would catch non-DB classes such as the web search result record (WebSearchDocument)
       sig("Configuration/environment variables"; 10; $nd | hits(.filename | test(
@@ -76,14 +78,17 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
 | ([$cats[].points] | add) as $score
 # A plaintext secret is not a risk to add up and compare — it is a change that must not be merged. Raise it to critical regardless of score
 | ([$cats[].signals[] | select(.name == "credentials-secrets") | .hits[]] | length > 0) as $secret
+# GitHub leaves out .patch for large or binary diffs. A config or .tf file with no patch got no secret or IAM check, so it cannot stay low
+| [$all[] | select(.status != "removed" and .patch == null and ((.filename | conf_file) or (.filename | test("\\.tf$"))) and (.filename | doc | not)) | .filename] as $unscanned
 # A path the owner listed (repos.<name>.always_human, path prefixes) is policy, not risk: low becomes medium and the score stays.
 # Read through $ARGS so callers that do not pass it (risk-audit.sh, selftest) score as before
 | ([$all[] | .filename as $f | ($ARGS.named.always_human // [])[] | select(. as $p | $f | startswith($p)) | {p: ., f: $f}] | .[0]) as $owner
 | (if $secret then "critical"
    elif $score < 15 then "low" elif $score < 40 then "medium" elif $score < 70 then "high" else "critical" end) as $level
 | {sha: $sha, at: $at, score: $score,
-   level: (if $owner and $level == "low" then "medium" else $level end),
+   level: (if ($owner or ($unscanned | length > 0)) and $level == "low" then "medium" else $level end),
    override: ([if $secret then "Plaintext secret found, so critical regardless of score" else empty end,
-               if $owner then "Owner-listed path `\($owner.p)` (`\($owner.f)`)" else empty end]
+               if $owner then "Owner-listed path `\($owner.p)` (`\($owner.f)`)" else empty end,
+               if ($unscanned | length > 0) then "No diff from GitHub, so not checked for secrets: \($unscanned | map("`\(.)`") | join(", "))" else empty end]
               | if length > 0 then join("; ") else null end),
    size: $size, categories: $cats}
