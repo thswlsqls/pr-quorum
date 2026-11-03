@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.1
+
+No new `config.json` keys.
+
+- The test-weakening check exempted every renamed test file with no patch from GitHub; a rename that also changed lines (GitHub drops the patch for large diffs) now goes to a person too. Only a pure rename is exempt.
+- A Stage 3 reply whose code has no origin record (`pr-quorum.sh origins` skipped) stops at `needs-human` instead of passing unchecked.
+- Risk score: access-control files by name (`*.guard.ts`, `acl`, `rbac`, `policy`, `roles`) count as auth code.
+- `doctor.sh` fails when `auto_merge`, `require_tests`, or `mcp` is not a boolean (a string `"false"` would have left context7 on).
+- README: the 14 complete chains ran on 0.10–0.15, not 0.10–0.14.
+
 ## 0.17.0
 
 New optional `config.json` keys: `require_tests`, `mcp`, `repos.<name>.peers`. Without them the chain behaves as in 0.16.1, apart from the two new merge gate stops below.
