@@ -8,7 +8,8 @@
 SANDBOX_ENV_KEEP="PATH HOME USER LOGNAME SHELL TMPDIR LANG LC_ALL LC_CTYPE TERM JAVA_HOME NVM_DIR"
 
 # Paths under HOME a build may neither read nor write, one per line: credentials (gh, git, registries, cloud, SSH, keychain, browser data),
-# harness state, and shell history. A build that needs private-registry auth from one of these files needs build.sandbox "off"
+# harness state, shell history, and shell startup files (tokens are often exported there). The policy is allow-by-default, so a store not
+# listed here stays readable — docs/harness.md §3-1. A build that needs private-registry auth from one of these files needs build.sandbox "off"
 SANDBOX_SECRETS='.config
 .ssh
 .aws
@@ -31,6 +32,18 @@ SANDBOX_SECRETS='.config
 .gradle/gradle.properties
 .zsh_history
 .bash_history
+.zshrc
+.zshenv
+.zprofile
+.zlogin
+.bashrc
+.bash_profile
+.profile
+.vault-token
+.pgpass
+.azure
+.boto
+.terraform.d
 Library/Keychains
 Library/Application Support
 Library/Cookies'

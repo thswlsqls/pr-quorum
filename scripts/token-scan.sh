@@ -2,6 +2,7 @@
 # token-scan.sh — the outgoing check every GitHub write runs first. Sourced by pr-quorum.sh, author-reply.sh, author-push.sh.
 # A session that reads a token (a build shell, a grep over ~/.config) could post it as a public comment or push it in a commit
 # (improvement plan 02 §1-B). Scripts that write to GitHub refuse a body that contains a token. The matched text is never printed.
+# Only literal matches: a token split, reversed, or encoded (base64) passes — the limit is listed in docs/harness.md §3-1.
 
 # The bot token value from the bot.env file, without sourcing it (shell code in the file does not run). Empty if there is none
 bot_token_value() {
@@ -18,9 +19,9 @@ scan_tokens() {
   local f tok name g rc=0 user_tok="" user_read=0
   for f in "$@"; do
     # Patterns first — a hit here refuses without calling gh or reading any token
-    g=0; LC_ALL=C grep -aqE '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}' "$f" || g=$?
+    g=0; LC_ALL=C grep -aqE '(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,}|sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----' "$f" || g=$?
     case $g in
-      0) echo "token-scan: $f contains a GitHub token pattern — not sending it" >&2; rc=1; continue ;;
+      0) echo "token-scan: $f contains a token or private key pattern — not sending it" >&2; rc=1; continue ;;
       1) ;;
       *) echo "token-scan: could not read $f — not sending it" >&2; rc=1; continue ;;
     esac
