@@ -18,7 +18,7 @@ Above: a review the bot left on PR #67, a real PR. The review follows the PR's l
 
 A Claude Code plugin that reviews your GitHub PRs with several Claude sessions, has an author session apply the review, checks the fixes, re-runs the build and tests, and uses a risk score to decide whether to merge.
 
-Each PR costs about $11–30 in Claude usage on Claude Code's default model and takes 19–47 minutes (as of 2026-10). Sessions now run on Sonnet by default: in a 3-PR benchmark it found the same planted defects for about $2 per PR, against $15.5 on the default model. It needs a second GitHub account for the bot and an always-on machine (Requirements).
+Sessions run on Sonnet by default. On one backend repository, 21 chains from review to merge gate (2026-10-25–28) cost $1.4–19.3 in Claude usage (median $3.1) and took 4–43 minutes (median 10); on Claude Code's default model they cost $11–30 and took 19–47 minutes. Sonnet was picked on a 3-PR benchmark with 6 planted defects, labelled by Claude, not by a person: one run each found all 6 at about $2 against $15.5 per PR, and later Sonnet runs found 5–6. That sample is too small to call the two equal in quality. It needs a second GitHub account for the bot and an always-on machine (Requirements).
 
 Request a review from your bot account on a PR and the rest runs unattended. The review is posted like a human reviewer's: one summary plus inline comments on lines of code.
 
@@ -26,7 +26,7 @@ Request a review from your bot account on a PR and the rest runs unattended. The
 
 | Stage | What it does |
 |---|---|
-| Stage 1 · review | Four judges review the PR on separate axes without seeing each other's results. A challenger re-checks every `critical`/`major` finding against the code, and three verifiers re-read the review. A defect that is a pattern lists every place it occurs in the diff; one the PR did not introduce is marked pre-existing and does not block. The summary opens with the number of blocking comments. Up to 5 rounds by default (`limits.stage1.max_rounds`) |
+| Stage 1 · review | Four judges review the PR on separate axes without seeing each other's results. A challenger re-checks `critical`/`major` findings against the code (all of them up to 10; above that every `critical`, topped up from `major` to 3), and three verifiers re-read the review. A defect that is a pattern lists every place it occurs in the diff; one the PR did not introduce is marked pre-existing and does not block. The summary opens with the number of blocking comments. Up to `limits.stage1.max_rounds` rounds (3 in the template, 5 without the key) — the session keeps this cap; the chain enforces only `limits` time and cost |
 | Author | A separate session (`/pr-quorum:author`) fixes the code and pushes to the PR branch with your gh account. It never force-pushes, merges, or approves |
 | Stage 2 · followup | Replies in each thread with `addressed`, `partial`, `not-addressed`, or `regressed` (the fix introduced a new defect) |
 | Stage 3 · measured | Re-runs the build and tests on the fixed commit and looks for defects the review missed (`P`) |
@@ -167,7 +167,7 @@ Axis definitions are in [`examples/profiles/`](examples/profiles/).
 - [Claude Code](https://code.claude.com/docs) 2.1.257 or later, `gh` logged in with your own account, `jq`, `git` 2.31 or later
 - On Linux, `bwrap` (bubblewrap) for the build sandbox. macOS ships `sandbox-exec`
 - A separate GitHub bot account (see [Setup](#1-bot-account))
-- An always-on machine: the watcher polls from it and each chain runs there, unattended, for 19–47 minutes
+- An always-on machine: the watcher polls from it and each chain runs there, unattended, for about 4–43 minutes on Sonnet
 - Repositories on github.com. GitHub Enterprise Server and ghe.com are not supported
 - By default only PRs opened by the repository owner run; others are skipped. To run teammates' PRs, list them in `trust.authors` or `trust.associations`, and for an organization's repository set `repos.<name>.owner` ([Setup §3](#3-pr-quorumconfigjson)). A trusted author's PR description and diff reach sessions that push and merge under your gh account, so trust only people you would let do that
 
@@ -252,7 +252,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `limits` | Per step (`stage1`, `stage2`, `stage3`, `author`): `budget_usd` and `timeout_min` (wall time). `stage1.max_rounds` caps Stage 1 rounds (5 when missing). A missing key means no cap. A session cut by a cap is not retried; the chain stops at `blocked` |
 | `models` | `session`: the model of each chain session; `subagent`: the model of the judges and other subagents. `null` or missing: `claude-sonnet-5-5`; `""`: Claude Code's default |
 
-All keys except `repos.<name>.always_human`, with sample values, are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox and, since 0.10.0, sessions run on Sonnet (`models`). The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
+All keys except `repos.<name>.always_human` and `repos.<name>.commands`, with sample values, are in [`templates/config.json`](templates/config.json). The keys added in 0.3.0 and 0.4.0 are optional; without them the chain behaves as before, except that builds run in the sandbox and, since 0.10.0, sessions run on Sonnet (`models`). The template sets sample `limits` (Stage 1 at 3 rounds); delete a key to drop that cap.
 
 `learnings.md` collects lessons across PRs and is read by review sessions. `human-labels.md` is where you grade the bot's comments. Each PR gets a worktree under `<repo-name>-worktrees/` next to the repository clone.
 
@@ -351,7 +351,7 @@ PRs over 50 changed files or 3,000 changed lines are held as `held-large`. To re
 | `<plugin-dir>/scripts/dream.sh [<repo>-pr<N>...]` | Summarizes learning candidates from past runs, and the comments the author declined by kind (`wrong`, `intentional`, `out-of-scope`), into `~/.pr-quorum/runs/_dream/<time>/proposal.md`. A finding that keeps coming back can be proposed as a lint rule or test for the repository. You decide what goes into `learnings.md` |
 | `<plugin-dir>/scripts/risk-audit.sh <repo> [N]` | Lists the risk score of the last N merged PRs (default 30) next to any fix or revert within 14 days, to tune the auto-merge threshold |
 | `<plugin-dir>/scripts/selftest.sh` | After changing a gate script. Re-runs the gates on past outputs without an LLM |
-| `<plugin-dir>/scripts/doctor.sh` | After setup or a `config.json` change, or when the watcher stops picking up requests. Read-only; exits 2 on any `FAIL` |
+| `<plugin-dir>/scripts/doctor.sh` | After setup or a `config.json` change. Read-only; exits 2 on any `FAIL`. It does not check whether the watcher is running — for that, read its log (`~/Library/Logs/pr-quorum-watch.log` with launchd, `~/.pr-quorum/watch.log` with cron) |
 
 For the marketplace install, `claude plugin update pr-quorum@pr-quorum` picks up a release when `version` goes up. Changes are in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -386,13 +386,15 @@ flowchart LR
 
 Builds and tests run code the PR controls, so they run in an OS sandbox (`sandbox-exec` on macOS, `bwrap` on Linux) with an emptied environment: the build cannot read credential files or write outside the worktree, the temp folder, and its own cache root. What it still leaves open is in [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1.
 
-Not shown: the merge gate holds every blocking comment until Stage 2 judges it `addressed`, rather than taking the author's word that it was fixed, reads the head's CI checks if the repository has any, reads the test result of the newest author pass that ran tests, and stops at `needs-human` when Stage 1 launched no judges. It still trusts the author session's report of its test run, and the Stage 1 session's record of which summary-body findings are blocking.
+Not shown: the merge gate holds every blocking comment until Stage 2 judges it `addressed`, rather than taking the author's word that it was fixed, reads the head's CI checks if the repository has any, reads the test result of the newest author pass that ran tests, and stops at `needs-human` when Stage 1 launched no judges. A test result of `not measured` (no command, or no sandbox on this host) passes; any value other than `pass`, `fail`, `skip`, or `not measured` stops. It still trusts the author session's report of its test run, and the Stage 1 session's record of which summary-body findings are blocking. Stage 3's `Q` and `N` replies on existing threads are not read by the gate — only its new `P` comments and later Stage 2 verdicts are.
+
+Where data goes: code and PR text go to Anthropic through Claude Code. Sessions also get the [context7](https://context7.com) documentation server from [`mcp.json`](mcp.json), a third party; its queries are not token-scanned and there is no switch to turn it off. Every chain session can read every repository listed in `config.json` and its worktrees, not only the PR's, so list only repositories whose code may appear in each other's reviews.
 
 Other safeguards:
 
 - Only PRs from trusted authors run: the repository owner by default, plus anyone in `trust.authors` or `trust.associations`. Trust comes only from `config.json` and the GitHub API. The watcher filters PRs and `chain.sh` checks again. A trusted author's PR text reaches sessions that push and merge under your account, so the trust list is the boundary.
 - Sessions cannot call build tools directly. Builds and tests run only through `pr-quorum.sh build` (review: a clean worktree at a SHA the PR pinned) and `pr-quorum.sh author-build` (the author's worktree), which run the command from `repos.<name>.commands` or the Gradle/npm default.
-- Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token pattern or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff.
+- Every post and push is scanned for tokens first. `pr-quorum.sh`, `author-reply.sh`, and `author-push.sh` refuse a body or commit that holds a GitHub token, Anthropic API key, AWS access key ID, or private key header pattern, or the value of the bot, `GH_TOKEN`, `GITHUB_TOKEN`, or your gh token; `author-push.sh` scans each commit being pushed, not only the net diff. Only literal matches are caught: a token split, reversed, or encoded passes.
 - Sessions cannot edit `meta.json`, which the merge gate reads and which keeps the PR description as of Stage 1. They write Stage 2 and Stage 3 records through `pr-quorum.sh` subcommands.
 - PR descriptions, comments, and diffs are treated as data, not instructions. The author session takes tasks only from the bot's comments.
 
