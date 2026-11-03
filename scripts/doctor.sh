@@ -119,6 +119,9 @@ for r in $(cfg '.repos | keys[]'); do
   # always_human — optional path prefixes that always go to a person (rules/03-risk.md). Anything but a list of strings makes risk scoring fail
   [ "$(cfg --arg r "$r" '.repos[$r] | (has("always_human") | not) or (.always_human | type == "array" and all(type == "string"))')" = true ] \
     || bad "$r always_human is not a list of path prefixes — repos.$r.always_human must look like [\"src/billing/\"]"
+  # risk.jq's path patterns were written for the first repository; with auto-merge on, a sensitive path they miss merges as low
+  [ "$(cfg '.auto_merge == true')" = true ] && [ "$(cfg --arg r "$r" '.repos[$r].always_human // [] | length')" = 0 ] \
+    && warn "$r has auto_merge on and no always_human — list this repository's sensitive paths, or check the risk patterns fit it (rules/03-risk.md)"
   # ./X must exist in path (commands run at the worktree root). npm and friends often run in a subfolder (--prefix, cd app), so only a warning
   [ -n "$pok" ] || continue
   while IFS=$'\t' read -r k c; do
