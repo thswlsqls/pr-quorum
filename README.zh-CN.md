@@ -2,7 +2,7 @@
   <a href="./README.md">English</a> | <a href="./README.ko.md">한국어</a> | <strong>简体中文</strong>
 </p>
 
-> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `d1e23a0`
+> 本文译自[英文版](./README.md)。内容不一致时以英文版为准。基准: `README.md` @ `4b46b0e`
 
 <p align="center">
   <picture>
@@ -20,7 +20,7 @@
 
 一个让多个 Claude 会话分工评审 GitHub PR 的 Claude Code 插件。作者会话落实评审意见后，它核对修复、重新运行构建和测试，再用风险分决定是否合并。
 
-会话默认使用 Sonnet。在一个后端仓库上，从评审到合并关卡跑完的 14 条链（2026-10-25–27，0.10–0.14）消耗 $1.4–4.4 的 Claude 用量（中位数 $2.7），耗时 4–12 分钟（中位数 8）；2026-10-28 的另外 7 条链的 Stage 1 在链外运行，不计它仍为 $7.0–19.3、12–43 分钟，所以实际的链可能是中位数的数倍；使用 Claude Code 默认模型时为 $11–30、19–47 分钟。Sonnet 是根据含 6 个预埋缺陷的 3 个 PR 基准选定的，标注由 Claude 而非人完成：各跑一次时两者都找到全部 6 个（每个 PR 约 $2 对 $15.5），之后的 Sonnet 运行找到 5–6 个。这个样本不足以说明两者质量相同。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
+会话默认使用 Sonnet。在一个后端仓库上，从评审到合并关卡跑完的 14 条链（2026-10-25–27，0.10–0.15）消耗 $1.4–4.4 的 Claude 用量（中位数 $2.7），耗时 4–12 分钟（中位数 8）；2026-10-28 的另外 7 条链的 Stage 1 在链外运行，不计它仍为 $7.0–19.3、12–43 分钟，所以实际的链可能是中位数的数倍；使用 Claude Code 默认模型时为 $11–30、19–47 分钟。Sonnet 是根据含 6 个预埋缺陷的 3 个 PR 基准选定的，标注由 Claude 而非人完成：各跑一次时两者都找到全部 6 个（每个 PR 约 $2 对 $15.5），之后的 Sonnet 运行找到 5–6 个。这个样本不足以说明两者质量相同。需要另一个 GitHub 账号作为机器人，以及一台常开的机器（Requirements）。
 
 在 PR 上把机器人账号设为评审人，其余流程无人值守地完成。评审像人类评审一样发布：一条总结，加上挂在代码行上的行内评论。
 
@@ -391,7 +391,7 @@ flowchart LR
 
 构建和测试会运行 PR 控制的代码，所以它们以清空的环境在操作系统沙箱(macOS 用 `sandbox-exec`，Linux 用 `bwrap`)中运行：构建无法读取凭据文件，也无法写入 worktree、临时目录和它自己的缓存根目录之外的位置。仍然开放的部分见 [`docs/harness.md`](docs/harness.md#3-1-build-sandbox) §3-1。
 
-图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。测试结果为 `not measured`（没有命令，或本机没有沙箱）时放行，但之前的轮次失败过则阻断；推送了却没有结果的作者轮次，或不是 `pass`、`fail`、`skip`、`not measured` 的值，也会阻断。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。Stage 3 为每个缺陷记录来源分类和等级（`pr-quorum.sh origins`）；之后的 Stage 2 未判定为 `addressed` 的 `critical`、`major` 级 `Q` 或 `N` 会停在 `needs-human`。在 Stage 1 评审的提交与 head 之间删除测试文件、加上 skip 标记或减少测试文件中的 assert 行，也会停在那里——按 diff 计数，所以只改期望值的情况抓不到。
+图中未画出：合并关卡不只听作者说已修复，而是在 Stage 2 判定为 `addressed` 之前阻断每条 blocking 评论；仓库有 CI 时还会读取 head 的 CI 检查；测试结果取自最近一次真正运行了测试的作者轮次；Stage 1 没有启动任何评审员时停在 `needs-human`。测试结果为 `not measured`（没有命令，或本机没有沙箱）时放行，但之前的轮次失败过则阻断；推送了却没有结果的作者轮次，或不是 `pass`、`fail`、`skip`、`not measured` 的值，也会阻断。作者会话报告的测试结果，以及 Stage 1 会话对摘要正文中哪些问题属于 blocking 的记录，仍然照单全收。Stage 3 为每个缺陷记录来源分类和等级（`pr-quorum.sh origins`）；之后的 Stage 2 未判定为 `addressed` 的 `critical`、`major` 级 `Q` 或 `N`，或没有来源记录的 Stage 3 回复，会停在 `needs-human`。在 Stage 1 评审的提交与 head 之间删除测试文件、加上 skip 标记或减少测试文件中的 assert 行，也会停在那里——按 diff 计数，所以只改期望值的情况抓不到。
 
 数据去向：代码和 PR 文本经 Claude Code 发往 Anthropic。会话还会接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 [context7](https://context7.com)；其查询不经过令牌扫描，可用 `"mcp": false` 关闭。每个链路会话都能读取 `config.json` 中登记的所有仓库及其 worktree，而不只是该 PR 的仓库，可用 `repos.<name>.peers` 缩小范围。
 

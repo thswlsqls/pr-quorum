@@ -95,6 +95,8 @@ check "risk config with no patch"    risk_json '[{"filename":"config/app.yml","a
 check "risk middleware folder JS"    risk_json "[{\"filename\":\"src/middleware/verifyToken.js\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
 check "risk Laravel auth middleware" risk_json "[{\"filename\":\"app/Http/Middleware/Authenticate.php\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
 check "risk pure rename, no patch"   risk_json '[{"filename":"config/b.yml","previous_filename":"config/a.yml","status":"renamed","additions":0,"deletions":0}]' 0 low
+check "risk NestJS guard with tests" risk_json "[{\"filename\":\"src/guards/roles.guard.ts\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
+check "risk Go ACL with tests"       risk_json "[{\"filename\":\"internal/services/acl.go\",\"additions\":5,\"deletions\":0,\"patch\":\"+x\"},$PYT]" 15 medium
 check "risk HCL Action ="            risk_json '[{"filename":"iam.tf","additions":2,"deletions":0,"patch":"+  Action = \"s3:*\""}]' 30 medium
 # Level table — files that get executed stay medium or above even with a test file alongside (a test file alone would make the PR low)
 while read -r f score; do
@@ -753,6 +755,8 @@ check "chain G22 regressed, then addressed → ready"              g22_regressed
 g23_origin_n() { g_home '.stage3.posted_at = "2026-11-03T01:00:00Z" | .stage3_origins = {"C-02":{class:"N", grade:"major"}, "C-03":{class:"Q", grade:"minor"}}'; g_run 3 needs-human 'C-02(N major)'; }
 g24_origin_n_fixed() { g_home '.stage3.posted_at = "2026-11-03T01:00:00Z" | .stage3_origins = {"C-02":{class:"N", grade:"major"}} | .stage2 += [{posted_at:"2026-11-03T02:00:00Z", verdicts:{"C-02":"addressed"}, stage_sha:$h}]'; g_run 0 ready ''; }
 check "chain G23 Stage 3 N major not addressed → needs-human"   g23_origin_n
+g23b_reply_no_origin() { g_home '.stage3.replies = {"C-04": 901}'; g_run 3 needs-human 'Stage 3 replied on C-04 without recording'; }
+check "chain G23b Stage 3 reply with no origin record → needs-human" g23b_reply_no_origin
 check "chain G24 Stage 3 N major addressed later → ready"        g24_origin_n_fixed
 # G25–G26 — tests weakened between the reviewed commit and the head (compare diff) stop at needs-human; an unrelated diff passes
 g25_weakened() {

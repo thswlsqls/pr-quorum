@@ -369,7 +369,13 @@ merge_gate() {
     exit 3
   fi
   # A critical or major Q (half-fixed) or N (made by a fix) from Stage 3 (pr-quorum.sh origins) that no later Stage 2 judged addressed.
-  # A run with no origins record (before 0.17.0, or a session that skipped it) is not checked
+  # A Stage 3 reply whose code has no origins record cannot be told apart, so a person looks; a run with no Stage 3 replies needs none
+  local noorigin
+  noorigin="$(jq -r '[(.stage3.replies // {}) | keys[] | select(test("^[0-9]+$") | not)] - [(.stage3_origins // {}) | keys[]] | join(", ")' "$M")"
+  if [ -n "$noorigin" ]; then
+    chain_state "needs-human" "Stage 3 replied on $noorigin without recording their origin class (pr-quorum.sh origins) — a person checks them"
+    exit 3
+  fi
   local qn
   qn="$(jq -r '(.stage3.posted_at // "") as $t
                | (reduce (.stage2[]? | select((.posted_at // "") > $t) | .verdicts) as $v ({}; . + ($v // {}))) as $after

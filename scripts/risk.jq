@@ -33,7 +33,9 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
         "(^|/)common/security/|(Security|Auth|Jwt|OAuth|Cors|Password|Permission|Role|Bcrypt|Principal|Credential|(Refresh|Access|Secure)Token|ApiKey)[A-Za-z0-9]*\\.(java|kt|ts|tsx)$|(^|/)api/gateway/.*/filter/"
         + "|(^|/)(middleware|proxy)\\.[jt]s$|(^|/)lib/(auth[^/]*|cookie-config)\\.ts$|(^|/)contexts/auth-context\\.tsx$|/api/bff/auth/"
         # Python, Go, and plain JS name files in lower or snake case (auth.py, jwt_middleware.go), so for these extensions the words match anywhere in the path, case-insensitively
-        + "|(?i:(auth|jwt|login|security|permission|password|credential)[^\\n]*\\.(py|go|js|jsx|mjs|cjs|rb|php))$|(^|/)middlewares?/[^/]+\\.[mc]?[jt]sx?$")))),
+        + "|(?i:(auth|jwt|login|security|permission|password|credential)[^\\n]*\\.(py|go|js|jsx|mjs|cjs|rb|php))$|(^|/)middlewares?/[^/]+\\.[mc]?[jt]sx?$"
+        # Access-control files by their usual lower-case names (NestJS guards, ACL/RBAC/policy modules)
+        + "|(?i:(^|/)[^/]*(guard|acl|rbac|polic(y|ies)|roles?)[^/]*\\.(ts|tsx|js|go|py|rb|php))$")))),
       sig("credentials-secrets"; 30; $all | hits(.status != "removed" and (
         ((.filename | test("(^|/)\\.env(\\.[a-z]+)*$|\\.(pem|key|p12|jks|pfx|keystore|ppk)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$")) and (.filename | test("example|template|sample") | not))
         or ((.filename | conf_file) and (added | test(
