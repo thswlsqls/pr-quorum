@@ -228,11 +228,17 @@ test_weakening() {
     def test_file: test("(^|/)src/test/|(^|/)__tests__/|(^|/)tests?/|Tests?\\.(java|kt)$|\\.(test|spec)\\.[jt]sx?$|(^|/)test_[^/]*\\.py$|_test\\.(py|go)$");
     def lines($c): (.patch // "") | split("\n") | map(select(startswith($c) and (startswith($c + $c + $c) | not)) | .[1:]);
     def asserts: map(select(test("assert|expect\\(|verify\\(|should"; "i"))) | length;
-    [.files[]? | select(.filename | test_file)
-     | ([lines("+")[] | select(test("@Disabled|@Ignore|\\.skip\\(|\\bx(it|describe|test)\\(|@pytest\\.mark\\.(skip|xfail)|\\bt\\.Skip|#\\[ignore\\]"))] | length) as $skips
+    # Only a straight line of commits counts: after a rewritten history (force push) the three-dot diff starts at the merge base and misses changes.
+    # GitHub lists at most 300 files; past that, or for a test file with no patch, the check cannot see everything, so a person looks
+    (if .status != "ahead" and .status != "identical" then ["history is \(.status) from the reviewed commit"] else [] end)
+    + (if (.files | length) >= 300 then ["300 or more changed files, not all checked"] else [] end)
+    + [.files[]? | select((.filename | test_file) or ((.previous_filename // "") | test_file))
+     | ([lines("+")[] | select(test("@Disabled|@Ignore|\\.(skip|only|todo)\\(|\\b(x|f)(it|describe|test)\\(|@pytest\\.mark\\.(skip|xfail)|\\bt\\.Skip|#\\[ignore\\]"))] | length) as $skips
      | (lines("-") | asserts) as $gone | (lines("+") | asserts) as $new
      | if .status == "removed" then "\(.filename) removed"
-       elif $skips > 0 then "\(.filename) +\($skips) skip marker(s)"
+       elif (.filename | test_file | not) then "\(.previous_filename) moved out of the tests to \(.filename)"
+       elif .patch == null and .status != "renamed" then "\(.filename) changed but GitHub sent no diff"
+       elif $skips > 0 then "\(.filename) +\($skips) skip or focus marker(s)"
        elif $gone > $new then "\(.filename) \($gone - $new) fewer assert line(s)"
        else empty end] | join(", ")')" \
     || { chain_state "needs-human" "could not read the diff from $from to $GATE_SHA to check for weakened tests — a person checks it"; exit 3; }
@@ -272,7 +278,8 @@ merge_gate() {
   # "not measured" alone passes (README Security) — only a value outside the author skill's set stops, so a typo cannot read as a pass
   case "$tests" in ""|pass|fail) ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
   # "require_tests": true in config.json — only a measured pass merges; "not measured" and no test run stop too
-  if [ "$(cfg '.require_tests == true')" = true ] && [ "$tests" != pass ] && [ "$tests" != fail ]; then
+  # A newer pass that could not measure leaves the head unmeasured even after an older pass, so it stops too
+  if [ "$(cfg '.require_tests == true')" = true ] && { { [ "$tests" != pass ] && [ "$tests" != fail ]; } || $unmeasured; }; then
     reasons+=("require_tests is on and no author pass measured the tests as pass$($unmeasured && echo ' (not measured)' || true)")
   fi
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")

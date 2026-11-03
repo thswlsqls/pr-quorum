@@ -4,9 +4,9 @@
 
 New optional `config.json` keys: `require_tests`, `mcp`, `repos.<name>.peers`. Without them the chain behaves as in 0.16.1, apart from the two new merge gate stops below.
 
-- Merge gate counts test weakening from the diff (lens L4): between the commit Stage 1 reviewed and the head, a removed test file, an added skip marker, or fewer assert lines in a test file stops at `needs-human` (`chain.test_weakening`). Replayed on the 12 merged backend PRs whose author pushed: no hit. A changed expected value is not caught.
+- Merge gate counts test weakening from the diff (lens L4): between the commit Stage 1 reviewed and the head, a removed test file, an added skip marker, or fewer assert lines in a test file stops at `needs-human` (`chain.test_weakening`). It also stops when the history was rewritten since the reviewed commit (compare status not `ahead`), when a test file moved out of the test paths, when a changed test file has no diff from GitHub, or at 300 changed files; `.only(`/`fit(`/`.todo(` count as markers. Replayed on the merged backend PRs whose author pushed: no hit. A changed expected value is not caught.
 - Stage 3 records each defect's origin class and grade with the new `pr-quorum.sh origins` (top-level `stage3_origins`). A `critical`·`major` `Q` or `N` that no later Stage 2 judged `addressed` stops at `needs-human`. Runs with no record are not checked.
-- `require_tests: true` lets only a measured `pass` through the gate.
+- `require_tests: true` lets only a measured `pass` through the gate, and a newer pass that could not measure stops it even after an older `pass`.
 - `mcp: false` starts sessions with no MCP server (context7 is a third party).
 - `repos.<name>.peers` limits which other configured repositories a session can read; missing keeps every one.
 - The author session reads the root `CLAUDE.md` at the PR's base commit, like the review session since 0.16.0.
