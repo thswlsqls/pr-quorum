@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.1
+
+No new `config.json` keys.
+
+- The test-weakening check exempted every renamed test file with no patch from GitHub; a rename that also changed lines (GitHub drops the patch for large diffs) now goes to a person too. Only a pure rename is exempt.
+
 ## 0.17.0
 
 New optional `config.json` keys: `require_tests`, `mcp`, `repos.<name>.peers`. Without them the chain behaves as in 0.16.1, apart from the two new merge gate stops below.

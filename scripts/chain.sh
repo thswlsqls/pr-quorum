@@ -237,7 +237,7 @@ test_weakening() {
      | (lines("-") | asserts) as $gone | (lines("+") | asserts) as $new
      | if .status == "removed" then "\(.filename) removed"
        elif (.filename | test_file | not) then "\(.previous_filename) moved out of the tests to \(.filename)"
-       elif .patch == null and .status != "renamed" then "\(.filename) changed but GitHub sent no diff"
+       elif .patch == null and (.status != "renamed" or ((.additions // 0) + (.deletions // 0)) > 0) then "\(.filename) changed but GitHub sent no diff"
        elif $skips > 0 then "\(.filename) +\($skips) skip or focus marker(s)"
        elif $gone > $new then "\(.filename) \($gone - $new) fewer assert line(s)"
        else empty end] | join(", ")')" \

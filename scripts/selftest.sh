@@ -767,6 +767,8 @@ check "chain G25 assert removed since the review → needs-human"  g25_weakened
 check "chain G26 unrelated diff since the review → ready"        g26_not_weakened
 check "chain G26b rewritten history since the review → needs-human" g26b_rewritten
 check "chain G26c test file moved out of the tests → needs-human" g26c_moved_out
+g26d_renamed_no_patch() { g_home '.eval_sha = "cccccccccccccccccccccccccccccccccccccccc"'; echo '{"status":"ahead","files":[{"filename":"src/test/b/ATest.java","previous_filename":"src/test/a/ATest.java","status":"renamed","additions":40,"deletions":90}]}' > "$STUB/state/compare.json"; g_run 3 needs-human 'GitHub sent no diff'; }
+check "chain G26d renamed test with changes and no patch → needs-human" g26d_renamed_no_patch
 # G27 — require_tests: a run where no pass measured the tests stops
 g27_require_tests() {
   g_home .; author_tests pass "not measured"
