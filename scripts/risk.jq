@@ -33,7 +33,7 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
         "(^|/)common/security/|(Security|Auth|Jwt|OAuth|Cors|Password|Permission|Role|Bcrypt|Principal|Credential|(Refresh|Access|Secure)Token|ApiKey)[A-Za-z0-9]*\\.(java|kt|ts|tsx)$|(^|/)api/gateway/.*/filter/"
         + "|(^|/)(middleware|proxy)\\.[jt]s$|(^|/)lib/(auth[^/]*|cookie-config)\\.ts$|(^|/)contexts/auth-context\\.tsx$|/api/bff/auth/"
         # Python, Go, and plain JS name files in lower or snake case (auth.py, jwt_middleware.go), so for these extensions the words match anywhere in the path, case-insensitively
-        + "|(?i:(auth|jwt|security|permission|password|credential)[^\\n]*\\.(py|go|js|jsx|mjs|cjs))$")))),
+        + "|(?i:(auth|jwt|login|security|permission|password|credential)[^\\n]*\\.(py|go|js|jsx|mjs|cjs|rb|php))$|(^|/)middlewares?/[^/]+\\.[mc]?[jt]sx?$")))),
       sig("credentials-secrets"; 30; $all | hits(.status != "removed" and (
         ((.filename | test("(^|/)\\.env(\\.[a-z]+)*$|\\.(pem|key|p12|jks|pfx|keystore|ppk)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$")) and (.filename | test("example|template|sample") | not))
         or ((.filename | conf_file) and (added | test(
@@ -79,7 +79,7 @@ map(., (select(.previous_filename != null and .previous_filename != .filename)
 # A plaintext secret is not a risk to add up and compare — it is a change that must not be merged. Raise it to critical regardless of score
 | ([$cats[].signals[] | select(.name == "credentials-secrets") | .hits[]] | length > 0) as $secret
 # GitHub leaves out .patch for large or binary diffs. A config or .tf file with no patch got no secret or IAM check, so it cannot stay low
-| [$all[] | select(.status != "removed" and .patch == null and ((.filename | conf_file) or (.filename | test("\\.tf$"))) and (.filename | doc | not)) | .filename] as $unscanned
+| [$all[] | select(.status != "removed" and .patch == null and ((.status == "renamed" and .additions + .deletions == 0) | not) and ((.filename | conf_file) or (.filename | test("\\.tf$"))) and (.filename | doc | not)) | .filename] as $unscanned
 # A path the owner listed (repos.<name>.always_human, path prefixes) is policy, not risk: low becomes medium and the score stays.
 # Read through $ARGS so callers that do not pass it (risk-audit.sh, selftest) score as before
 | ([$all[] | .filename as $f | ($ARGS.named.always_human // [])[] | select(. as $p | $f | startswith($p)) | {p: ., f: $f}] | .[0]) as $owner

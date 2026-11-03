@@ -225,14 +225,20 @@ merge_gate() {
   [ "$(jq -r '.mergeable' <<<"$pr_json")" = "MERGEABLE" ] || reasons+=("mergeable=$(jq -r '.mergeable' <<<"$pr_json")")
   # Tests from the newest author pass that ran them — a later pass with nothing to answer writes "skip", which must not hide a fail.
   # Read newest first; a record that cannot be read stops the gate rather than being passed over
-  local f res tests=""
+  # "not measured" is read past like "skip": a pass that could not run tests does not clear an earlier fail. A pass that pushed must have a result
+  local f res tests="" unmeasured=false
   while IFS= read -r f; do
     res="$(jq -r '.tests.result // empty' "$f" 2>/dev/null)" || { reasons+=("could not read $f"); break; }
-    [ -z "$res" ] || [ "$res" = skip ] || { tests="$res"; break; }
+    [ -n "$res" ] || [ "$(jq -r '.pushed' "$f")" != true ] || { reasons+=("$(basename "$f") pushed with no test result"); break; }
+    case "$res" in ""|skip) continue ;; "not measured") unmeasured=true; continue ;; esac
+    tests="$res"; break
   done < <(find "$AUTHOR_DIR" -name 'round-*.json' | sort -r)
-  [ "$tests" != fail ] || reasons+=("tests failed in the last author pass that ran them")
-  # "not measured" passes (README Merge gate) — only a value outside the author skill's set stops, so a typo cannot read as a pass
-  case "$tests" in ""|pass|fail|"not measured") ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
+  if [ "$tests" = fail ]; then
+    if $unmeasured; then reasons+=("tests failed in the last author pass that ran them, and later passes could not measure them")
+    else reasons+=("tests failed in the last author pass that ran them"); fi
+  fi
+  # "not measured" alone passes (README Security) — only a value outside the author skill's set stops, so a typo cannot read as a pass
+  case "$tests" in ""|pass|fail) ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
   # Latest verdict per code across passes, as for blocking comments below — a later pass judges only the codes it covered,
   # so a regressed left in an earlier pass and not judged again still counts

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.1
+
+No new `config.json` keys. Second round of the adversarial review.
+
+- Merge gate: a later author pass that could not measure tests (`not measured`) no longer clears an earlier `fail` — 0.16.0 let that through (G15d). An author pass that pushed with no `tests.result` stops the gate.
+- Risk score: `login`, `.rb`, `.php`, and JS/TS files under `middleware(s)/` count as auth code; a pure rename with no line changes no longer trips the no-patch rule.
+- README (en/ko/zh-CN): the cost range is split — 14 complete chains $1.4–4.4 (median $2.7), 4–12 minutes; 7 chains whose Stage 1 ran outside the chain cost $7.0–19.3 and 12–43 minutes without it.
+
 ## 0.16.0
 
 No new `config.json` keys. Changes from an adversarial review of the plugin against its own claims.
