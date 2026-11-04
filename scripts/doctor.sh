@@ -91,7 +91,9 @@ OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
 for k in auto_merge require_tests ci_clears_test_fail mcp; do
   [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "boolean")')" = true ] || bad "$k must be true or false, not $(cfg --arg k "$k" '.[$k] | tojson')"
 done
-[ "$(cfg '(has("ci_test_checks") | not) or (.ci_test_checks | type == "array" and all(.[]; type == "string"))')" = true ] || bad "ci_test_checks must be an array of check names"
+for k in ci_test_checks ci_protected_paths; do
+  [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "array" and all(.[]; type == "string"))')" = true ] || bad "$k must be an array of strings"
+done
 for k in $(cfg '.limits | objects | to_entries[] | select(.value | objects | has("budget_usd") and (.budget_usd | tostring | test("^[0-9]+(\\.[0-9]+)?$") | not)) | .key'); do
   bad "limits.$k.budget_usd is not a number"
 done

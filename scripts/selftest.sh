@@ -808,7 +808,7 @@ check "chain G31b ci_clears_test_fail with red CI → blocked"     g31b_ci_clear
 g32_ci_clears_workflow_edit() {
   g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
   echo '[{"filename":"src/a.ts"},{"filename":".github/workflows/ci.yml"}]' > "$STUB/state/files.json"
-  g_run 3 blocked 'green CI not used: the PR changes CI definitions (.github/workflows/ci.yml)'
+  g_run 3 blocked 'green CI not used: the PR changes CI definitions or ci_protected_paths (.github/workflows/ci.yml)'
 }
 g33_ci_clears_files_unreadable() { g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on; touch "$STUB/state/fail-files"; g_run 3 blocked "could not read the PR's files"; }
 g34_ci_clears_named_check_missing() {
@@ -825,6 +825,14 @@ check "chain G32 ci_clears_test_fail, PR edits a workflow → blocked" g32_ci_cl
 check "chain G33 ci_clears_test_fail, PR files unreadable → blocked" g33_ci_clears_files_unreadable
 check "chain G34 ci_clears_test_fail, named check missing → blocked" g34_ci_clears_named_check_missing
 check "chain G34b ci_clears_test_fail, named check green → ready" g34b_ci_clears_named_check_green
+# G35 — ci_protected_paths adds a path per setup: a PR that edits it gets no clear
+g35_ci_protected_path() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
+  jq '.ci_protected_paths = ["^ci/run-tests\\.sh$"]' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  echo '[{"filename":"ci/run-tests.sh"}]' > "$STUB/state/files.json"
+  g_run 3 blocked 'ci_protected_paths (ci/run-tests.sh)'
+}
+check "chain G35 ci_clears_test_fail, PR edits a ci_protected_paths file → blocked" g35_ci_protected_path
 # O1 — origins accepts {code: {class, grade}} and refuses an unknown class
 o1_origins() {
   local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home

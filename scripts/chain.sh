@@ -367,8 +367,11 @@ merge_gate() {
     ci_files="$(gh api --paginate "repos/$SLUG/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null)" \
       || no_clear="could not read the PR's files to rule out CI changes"
     if [ -z "$no_clear" ]; then
-      ci_files="$(grep -E '^(\.github/(workflows|actions)/|\.gitlab-ci\.yml$|\.circleci/|\.buildkite/|Jenkinsfile|azure-pipelines\.yml$|\.travis\.yml$|bitbucket-pipelines\.yml$)' <<<"$ci_files" | head -3 | paste -sd, - || true)"
-      [ -z "$ci_files" ] || no_clear="the PR changes CI definitions ($ci_files)"
+      # ci_protected_paths (extended regexes) adds paths per setup, such as the scripts a workflow runs. The author pass's
+      # test command runs the PR's own package scripts too, so those are not a new gap; the workflow definitions are
+      local extra; extra="$(cfg '(.ci_protected_paths // []) | map("(" + . + ")") | join("|")')" || extra=""
+      ci_files="$(grep -E "^(\.github/(workflows|actions)/|\.gitlab-ci\.yml\$|\.circleci/|\.buildkite/|Jenkinsfile|azure-pipelines\.yml\$|\.travis\.yml\$|bitbucket-pipelines\.yml\$)${extra:+|$extra}" <<<"$ci_files" | head -3 | paste -sd, - || true)"
+      [ -z "$ci_files" ] || no_clear="the PR changes CI definitions or ci_protected_paths ($ci_files)"
     fi
     if [ -z "$no_clear" ]; then
       missing="$(cfg -r --argjson ok "$(jq -c '.ok // []' <<<"$ci")" '[(.ci_test_checks // [])[] | select(. as $n | $ok | index($n) | not)] | join(", ")')" || missing="(could not read ci_test_checks)"
