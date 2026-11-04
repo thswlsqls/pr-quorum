@@ -4,6 +4,7 @@
   "auto_merge": false,
   "require_tests": false,
   "ci_clears_test_fail": false,
+  "ci_test_checks": [],
   "mcp": true,
   "trust": { "authors": [], "associations": ["OWNER"] },
   "build": { "sandbox": "require", "env_passthrough": [] },

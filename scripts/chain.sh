@@ -334,7 +334,7 @@ merge_gate() {
         result:(if .__typename == "StatusContext" or .context != null
                 then (if .state | IN("PENDING", "EXPECTED") then "pending" elif .state | IN("FAILURE", "ERROR") then .state else "ok" end)
                 else (if .status != "COMPLETED" then "pending" elif .conclusion | IN("SUCCESS", "NEUTRAL", "SKIPPED") then "ok" else .conclusion end) end)}]
-      | {sha:$sha, checks:length, failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
+      | {sha:$sha, checks:length, ok:[.[] | select(.result == "ok") | .name], failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
          pending:[.[] | select(.result == "pending") | .name]}')" \
       || { chain_state "blocked" "merge gate: could not read the CI checks from GitHub — run the chain again"; exit 4; }
     [ "$(jq '.pending | length' <<<"$ci")" -gt 0 ] && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] \
@@ -354,9 +354,30 @@ merge_gate() {
   # on the head completed green, that result replaces the recorded one, but only if the newest pass that ran tests ran
   # them on this same head (no later commit) and at least one check exists (an empty rollup proves nothing).
   # The replacement is recorded in meta.json (chain.tests_from_ci); the author pass's own record is left as written
-  local tests_sha=""
+  # A PR that runs its own workflows can also rewrite them, so CI it edited proves nothing about the tests: the clear is
+  # refused when the PR touches CI definitions, or when the file list cannot be read. "ci_test_checks" (names) narrows
+  # the checks that count: each named one must be on the head and green, so an unrelated green check cannot clear a fail
+  local tests_sha="" no_clear=""
   [ -z "$tests_file" ] || tests_sha="$(jq -r '.to_sha // empty' "$tests_file" 2>/dev/null)" || tests_sha=""
   if [ ${#tests_reasons[@]} -gt 0 ] && $ci_clears \
+     && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] && [ "$(jq '.checks' <<<"$ci")" -gt 0 ] \
+     && [ "$(jq '(.failing | length) + (.pending | length)' <<<"$ci")" = 0 ] \
+     && [ "$tests_sha" = "$head" ]; then
+    local ci_files missing
+    ci_files="$(gh api --paginate "repos/$SLUG/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null)" \
+      || no_clear="could not read the PR's files to rule out CI changes"
+    if [ -z "$no_clear" ]; then
+      ci_files="$(grep -E '^(\.github/(workflows|actions)/|\.gitlab-ci\.yml$|\.circleci/|\.buildkite/|Jenkinsfile|azure-pipelines\.yml$|\.travis\.yml$|bitbucket-pipelines\.yml$)' <<<"$ci_files" | head -3 | paste -sd, - || true)"
+      [ -z "$ci_files" ] || no_clear="the PR changes CI definitions ($ci_files)"
+    fi
+    if [ -z "$no_clear" ]; then
+      missing="$(cfg -r --argjson ok "$(jq -c '.ok // []' <<<"$ci")" '[(.ci_test_checks // [])[] | select(. as $n | $ok | index($n) | not)] | join(", ")')" || missing="(could not read ci_test_checks)"
+      [ -z "$missing" ] || no_clear="ci_test_checks not green on the head: $missing"
+    fi
+  fi
+  if [ -n "$no_clear" ]; then
+    tests_reasons=("${tests_reasons[@]/%/ (green CI not used: $no_clear)}")
+  elif [ ${#tests_reasons[@]} -gt 0 ] && $ci_clears \
      && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] && [ "$(jq '.checks' <<<"$ci")" -gt 0 ] \
      && [ "$(jq '(.failing | length) + (.pending | length)' <<<"$ci")" = 0 ] \
      && [ "$tests_sha" = "$head" ]; then

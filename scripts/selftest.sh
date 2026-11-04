@@ -189,7 +189,10 @@ case "$path" in
     b=""; [ ! -s "$S/body" ] || b="$(cat "$S/body")"
     echo '{"head":{"sha":"'"$h"'","repo":{"full_name":"acme/demo"}},"base":{"sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","repo":{"full_name":"acme/demo"}},"changed_files":1,"additions":3,"deletions":0,"user":{"login":"alice"},"author_association":"OWNER","body":"'"$b"'"}' \
       | if [ -e "$S/fork" ]; then jq --arg f "$(cat "$S/fork")" '.head.repo = (if $f == "null" then null else {full_name:$f} end)'; else cat; fi | out ;;
-  */pulls/1/files) echo '[{"filename":"docs/a.md","status":"modified","additions":3,"deletions":0,"patch":"+a"}]' ;;
+  */pulls/1/files)
+    # $S/files.json replaces the PR's file list (G32: a PR that edits its own workflow); fail-files fails the read
+    [ ! -e "$S/fail-files" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
+    if [ -f "$S/files.json" ]; then out < "$S/files.json"; else echo '[{"filename":"docs/a.md","status":"modified","additions":3,"deletions":0,"patch":"+a"}]' | out; fi ;;
   */compare/*) if [ -f "$S/compare.json" ]; then out < "$S/compare.json"; else jq -n '{status:"ahead", files:[{filename:"src/a.txt", patch:"@@ -0,0 +1,3 @@\n+a\n+b\n+c"}]}' | out; fi ;;
   */pulls/1/reviews)
     [ -n "$input" ] || { cat "$S/reviews.json"; exit 0; }
@@ -801,6 +804,27 @@ check "chain G29 green CI, option off → blocked"                 g29_ci_clears
 check "chain G30 green CI, fail recorded on another head → blocked" g30_ci_clears_other_head
 check "chain G31 ci_clears_test_fail with no CI checks → blocked" g31_ci_clears_no_checks
 check "chain G31b ci_clears_test_fail with red CI → blocked"     g31b_ci_clears_ci_red
+# G32–G34 — the clear is refused when the PR edits CI definitions, when its files cannot be read, or when a named ci_test_checks is missing
+g32_ci_clears_workflow_edit() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
+  echo '[{"filename":"src/a.ts"},{"filename":".github/workflows/ci.yml"}]' > "$STUB/state/files.json"
+  g_run 3 blocked 'green CI not used: the PR changes CI definitions (.github/workflows/ci.yml)'
+}
+g33_ci_clears_files_unreadable() { g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on; touch "$STUB/state/fail-files"; g_run 3 blocked "could not read the PR's files"; }
+g34_ci_clears_named_check_missing() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
+  jq '.ci_test_checks = ["test"]' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  g_run 3 blocked 'ci_test_checks not green on the head: test'
+}
+g34b_ci_clears_named_check_green() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
+  jq '.ci_test_checks = ["checks"]' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
+  g_run 0 ready ''
+}
+check "chain G32 ci_clears_test_fail, PR edits a workflow → blocked" g32_ci_clears_workflow_edit
+check "chain G33 ci_clears_test_fail, PR files unreadable → blocked" g33_ci_clears_files_unreadable
+check "chain G34 ci_clears_test_fail, named check missing → blocked" g34_ci_clears_named_check_missing
+check "chain G34b ci_clears_test_fail, named check green → ready" g34b_ci_clears_named_check_green
 # O1 — origins accepts {code: {class, grade}} and refuses an unknown class
 o1_origins() {
   local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home

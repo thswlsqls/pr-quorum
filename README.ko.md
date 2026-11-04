@@ -245,7 +245,8 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `bot` | 1단계에서 만든 봇 로그인. 토큰의 계정과 같아야 한다 |
 | `auto_merge` | 두 게이트를 지난 PR 을 체인이 머지할지. 기본값 `false` 면 체인은 `ready` 에서 멈춘다. 리스크 규칙의 경로 패턴은 처음 만든 저장소에 맞춰져 있으니, 켜기 전에 [`rules/03-risk.md`](rules/03-risk.md) 와 [`scripts/risk.jq`](scripts/risk.jq) 가 자기 저장소에 맞는지 확인한다 |
 | `require_tests` | `true` 면 저자 패스가 테스트를 `pass` 로 잰 경우에만 머지 게이트를 통과한다. `not measured` 나 테스트를 돌리지 않은 경우도 막는다. 기본값 `false` 면 앞 패스가 실패하지 않은 한 `not measured` 는 통과한다 |
-| `ci_clears_test_fail` | `true` 면 헤드의 CI 체크가 모두 초록으로 끝났을 때, 가장 최근 저자 패스가 같은 헤드에서 기록한 테스트 `fail`(또는 `require_tests` 아래의 미측정)을 머지 게이트가 CI 결과로 대신한다. 레지스트리 정책·장애처럼 코드와 무관한 실패로 저자 패스 상한에 걸렸을 때 쓴다. 헤드가 바뀌었거나, 체크가 없거나, 빨간·진행 중 체크가 있으면 적용하지 않는다. 대신한 사실은 `meta.json` 의 `chain.tests_from_ci` 에 남는다. 기본값 `false` |
+| `ci_clears_test_fail` | `true` 면 헤드의 CI 체크가 모두 초록으로 끝났을 때, 가장 최근 저자 패스가 같은 헤드에서 기록한 테스트 `fail`(또는 `require_tests` 아래의 미측정)을 머지 게이트가 CI 결과로 대신한다. 레지스트리 정책·장애처럼 코드와 무관한 실패로 저자 패스 상한에 걸렸을 때 쓴다. 헤드가 바뀌었거나, 체크가 없거나, 빨간·진행 중 체크가 있으면 적용하지 않는다. PR 이 CI 정의(`.github/workflows/`, `.github/actions/` 등 CI 설정 파일)를 바꾸었거나 파일 목록을 읽지 못해도 적용하지 않는다. PR 은 자기가 돌리는 워크플로를 고칠 수 있기 때문이다. 대신한 사실은 `meta.json` 의 `chain.tests_from_ci` 에 남는다. 기본값 `false` |
+| `ci_test_checks` | `ci_clears_test_fail` 이 적용되려면 헤드에 있고 초록이어야 하는 체크 이름 목록. 상관없는 초록 체크가 테스트 실패를 지우지 못하게 한다. 기본값 `[]` 이면 모두 끝난 초록 롤업이면 된다 |
 | `mcp` | `false` 면 체인 세션에 MCP 서버를 하나도 붙이지 않는다. 기본값 `true` 면 [`mcp.json`](mcp.json) 의 context7 문서 서버(제3자)를 붙인다 |
 | `trust` | 누구의 PR 이 체인을 돌리는지. `authors`(로그인 목록) 또는 `associations`(GitHub `author_association` 값). 없으면 `associations` 는 `["OWNER"]`. GitHub 가 쓰지 않는 값이 있으면 watcher 와 체인이 exit 2 로 멈추고, `OWNER`, `MEMBER`, `COLLABORATOR` 밖의 값은 경고를 남긴다. 조직이라면 로그인 목록이 낫다. `MEMBER` 는 조직 전원이다 |
 | `repos` | 저장소 이름마다 로컬 clone 의 절대 경로(`path`)와 쓸 프로파일(`profile`) |

@@ -2,11 +2,12 @@
 
 ## 0.18.0
 
-New optional `config.json` key: `ci_clears_test_fail` (default `false`, so the chain behaves as in 0.17.1 without it).
+New optional `config.json` keys: `ci_clears_test_fail` (default `false`) and `ci_test_checks` (default `[]`). Without them the chain behaves as in 0.17.1.
 
 - `ci_clears_test_fail: true` lets a green CI on the head replace a test `fail` (or an unmeasured result under `require_tests`) that the newest author pass recorded on that same head. It covers failures the code does not cause, such as pnpm's `minimumReleaseAge` or a registry outage, after the author pass cap leaves no pass to measure again. It does not apply when the head moved, the head has no checks, or any check is red or still running. The replacement is written to `meta.json` (`chain.tests_from_ci`), and the author pass record is left as written.
+- The clear is refused when the PR changes CI definitions (`.github/workflows/`, `.github/actions/`, other CI config files) or its file list cannot be read, because a PR can rewrite the workflows it runs. `ci_test_checks` names the checks that must be on the head and green.
 - With the key on, a held test failure lets the merge gate wait for running CI checks, as it already did when nothing else blocked.
-- `doctor.sh` checks that `ci_clears_test_fail` is a boolean.
+- `doctor.sh` checks that `ci_clears_test_fail` is a boolean and `ci_test_checks` is a list of names.
 
 ## 0.17.1
 
