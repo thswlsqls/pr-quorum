@@ -780,6 +780,27 @@ g27_require_tests() {
   g_run 3 blocked 'require_tests is on'
 }
 check "chain G27 require_tests with nothing measured → blocked"  g27_require_tests
+# G28–G31 — ci_clears_test_fail: a green CI on the head replaces a fail recorded on that head; off, a different head, or no checks keep the stop
+G_GREEN='[{"__typename":"CheckRun","name":"checks","status":"COMPLETED","conclusion":"SUCCESS"}]'
+ci_clears_on() { jq '.ci_clears_test_fail = true' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"; }
+g28_ci_clears() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on; g_run 0 ready '' || return 1
+  [ "$(stub_meta -c '.chain.tests_from_ci | [.checks, .record]')" = '[1,"round-02.json"]' ] \
+    || { echo "tests_from_ci $(stub_meta -c '.chain.tests_from_ci')"; return 1; }
+}
+g29_ci_clears_off() { g_home . "$G_GREEN"; author_tests pass fail; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+g30_ci_clears_other_head() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on
+  jq '.to_sha = "dddddddddddddddddddddddddddddddddddddddd"' "$STUB_RUN/outputs/author/round-02.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/outputs/author/round-02.json"
+  g_run 3 blocked 'tests failed in the last author pass that ran them'
+}
+g31_ci_clears_no_checks() { g_home .; author_tests pass fail; ci_clears_on; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+g31b_ci_clears_ci_red() { g_home . '[{"__typename":"CheckRun","name":"checks","status":"COMPLETED","conclusion":"FAILURE"}]'; author_tests pass fail; ci_clears_on; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+check "chain G28 ci_clears_test_fail, green CI on the same head → ready" g28_ci_clears
+check "chain G29 green CI, option off → blocked"                 g29_ci_clears_off
+check "chain G30 green CI, fail recorded on another head → blocked" g30_ci_clears_other_head
+check "chain G31 ci_clears_test_fail with no CI checks → blocked" g31_ci_clears_no_checks
+check "chain G31b ci_clears_test_fail with red CI → blocked"     g31b_ci_clears_ci_red
 # O1 — origins accepts {code: {class, grade}} and refuses an unknown class
 o1_origins() {
   local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home

@@ -88,7 +88,7 @@ OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
 # limits — a missing one means no cap, which is allowed. budget_usd goes to claude --max-budget-usd as read ("25" works), so it must read as a number
 [ "$(cfg '.limits | type')" = object ] || warn "no limits: a session has no cost cap"
 # Booleans the chain compares with == true / != false — a string "false" would leave mcp on and require_tests off
-for k in auto_merge require_tests mcp; do
+for k in auto_merge require_tests ci_clears_test_fail mcp; do
   [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "boolean")')" = true ] || bad "$k must be true or false, not $(cfg --arg k "$k" '.[$k] | tojson')"
 done
 for k in $(cfg '.limits | objects | to_entries[] | select(.value | objects | has("budget_usd") and (.budget_usd | tostring | test("^[0-9]+(\\.[0-9]+)?$") | not)) | .key'); do

@@ -3,6 +3,7 @@
   "bot": "__BOT__",
   "auto_merge": false,
   "require_tests": false,
+  "ci_clears_test_fail": false,
   "mcp": true,
   "trust": { "authors": [], "associations": ["OWNER"] },
   "build": { "sandbox": "require", "env_passthrough": [] },
