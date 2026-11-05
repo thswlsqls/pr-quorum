@@ -264,23 +264,25 @@ merge_gate() {
   # Tests from the newest author pass that ran them — a later pass with nothing to answer writes "skip", which must not hide a fail.
   # Read newest first; a record that cannot be read stops the gate rather than being passed over
   # "not measured" is read past like "skip": a pass that could not run tests does not clear an earlier fail. A pass that pushed must have a result
-  local f res tests="" unmeasured=false
+  local f res tests="" unmeasured=false tests_file="" tests_reasons=()
   while IFS= read -r f; do
     res="$(jq -r '.tests.result // empty' "$f" 2>/dev/null)" || { reasons+=("could not read $f"); break; }
     [ -n "$res" ] || [ "$(jq -r '.pushed' "$f")" != true ] || { reasons+=("$(basename "$f") pushed with no test result"); break; }
     case "$res" in ""|skip) continue ;; "not measured") unmeasured=true; continue ;; esac
-    tests="$res"; break
+    tests="$res"; tests_file="$f"; break
   done < <(find "$AUTHOR_DIR" -name 'round-*.json' | sort -r)
+  # Test reasons are held in tests_reasons until the CI checks are read below: with "ci_clears_test_fail": true,
+  # a green CI on the head can replace a fail or an unmeasured result recorded on that same head
   if [ "$tests" = fail ]; then
-    if $unmeasured; then reasons+=("tests failed in the last author pass that ran them, and later passes could not measure them")
-    else reasons+=("tests failed in the last author pass that ran them"); fi
+    if $unmeasured; then tests_reasons+=("tests failed in the last author pass that ran them, and later passes could not measure them")
+    else tests_reasons+=("tests failed in the last author pass that ran them"); fi
   fi
   # "not measured" alone passes (README Security) — only a value outside the author skill's set stops, so a typo cannot read as a pass
   case "$tests" in ""|pass|fail) ;; *) reasons+=("unknown test result '$tests' in the last author pass that ran them") ;; esac
   # "require_tests": true in config.json — only a measured pass merges; "not measured" and no test run stop too
   # A newer pass that could not measure leaves the head unmeasured even after an older pass, so it stops too
   if [ "$(cfg '.require_tests == true')" = true ] && { { [ "$tests" != pass ] && [ "$tests" != fail ]; } || $unmeasured; }; then
-    reasons+=("require_tests is on and no author pass measured the tests as pass$($unmeasured && echo ' (not measured)' || true)")
+    tests_reasons+=("require_tests is on and no author pass measured the tests as pass$($unmeasured && echo ' (not measured)' || true)")
   fi
   [ "$(jq -r '.blocking_open' "$a")" = "0" ] || reasons+=("$(jq -r '.blocking_open' "$a") blocking findings remain unaddressed")
   # Latest verdict per code across passes, as for blocking comments below — a later pass judges only the codes it covered,
@@ -320,7 +322,11 @@ merge_gate() {
 
   # CI checks on the head (statusCheckRollup). Read here, not in pr_state(), which the conflict check before the author pass also calls.
   # Checks still running are read again every CI_POLL_SECS, up to CI_POLL_MAX reads, while nothing else blocks
-  local ci i
+  local ci i ci_clears=false
+  [ "$(cfg '.ci_clears_test_fail == true')" != true ] || ci_clears=true
+  # A held test reason waits for running checks only when a green CI could clear it
+  local wait_ok=true
+  [ ${#tests_reasons[@]} -eq 0 ] || $ci_clears || wait_ok=false
   for (( i=1; ; i++ )); do
     ci="$(gh pr view "$PR" --repo "$SLUG" --json headRefOid,statusCheckRollup | jq -c '
       .headRefOid as $sha
@@ -328,11 +334,11 @@ merge_gate() {
         result:(if .__typename == "StatusContext" or .context != null
                 then (if .state | IN("PENDING", "EXPECTED") then "pending" elif .state | IN("FAILURE", "ERROR") then .state else "ok" end)
                 else (if .status != "COMPLETED" then "pending" elif .conclusion | IN("SUCCESS", "NEUTRAL", "SKIPPED") then "ok" else .conclusion end) end)}]
-      | {sha:$sha, checks:length, failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
+      | {sha:$sha, checks:length, ok:[.[] | select(.result == "ok") | .name], failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
          pending:[.[] | select(.result == "pending") | .name]}')" \
       || { chain_state "blocked" "merge gate: could not read the CI checks from GitHub — run the chain again"; exit 4; }
     [ "$(jq '.pending | length' <<<"$ci")" -gt 0 ] && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] \
-      && [ ${#reasons[@]} -eq 0 ] && [ "$i" -lt "$CI_POLL_MAX" ] || break
+      && [ ${#reasons[@]} -eq 0 ] && $wait_ok && [ "$i" -lt "$CI_POLL_MAX" ] || break
     sleep "$CI_POLL_SECS"
   done
   meta_set '.chain.ci = $c' --argjson c "$ci" || log "could not write the CI checks to meta.json"
@@ -342,6 +348,49 @@ merge_gate() {
     while IFS= read -r i; do reasons+=("CI check $i on $head"); done < <(jq -r '.failing[]' <<<"$ci")
     [ "$(jq '.pending | length' <<<"$ci")" = 0 ] || reasons+=("CI checks still running on $head — run the chain again")
   fi
+
+  # "ci_clears_test_fail": true in config.json — an author pass's tests can fail for reasons the code does not cause
+  # (a registry policy, an outage), and the author pass cap leaves no pass to measure them again. When every CI check
+  # on the head completed green, that result replaces the recorded one, but only if the newest pass that ran tests ran
+  # them on this same head (no later commit) and at least one check exists (an empty rollup proves nothing).
+  # The replacement is recorded in meta.json (chain.tests_from_ci); the author pass's own record is left as written
+  # A PR that runs its own workflows can also rewrite them, so CI it edited proves nothing about the tests: the clear is
+  # refused when the PR touches CI definitions, or when the file list cannot be read. "ci_test_checks" (names) narrows
+  # the checks that count: each named one must be on the head and green, so an unrelated green check cannot clear a fail
+  local tests_sha="" no_clear=""
+  [ -z "$tests_file" ] || tests_sha="$(jq -r '.to_sha // empty' "$tests_file" 2>/dev/null)" || tests_sha=""
+  if [ ${#tests_reasons[@]} -gt 0 ] && $ci_clears \
+     && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] && [ "$(jq '.checks' <<<"$ci")" -gt 0 ] \
+     && [ "$(jq '(.failing | length) + (.pending | length)' <<<"$ci")" = 0 ] \
+     && [ "$tests_sha" = "$head" ]; then
+    local ci_files missing
+    ci_files="$(gh api --paginate "repos/$SLUG/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)' 2>/dev/null)" \
+      || no_clear="could not read the PR's files to rule out CI changes"
+    if [ -z "$no_clear" ]; then
+      # ci_protected_paths (extended regexes) adds paths per setup, such as the scripts a workflow runs. The author pass's
+      # test command runs the PR's own package scripts too, so those are not a new gap; the workflow definitions are
+      local extra; extra="$(cfg '(.ci_protected_paths // []) | map("(" + . + ")") | join("|")')" || extra=""
+      ci_files="$(grep -E "^(\.github/(workflows|actions)/|\.gitlab-ci\.yml\$|\.circleci/|\.buildkite/|Jenkinsfile|azure-pipelines\.yml\$|\.travis\.yml\$|bitbucket-pipelines\.yml\$)${extra:+|$extra}" <<<"$ci_files" | head -3 | paste -sd, - || true)"
+      [ -z "$ci_files" ] || no_clear="the PR changes CI definitions or ci_protected_paths ($ci_files)"
+    fi
+    if [ -z "$no_clear" ]; then
+      missing="$(cfg -r --argjson ok "$(jq -c '.ok // []' <<<"$ci")" '[(.ci_test_checks // [])[] | select(. as $n | $ok | index($n) | not)] | join(", ")')" || missing="(could not read ci_test_checks)"
+      [ -z "$missing" ] || no_clear="ci_test_checks not green on the head: $missing"
+    fi
+  fi
+  if [ -n "$no_clear" ]; then
+    tests_reasons=("${tests_reasons[@]/%/ (green CI not used: $no_clear)}")
+  elif [ ${#tests_reasons[@]} -gt 0 ] && $ci_clears \
+     && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] && [ "$(jq '.checks' <<<"$ci")" -gt 0 ] \
+     && [ "$(jq '(.failing | length) + (.pending | length)' <<<"$ci")" = 0 ] \
+     && [ "$tests_sha" = "$head" ]; then
+    log "CI is green on $head ($(jq '.checks' <<<"$ci") checks); it replaces the recorded test result: $(IFS='; '; echo "${tests_reasons[*]}")"
+    meta_set '.chain.tests_from_ci = {sha:$s, checks:$n, replaced:$r, record:$f}' \
+      --arg s "$head" --argjson n "$(jq '.checks' <<<"$ci")" --arg r "$(IFS='; '; echo "${tests_reasons[*]}")" \
+      --arg f "$(basename "$tests_file")" || log "could not write tests_from_ci to meta.json"
+    tests_reasons=()
+  fi
+  [ ${#tests_reasons[@]} -eq 0 ] || reasons+=("${tests_reasons[@]}")
 
   if [ ${#reasons[@]} -gt 0 ]; then
     chain_state "blocked" "merge gate: $(IFS='; '; echo "${reasons[*]}")"

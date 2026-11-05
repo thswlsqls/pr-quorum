@@ -245,6 +245,9 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `bot` | 第 1 步创建的机器人登录名。必须与令牌的账号一致 |
 | `auto_merge` | 链路是否合并通过两道关卡的 PR。默认 `false`：链路停在 `ready`。风险规则的路径模式是按最初编写它的仓库定的：开启之前，请对照你的仓库检查 [`rules/03-risk.md`](rules/03-risk.md) 和 [`scripts/risk.jq`](scripts/risk.jq) |
 | `require_tests` | `true`：只有作者轮次把测试测为 `pass` 时才通过合并关卡；`not measured` 和未运行测试也会阻断。默认 `false`：除非之前的轮次失败，`not measured` 放行 |
+| `ci_clears_test_fail` | `true`：当头提交上的所有 CI 检查都已完成且为绿色时，合并关卡用 CI 结果代替最近一次作者轮次在同一头提交上记录的测试 `fail`（或 `require_tests` 下的未测量）。用于注册表策略、故障等与代码无关的失败在作者轮次上限后无法重测的情况。头提交已变、没有检查、或有红色/进行中的检查时不适用。PR 修改了 CI 定义（`.github/workflows/`、`.github/actions/` 等 CI 配置文件）或无法读取其文件列表时也不适用，因为 PR 可以改写它自己运行的工作流。替代记录在 `meta.json` 的 `chain.tests_from_ci`。默认 `false` |
+| `ci_test_checks` | `ci_clears_test_fail` 生效前必须出现在头提交上且为绿色的检查名称列表，防止无关的绿色检查清除测试失败。默认 `[]`：任何全部完成且全绿的汇总都算 |
+| `ci_protected_paths` | 额外路径的扩展正则列表：PR 修改这些路径时拒绝 `ci_clears_test_fail` 的替代（例如工作流运行的脚本）。默认 `[]`。限制：CI 运行的是 PR 自己的代码，PR 修改 CI 运行的包脚本或测试配置仍可使其变绿；作者轮次的测试命令也运行同样的脚本，测试文件由测试弱化检查覆盖。工作流运行自有脚本时请把这些路径加到这里 |
 | `mcp` | `false`：链路会话不接入任何 MCP 服务器。默认 `true`：接入 [`mcp.json`](mcp.json) 中的第三方文档服务器 context7 |
 | `trust` | 谁的 PR 运行链路：`authors`(登录名列表)或 `associations`(GitHub 的 `author_association` 值)。缺省时 `associations` 为 `["OWNER"]`。含 GitHub 不使用的值时，watcher 和链路以 exit 2 停止；`OWNER`、`MEMBER`、`COLLABORATOR` 以外的值会记录警告。组织建议列登录名：`MEMBER` 指组织里的所有人 |
 | `repos` | 按仓库名给出本地克隆的绝对路径(`path`)和使用的 profile(`profile`) |
