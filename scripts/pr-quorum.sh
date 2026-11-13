@@ -51,6 +51,7 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     stage2-begin <repo> <pr> <stage_sha> <last_judged_sha>   open this Stage 2 pass's record (merges into an unfinished one)
     verdicts   <repo> <pr> <stage_sha> <verdicts.json>   write {code: verdict} into that record (addressed|partial|not-addressed|regressed)
     stage3-replies <repo> <pr>               move stage3_replies into stage3.replies (when finishing without post-review)
+    stage3-none <repo> <pr> <stage_sha>      record a Stage 3 pass that found nothing new to post (no GitHub write)
     origins <repo> <pr> <file>               record Stage 3 origin classes {code: {class: P|Q|N, grade}} for the merge gate
 
   Build (no bot token needed)
@@ -547,6 +548,19 @@ cmd_stage3_replies() {
   echo "stage3 replies — $(jq -r '.stage3.replies | length' "$(meta_path "$repo" "$pr")") recorded"
 }
 
+# Stage 3 found nothing new to post (no P comment, no thread reply that needs a review). The rules do not post an empty review, and without a
+# record the chain counted the step as failed and blocked the PR (spec-owner PR #155). This records the pass without posting anything to GitHub
+cmd_stage3_none() {
+  local repo="$1" pr="$2" sha="$3"; need_meta "$repo" "$pr"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "$E_USAGE" "stage_sha must be a full 40-character commit SHA: $sha"
+  meta_update "$repo" "$pr" '((.stage3 != null) and ((.stage3.stage_sha // $sha) != $sha)) as $new
+                             | (if $new then .stage3_history = ((.stage3_history // []) + [.stage3]) | .stage3 = null else . end)
+                             | .stage3 = ((.stage3 // {}) + {review_id:null, posted_at:$at, stage_sha:$sha, comments:[], posted:false})
+                             | .stage3.replies = ((.stage3.replies // {}) + (.stage3_replies // {})) | del(.stage3_replies)' \
+    --arg at "$(now_iso)" --arg sha "$sha"
+  echo "stage3 recorded without a post — $(jq -r '.stage3.replies | length' "$(meta_path "$repo" "$pr")") replies"
+}
+
 # Stage 3 origin classes per code (rules/01-stages.md §2-2). Replies record only ids, so without this the gate cannot tell a fix-made (N)
 # or half-fixed (Q) critical from a minor. Kept at the top level, like stage3_replies, so recording it does not make stage3_done true
 cmd_origins() {
@@ -970,6 +984,7 @@ case "$sub" in
   stage2-begin) [ $# -eq 4 ] || usage; need_full_sha "$3"; need_full_sha "$4"; cmd_stage2_begin "$@" ;;
   verdicts)    [ $# -eq 4 ] || usage; need_full_sha "$3"; need_run_file "$4"; cmd_verdicts "$@" ;;
   stage3-replies) [ $# -eq 2 ] || usage; cmd_stage3_replies "$@" ;;
+  stage3-none) [ $# -eq 3 ] || usage; cmd_stage3_none "$@" ;;
   origins)     [ $# -eq 3 ] || usage; need_run_file "$3"; cmd_origins "$@" ;;
   build)       [ $# -ge 4 ] && [ $# -le 5 ] || usage; cmd_build "$@" ;;
   author-build) [ $# -ge 4 ] && [ $# -le 5 ] || usage; BUILD_AUTHOR=1; cmd_build "$@" ;;

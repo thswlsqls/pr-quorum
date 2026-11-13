@@ -1333,6 +1333,20 @@ check "init E1 records the PR description as eval_body"          e1_init_body
 check "init E2 same eval_sha → eval_body kept"                   e2_same_eval_kept
 check "init E3 --reset-eval → eval_body set again"               e3_reset_eval_body
 
+# S3N — Stage 3 with nothing new to post: stage3-none records the pass (stage3_done true), moves stage3_replies in, writes nothing to GitHub
+s3n_stage3_none() {
+  local out
+  stub_home
+  jq '.stage3_replies = {"C-01": 4560073027}' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  out="$(stub_run "$PR_QUORUM" stage3-none demo 1 "$STUB_SHA" 2>&1)" || { echo "$out"; return 1; }
+  stub_meta -e --arg h "$STUB_SHA" '.stage3 != null and .stage3.stage_sha == $h and .stage3.posted == false and .stage3.review_id == null
+                                     and .stage3.replies["C-01"] == 4560073027 and (has("stage3_replies") | not)' >/dev/null \
+    || { echo "meta: $(stub_meta -c '.stage3, .stage3_replies')"; return 1; }
+  [ "$(stub_posts)" = 0 ] && [ "$(stub_replies)" = 0 ] || { echo "GitHub writes: posts $(stub_posts) replies $(stub_replies)"; return 1; }
+  ! stub_run "$PR_QUORUM" stage3-none demo 1 short >/dev/null 2>&1 || { echo "short SHA accepted"; return 1; }
+}
+check "stage3-none S3N records a pass without posting"             s3n_stage3_none
+
 # LN — pr-quorum.sh learnings stops before the "Already in the rules" section (older files: 규칙에 이미 박은 것) and keeps the middle one
 ln_learnings_cut() {
   local f="$STUB/home/.pr-quorum/learnings.md" out h

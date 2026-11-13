@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1
+
+No new `config.json` keys.
+
+- Stage 3 that finds nothing new to post no longer blocks the chain. The rules say not to post an empty review, so `meta.json` had no `stage3` record and the chain stopped with "stage3 left no record 2 times in a row" on PRs that were ready to merge. The new `pr-quorum.sh stage3-none <repo> <pr> <stage_sha>` records the pass (`posted: false`, no GitHub write) and moves `stage3_replies` in; the review skill calls it in place of `post-review`.
+
 ## 0.18.0
 
 New optional `config.json` keys: `ci_clears_test_fail` (default `false`), `ci_test_checks` and `ci_protected_paths` (default `[]`). Without them the chain behaves as in 0.17.1.
