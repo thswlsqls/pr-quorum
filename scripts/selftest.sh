@@ -542,7 +542,8 @@ cat > "$STUB/sbin/claude" <<'CLAUDE'
 # Plays $STUB_STATE/<step>-<n>.sh (M is meta.json, H the PR head; author <pushed> [blocking] writes round-0<n>.json, review posts a bot
 # review on H), then prints a result whose subtype is $STUB_STATE/<step>.subtype (default success)
 S="$STUB_STATE"; p="${!#}"; echo "claude $p" >> "$S/calls.log"
-m=""; for a; do [ "${prev:-}" = --model ] && m="$a"; prev="$a"; done; echo "model=$m sub=${CLAUDE_CODE_SUBAGENT_MODEL:-}" >> "$S/models.log"
+m=""; e=""; for a; do [ "${prev:-}" = --model ] && m="$a"; [ "${prev:-}" = --effort ] && e="$a"; prev="$a"; done
+echo "model=$m sub=${CLAUDE_CODE_SUBAGENT_MODEL:-} effort=$e" >> "$S/models.log"
 read -r -a w <<<"$p"; case "${w[0]}" in *:author) st=author ;; *) st="${w[1]}" ;; esac
 n=$(( $(cat "$S/count-$st" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$S/count-$st"
 R="$HOME/.pr-quorum/runs/demo-pr1"; M="$R/meta.json"; H="$(cat "$S/head" 2>/dev/null || echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa)"
@@ -609,15 +610,19 @@ n5_third_reply_posts() {
   out="$(stub_reply 2>&1 && stub_reply 2>&1 && stub_reply 2>&1)" || { echo "$out"; return 1; }
   [ "$(stub_replies)" = 3 ] && ! grep -q adopted <<<"$out" || { echo "third reply: POST $(stub_replies) (want 3): $out"; return 1; }
 }
-# M1 — models: missing is Sonnet for the session and its subagents, "" is Claude Code's default (no --model, no subagent variable), a value is passed as is
+# M1 — models: missing is Sonnet for the session and its subagents, "" is Claude Code's default (no --model, no subagent variable), a value is passed as is.
+# effort: missing or null passes no --effort, a level is passed as --effort; the session record keeps model, subagent_model and effort
 m1_models() {
-  local f want
-  for f in 'del(.models)|model=claude-sonnet-5-5 sub=claude-sonnet-5-5' '.models = {session: "", subagent: ""}|model= sub=' \
-           '.models = {session: "opus", subagent: "haiku"}|model=opus sub=haiku'; do
+  local f want rec
+  for f in 'del(.models)|model=claude-sonnet-5-5 sub=claude-sonnet-5-5 effort=|null' '.models = {session: "", subagent: ""}|model= sub= effort=|null' \
+           '.models = {session: "opus", subagent: "haiku", effort: "high"}|model=opus sub=haiku effort=high|high'; do
+    rec="${f##*|}"; f="${f%|*}"
     want="${f#*|}"; stub_home; mkdir -p "$STUB/repo/demo"; touch "$STUB/state/chain"; echo error_max_budget_usd > "$STUB/state/stage1.subtype"
     jq "${f%%|*}" "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"
     stub_run env PATH="$STUB/sbin:$STUB/bin:$PATH" "$HARNESS_DIR/scripts/chain.sh" demo 1 >/dev/null 2>&1
     [ "$(cat "$STUB/state/models.log" 2>/dev/null)" = "$want" ] || { echo "${f%%|*}: '$(cat "$STUB/state/models.log" 2>/dev/null)' (want '$want')"; return 1; }
+    [ "$(stub_meta -c '.chain.sessions[0].effort')" = "$rec" ] && [ "$(stub_meta -r '.chain.sessions[0] | has("model") and has("subagent_model")')" = true ] \
+      || { echo "${f%%|*}: session record $(stub_meta -c '.chain.sessions[0]')"; return 1; }
   done
 }
 check "chain M1 models default to Sonnet, \"\" is Claude Code's default" m1_models
@@ -1236,6 +1241,13 @@ check "doctor D2b collaborator error is not 'not a collaborator'" d2b_collaborat
 check "doctor D3 sample copy and <fill in> warn"       d3_sample_profile
 check "doctor D4 commands that cannot start"           d4_commands
 check "doctor D4b package.json without tsconfig.json warns" d4b_tsc_without_tsconfig
+d4c_effort_level() {
+  local out; doctor_home '.models.effort = "hgih"' || return 1; out="$(stub_doctor)"
+  grep -q 'models.effort must be null or one of' <<<"$out" || { echo "typo: $out"; return 1; }
+  doctor_home '.models.effort = "xhigh"' || return 1; out="$(stub_doctor)"
+  ! grep -q 'models.effort' <<<"$out" || { echo "xhigh: $out"; return 1; }
+}
+check "doctor D4c models.effort outside the levels fails"   d4c_effort_level
 
 # D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
 # repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh

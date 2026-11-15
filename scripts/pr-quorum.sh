@@ -686,7 +686,7 @@ need_run_file() {
   [ -f "$f" ] && [ ! -L "$f" ] || die "$E_USAGE" "body file is missing or is a link: $f"
   runs="$(cd "$RUNS_DIR" && pwd -P)"
   dir="$(cd "$(dirname "$f")" && pwd -P)"
-  case "$dir/" in "$runs"/*) ;; *) die "$E_USAGE" "body file must be under runs/: $f" ;; esac
+  case "$dir/" in "$runs"/*) ;; *) die "$E_USAGE" "body file must be under runs/: $f — write it with the Write tool under $RUNS_DIR/<repo>-pr<N>/outputs/" ;; esac
 }
 
 # Runs before the bot token is loaded and before any API call. Exit 3, and the matched text is never echoed

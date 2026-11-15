@@ -122,7 +122,7 @@ End of round NN
 so the watcher cannot call round 2. `prompts/round-NN.md` is kept as a file so that, if the session dies,
 a human can continue with `/pr-quorum:review stage1 <repo> <PR-number> --round 2`.
 
-**Do not make convergence a condition for posting.** In the original harness, zero rounds fully converged.
+**Do not make convergence a condition for posting.** Rounds rarely converge fully.
 When the cap is reached, list the unmet items in the summary and post.
 
 ### 3-3. Immediate stop
@@ -164,7 +164,7 @@ outputs/<stage>/pre-polish/            pre-edit snapshots of all of the above, u
 ```
 
 > **Do not write everything into one folder.** Stage 3 judges read the `comments.json` that Stage 1 posted
-> to assign origin (P/Q/N). Overwriting the same location destroys that input (measured — PR #33 Stage 3).
+> to assign origin (P/Q/N). Overwriting the same location destroys that input.
 
 #### Procedure
 
@@ -210,7 +210,7 @@ outputs/<stage>/pre-polish/            pre-edit snapshots of all of the above, u
 > and "0 overall" becomes a condition that, worked out, can never be reached. A condition that is always false is a constant, not a check.
 > Detections from inherited text are **all fixed** (outside the budget). They are just not used for the convergence verdict.
 > For the same reason `notation-error` is left out of the convergence verdict — acting on a detection means changing that location, and once changed, the next round's verifier
-> reads the new sentence again, so notation and precision detections never reach 0 (on PR #34: 28→6→3, and the last 3 were all notation errors).
+> reads the new sentence again, so notation and precision detections never reach 0.
 
 > **Mark carried-over items `unverified`.** A carried-over item is only a judge report that did not go through a challenger,
 > but once tabulated and put into the next round it looks like confirmed fact. Always recheck before adopting it.
@@ -331,15 +331,9 @@ Whether impact (②) and direction (④) survived cannot be counted. **Reread ea
 Do not add `--paginate` — compare's `files[]` is a single response, and with it, empty arrays come along from page 2 on and
 break the parsing. Instead, **exclude files without a `patch` (large files) from anchoring**.
 
-> **Measurement (2026-08-20, PR #31)** — `line` anchors on a past SHA **do attach.** Posting with `commit_id` set to an
-> `eval_sha` two commits behind head kept `line`·`original_line` as they were. There is no need to pull the pinned SHA up to head.
->
-> **And the API rejects anchors outside the diff — the whole review gets 422.** It is not just one comment dropped;
-> with `{"errors":["Line could not be resolved"]}` the entire review fails to go up. For a nonexistent file, `Path could not be resolved`.
-> **Without PG1, the moment one anchor is off, not a single comment of the review gets posted.**
->
-> The same measurement confirmed why `pulls/{N}/files` must not be used — posting on a line that is in the head diff but not in the `eval_sha` diff
-> returned 422. A check based on `pulls/{N}/files` would have let that line through.
+> **Why PG1 exists** — one anchor outside the posting SHA's diff makes GitHub reject the whole review with 422, so without PG1 not a single comment goes up.
+> `line` anchors on an `eval_sha` behind head do attach, so there is no need to pull the pinned SHA up to head. A check based on `pulls/{N}/files`
+> lets through lines that are in the head diff but not in the `eval_sha` diff. (Measurements: `docs/harness.md` §6.)
 
 ---
 
@@ -416,8 +410,7 @@ If there is nothing to fix, write **"No harness defects this round"** in the log
 ## 11. Round log — `runs/<repo>-pr<N>/rounds/round-NN.md`
 
 **Do not write it all at once. Append each time a step ends.**
-If it is written all at once in Phase 4 and the session dies before then, the judges' and challengers' work is lost entirely
-(measured — on PR #32 the session died in the middle of round 2, and an hour of review evidence survived nowhere outside `outputs/`).
+If it is written all at once in Phase 4 and the session dies before then, the judges' and challengers' work is lost entirely.
 
 | When | What to append |
 |---|---|

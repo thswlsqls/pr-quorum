@@ -60,7 +60,7 @@ last_author() { find "$AUTHOR_DIR" -name 'round-*.json' | sort | tail -1; }
 # Starts one headless session. Why tool permissions and MCP are isolated from this machine's settings is explained in the comments before the claude -p call below.
 run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   local settings="$1" prompt="$2" name="$3" try="$4" add_dirs=() caps=() r p d out rc=0 started
-  local budget timeout_min model sub_model secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
+  local budget timeout_min model sub_model effort secs pid wd="" outf="$RUN/session-$name-$try.json" timed_out=false
   SESSION_CAP=""   # Set when the session was cut by a cap — step() then stops instead of retrying
   # Besides the working folder (this PR's repository), open the other repositories in config.json and the <name>-worktrees next to each.
   # repos.<this repo>.peers, when set, narrows the others to that list ([] = none) — a session can quote whatever it can read (README Security)
@@ -89,6 +89,9 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
   model="$(cfg '.models.session // "claude-sonnet-5-5"')"
   [ -n "$model" ] && caps+=(--model "$model")
   sub_model="$(cfg '.models.subagent // "claude-sonnet-5-5"')"
+  # null or missing leaves Claude Code's default effort. Recorded with the model below, so a comparison can hold both fixed
+  effort="$(cfg '.models.effort // empty')"
+  [ -n "$effort" ] && caps+=(--effort "$effort")
   # --setting-sources "": do not read the target repository's .claude/settings*.json or ~/.claude/settings.json. --settings is read regardless of this value.
   # Skills and agents are loaded via --plugin-dir and run regardless of this value (measured). The repository CLAUDE.md is not loaded either, so the skill reads it directly
   # dontAsk: anything not in allow is denied without asking. acceptEdits approved edits inside the working folder and mkdir/rm/mv etc. regardless of allow (measured)
@@ -148,10 +151,11 @@ run_session() {  # run_session <settings.json> <prompt> <step name> <try number>
     meta_set '.chain.sessions = ((.chain.sessions // []) + [{step:$s, try:$t, at:$at, exit_code:$rc, wall_ms:$w,
       session_id:$r.session_id, subtype:$r.subtype, duration_ms:$r.duration_ms, cost_usd:$r.total_cost_usd, num_turns:$r.num_turns, is_error:$r.is_error,
       permission_denials:($r.permission_denials | if type == "array" then length else null end),
-      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end), subagents:$sa}
+      denied_tools:($r.permission_denials | if type == "array" then [.[].tool_name] | unique else null end), subagents:$sa,
+      model:$mo, subagent_model:$smo, effort:(if $ef == "" then null else $ef end)}
       + (if $to then {timed_out:true} else {} end)])' \
       --arg s "$name" --argjson t "$try" --arg at "$at" --argjson rc "$rc" --argjson w "$wall_ms" --argjson r "$out" --argjson to "$timed_out" \
-      --argjson sa "$subs" \
+      --argjson sa "$subs" --arg mo "$model" --arg smo "$sub_model" --arg ef "$effort" \
       || log "could not write the session record to meta.json"
   else
     # Leave at least one line so failed tries are not missing from the record

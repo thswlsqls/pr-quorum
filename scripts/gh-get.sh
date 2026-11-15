@@ -4,18 +4,20 @@
 # Arguments that change the method, body, or request target are rejected; the rest are passed to `gh api --method GET`. With GET, -f becomes a query string.
 set -euo pipefail
 
-reject() { echo "gh-get.sh: read-only, does not accept '$1'" >&2; exit 1; }
+# The second argument says what to use instead, so a refused session does not try other workarounds (thin-harness plan P0-2)
+reject() { echo "gh-get.sh: read-only, does not accept '$1'${2:+ — $2}" >&2; exit 1; }
+WRITES="writes go through pr-quorum.sh (post-review, reply, patch, comment)"
 
 for a in "$@"; do
   # HTTP header names are case-insensitive, so compare in lower case (tr: bash 3.2 has no ${a,,})
   [[ "$(tr '[:upper:]' '[:lower:]' <<<"$a")" != *method-override* ]] || reject "$a"
   case "$a" in
     # For -X/--method the last value wins, so it would override the --method GET in front. -F reads and sends a local file via @file
-    -X*|--method|--method=*|--input|--input=*|-F*|--field|--field=*) reject "$a" ;;
+    -X*|--method|--method=*|--input|--input=*|-F*|--field|--field=*) reject "$a" "query parameters go in -f key=value; $WRITES" ;;
     # Do not send to another host or a full URL. graphql only works over POST
-    --hostname|--hostname=*|*://*|graphql) reject "$a" ;;
+    --hostname|--hostname=*|*://*|graphql) reject "$a" "give a REST path such as repos/<owner>/<repo>/pulls/<n>" ;;
     # -iXPOST · -iFbody=@x joined after the valueless short option -i
-    -i*) [[ "$a" =~ ^-i+[XF] ]] && reject "$a" ;;
+    -i*) [[ "$a" =~ ^-i+[XF] ]] && reject "$a" "$WRITES" ;;
   esac
 done
 
@@ -29,11 +31,11 @@ ep="${1:-}"
 [[ "$ep" != *\?* ]] || { echo "gh-get.sh: put query parameters in -f key=value (sent as the query string with GET), not after '?': $ep" >&2; exit 1; }
 # No ':' — compare/base...owner:branch reaches branches of other repositories in the fork network
 [[ ! "/$ep/" =~ /\.\.?/ ]] && [[ "$ep" =~ ^repos/([A-Za-z0-9-]+/[A-Za-z0-9._-]+)(/[A-Za-z0-9._-]+)*$ ]] \
-  && grep -Fqx -- "${BASH_REMATCH[1]}" <<<"$ok" || reject "$ep"
+  && grep -Fqx -- "${BASH_REMATCH[1]}" <<<"$ok" || reject "$ep" "the path must be repos/<owner>/<repo>/… for $(paste -sd, - <<<"$ok"), with no '..' or ':'"
 shift; v=
 for a in "$@"; do  # gh api takes one endpoint: no second positional (values of the flags below are skipped)
   if [ -n "$v" ]; then v=; continue; fi
-  case "$a" in -H|--header|-q|--jq|-t|--template|-f|--raw-field|-p|--preview|--cache) v=1 ;; --) reject "$a" ;; -*) ;; *) reject "$a" ;; esac
+  case "$a" in -H|--header|-q|--jq|-t|--template|-f|--raw-field|-p|--preview|--cache) v=1 ;; --) reject "$a" ;; -*) ;; *) reject "$a" "one endpoint per call — run gh-get.sh again for the next one" ;; esac
 done
 set -- "$ep" "$@"
 
