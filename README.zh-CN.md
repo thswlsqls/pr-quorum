@@ -258,7 +258,7 @@ chmod 600 ~/.config/pr-quorum/bot.env
 | `build.sandbox` | `"require"`(默认)：构建和测试在操作系统沙箱中运行，沙箱无法启动的机器上记为 `not measured`。`"off"`：不用沙箱，适用于需要 Docker、钥匙串，或需要沙箱屏蔽的 `~/.npmrc`、`~/.m2/settings.xml` 中私有仓库凭据的构建 |
 | `build.env_passthrough` | 构建额外保留的环境变量名(默认 `[]`；除此之外构建从清空的环境启动)。看起来像凭据的名字(`*TOKEN*`、`*SECRET*`、`*KEY*`)会被拒绝，所以私有仓库凭据不能从这里传入 |
 | `limits` | 每个步骤(`stage1`、`stage2`、`stage3`、`author`)的 `budget_usd` 和 `timeout_min`(实际耗时)。`stage1.max_rounds` 是 Stage 1 的轮数上限(缺省为 5)。缺少某个键即无此上限。被上限截断的会话不重试，链路停在 `blocked` |
-| `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值 |
+| `models` | `session`：每个链路会话的模型；`subagent`：评审员等子代理的模型。为 `null` 或缺省时用 `claude-sonnet-5-5`；为 `""` 时用 Claude Code 的默认值；`effort`：`low`·`medium`·`high`·`xhigh`·`max` 之一，作为 `--effort` 传给每个链路会话，为 `null` 或缺省时用 Claude Code 的默认值。`meta.json` 的每条会话记录都保存 `model`、`subagent_model` 和 `effort` |
 
 除 `repos.<name>.always_human`、`repos.<name>.commands`、`repos.<name>.peers` 外，所有键和示例值见 [`templates/config.json`](templates/config.json)。0.3.0 和 0.4.0 新增的键都是可选的；没有它们时链路的行为与以前相同，只是构建会在沙箱中运行，并且自 0.10.0 起会话使用 Sonnet 运行(`models`)。模板里带有示例 `limits`(Stage 1 为 3 轮)；不想要某个上限就删掉对应的键。
 

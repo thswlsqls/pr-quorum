@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.19.0
+
+New optional `config.json` key: `models.effort` (default `null`). Without it the chain behaves as in 0.18.1.
+
+- `models.effort` (`low`, `medium`, `high`, `xhigh`, `max`) is passed to each chain session as `--effort`. Each session record in `meta.json` now keeps `model`, `subagent_model`, and `effort` (`null` when unset), so a later comparison can hold the model and effort fixed and show which ones ran. Whether subagents follow the session's effort was not checked. `doctor.sh` fails on any other value.
+- `gh-get.sh` and `pr-quorum.sh` refusals now say what to use instead (a `-f` query parameter, a `repos/<owner>/<repo>/…` path for the allowed repositories, one endpoint per call, the `runs/` folder for body files). The refusal conditions are unchanged.
+- The rule files keep only the reason for each measured rule; the incidents behind them (PR #31–#34, the original harness) moved to `docs/harness.md` §6-4. Review sessions no longer read them on every run. No rule changed.
+
 ## 0.18.1
 
 No new `config.json` keys.

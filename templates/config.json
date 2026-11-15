@@ -18,5 +18,5 @@
     "stage3": { "budget_usd": 12, "timeout_min": 45 },
     "author": { "budget_usd": 3, "timeout_min": 20 }
   },
-  "models": { "session": null, "subagent": null }
+  "models": { "session": null, "subagent": null, "effort": null }
 }

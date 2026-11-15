@@ -91,6 +91,9 @@ OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
 for k in auto_merge require_tests ci_clears_test_fail mcp; do
   [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "boolean")')" = true ] || bad "$k must be true or false, not $(cfg --arg k "$k" '.[$k] | tojson')"
 done
+# models.effort goes to claude --effort, which accepts only these levels
+[ "$(cfg '(.models.effort // null) as $e | $e == null or ([$e] | inside(["low","medium","high","xhigh","max"]))')" = true ] \
+  || bad "models.effort must be null or one of low, medium, high, xhigh, max, not $(cfg '.models.effort | tojson')"
 for k in ci_test_checks ci_protected_paths; do
   [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "array" and all(.[]; type == "string"))')" = true ] || bad "$k must be an array of strings"
 done

@@ -131,7 +131,7 @@ Write measurement results **as the command and output verbatim** in the evidence
 
 > **Include the full text of invalidation conditions I-1 – I-8 from `00-criteria.md` §1 in the challenger prompt too.** Giving only the codes is not enough.
 > Question ④ below only says "do any of the invalidation conditions apply", so it is easy to build the prompt without the full text,
-> and then the challenger **reports that it could not compare word for word** (measured — PR #33 round 1, C-05 challenge).
+> and then the challenger **reports that it could not compare word for word**.
 > To judge by the same standard as the judge, the challenger must see the same text. The same goes for the root `REVIEW.md`, if one was read (`01-stages.md` §3-1).
 
 ```
@@ -187,4 +187,3 @@ Handling rules
 - **Do not fix verifier findings on trust.** The aggregator re-checks the evidence directly.
 
 > **What V2 catches is "the quote is right, but the conclusion goes beyond the quote".**
-> In round 1 of the original harness, all 8 cases V2 caught were of that type.
