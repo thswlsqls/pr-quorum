@@ -91,6 +91,10 @@ OWNER="$(cfg '.owner // empty')"; BOT="$(cfg '.bot // empty')"
 for k in auto_merge require_tests ci_clears_test_fail mcp; do
   [ "$(cfg --arg k "$k" '(has($k) | not) or (.[$k] | type == "boolean")')" = true ] || bad "$k must be true or false, not $(cfg --arg k "$k" '.[$k] | tojson')"
 done
+# repos.<name>.required_checks are CI check names the merge gate looks up on the head
+for k in $(cfg '.repos | to_entries[] | select(.value | has("required_checks") and (.required_checks | type == "array" and all(.[]; type == "string") | not)) | .key'); do
+  bad "repos.$k.required_checks must be an array of strings"
+done
 # models.effort goes to claude --effort, which accepts only these levels
 [ "$(cfg '(.models.effort // null) as $e | $e == null or ([$e] | inside(["low","medium","high","xhigh","max"]))')" = true ] \
   || bad "models.effort must be null or one of low, medium, high, xhigh, max, not $(cfg '.models.effort | tojson')"
