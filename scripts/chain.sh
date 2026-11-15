@@ -338,7 +338,7 @@ merge_gate() {
         result:(if .__typename == "StatusContext" or .context != null
                 then (if .state | IN("PENDING", "EXPECTED") then "pending" elif .state | IN("FAILURE", "ERROR") then .state else "ok" end)
                 else (if .status != "COMPLETED" then "pending" elif .conclusion | IN("SUCCESS", "NEUTRAL", "SKIPPED") then "ok" else .conclusion end) end)}]
-      | {sha:$sha, checks:length, ok:[.[] | select(.result == "ok") | .name], failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
+      | {sha:$sha, checks:length, names:[.[].name], ok:[.[] | select(.result == "ok") | .name], failing:[.[] | select(.result | IN("ok", "pending") | not) | "\(.name) is \(.result)"],
          pending:[.[] | select(.result == "pending") | .name]}')" \
       || { chain_state "blocked" "merge gate: could not read the CI checks from GitHub — run the chain again"; exit 4; }
     [ "$(jq '.pending | length' <<<"$ci")" -gt 0 ] && [ "$(jq -r '.sha' <<<"$ci")" = "$head" ] \
@@ -351,6 +351,15 @@ merge_gate() {
   else
     while IFS= read -r i; do reasons+=("CI check $i on $head"); done < <(jq -r '.failing[]' <<<"$ci")
     [ "$(jq '.pending | length' <<<"$ci")" = 0 ] || reasons+=("CI checks still running on $head — run the chain again")
+  fi
+  # "required_checks" (names) under the repo in config.json: each named check must be attached to the head. Without it an
+  # empty rollup (CI not triggered, or not attached yet) has nothing failing and nothing pending, and would pass as green.
+  # Only absence is reported here; a named check that is running or failed already has its own reason above
+  if [ "$(jq -r '.sha' <<<"$ci")" = "$head" ]; then
+    local req_missing
+    req_missing="$(cfg -r --arg r "$REPO" --argjson have "$(jq -c '.names // []' <<<"$ci")" \
+      '[(.repos[$r].required_checks // [])[] | select(. as $n | $have | index($n) | not)] | join(", ")')" || req_missing="(could not read required_checks)"
+    [ -z "$req_missing" ] || reasons+=("required CI check missing on $head: $req_missing — run the chain again")
   fi
 
   # "ci_clears_test_fail": true in config.json — an author pass's tests can fail for reasons the code does not cause

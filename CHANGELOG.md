@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.0
+
+New optional `config.json` key: `repos.<name>.required_checks` (default `[]`). Without it the chain behaves as in 0.19.0.
+
+- The merge gate passed a head with no CI checks at all: nothing failing and nothing pending reads as green, so a workflow that did not trigger, or had not attached yet, let the PR merge untested by CI. `repos.<name>.required_checks` names checks that must be attached to the head; a missing one blocks with `required CI check missing on <head>: <names> — run the chain again`. A named check that is running or failed already blocks with its own reason. The check names are recorded in `meta.json` (`chain.ci.names`).
+- `doctor.sh` fails when `repos.<name>.required_checks` is not an array of strings.
+
 ## 0.19.0
 
 New optional `config.json` key: `models.effort` (default `null`). Without it the chain behaves as in 0.18.1.

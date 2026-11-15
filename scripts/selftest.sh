@@ -838,6 +838,17 @@ g35_ci_protected_path() {
   g_run 3 blocked 'ci_protected_paths (ci/run-tests.sh)'
 }
 check "chain G35 ci_clears_test_fail, PR edits a ci_protected_paths file → blocked" g35_ci_protected_path
+# G36 — required_checks: a named check that is not attached to the head blocks the merge gate; an empty rollup no longer passes as green
+req_checks_on() { jq '.repos.demo.required_checks = ["checks"]' "$STUB/home/.pr-quorum/config.json" > "$STUB/t" && mv "$STUB/t" "$STUB/home/.pr-quorum/config.json"; }
+g36_required_check_missing() { g_home .; req_checks_on; g_run 3 blocked 'required CI check missing on'; }
+g36b_required_check_other_name() {
+  g_home . '[{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"SUCCESS"}]'; req_checks_on
+  g_run 3 blocked 'checks — run the chain again'
+}
+g36c_required_check_green() { g_home . "$G_GREEN"; req_checks_on; g_run 0 ready ''; }
+check "chain G36 required_checks, no CI checks on the head → blocked" g36_required_check_missing
+check "chain G36b required_checks, only another check is green → blocked" g36b_required_check_other_name
+check "chain G36c required_checks, the named check is green → ready" g36c_required_check_green
 # O1 — origins accepts {code: {class, grade}} and refuses an unknown class
 o1_origins() {
   local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home
@@ -1248,6 +1259,13 @@ d4c_effort_level() {
   ! grep -q 'models.effort' <<<"$out" || { echo "xhigh: $out"; return 1; }
 }
 check "doctor D4c models.effort outside the levels fails"   d4c_effort_level
+d4d_required_checks_type() {
+  local out; doctor_home '.repos.demo.required_checks = "checks"' || return 1; out="$(stub_doctor)"
+  grep -q 'repos.demo.required_checks must be an array of strings' <<<"$out" || { echo "string: $out"; return 1; }
+  doctor_home '.repos.demo.required_checks = ["checks"]' || return 1; out="$(stub_doctor)"
+  ! grep -q 'required_checks' <<<"$out" || { echo "array: $out"; return 1; }
+}
+check "doctor D4d repos.<name>.required_checks must be strings" d4d_required_checks_type
 
 # D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
 # repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh
