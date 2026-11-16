@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.1
+
+- Review sessions allow `git ls-tree`. In the 0.19.0 trial runs it was the most common command refused in the review session itself (5 of 9), from the step that finds `CLAUDE.md` and `REVIEW.md` at the base commit. It reads nothing `git show <sha>:<path>` could not already read. `author-settings.json` is unchanged.
+
 ## 0.20.0
 
 New optional `config.json` key: `repos.<name>.required_checks` (default `[]`). Without it the chain behaves as in 0.19.0.
