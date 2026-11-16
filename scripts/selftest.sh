@@ -510,6 +510,17 @@ t12b_pg6_nested_body() {
   out="$(stub_run "$PR_QUORUM" reply demo 1 111000 "$d/x/reply.md" 2>&1)" && [ "$(stub_replies)" = 1 ] || { echo "after pg6: $out"; return 1; }
 }
 check "post T12b body in a subfolder of a snapshot folder is checked" t12b_pg6_nested_body
+# T12c — a body inside pre-polish/ (left out of the checksum) is never posted; a name with a newline still changes the checksum
+t12c_pg6_excluded_and_newline() {
+  local rc d="$STUB_RUN/outputs/stage3"; stub_home
+  stub_run "$PR_QUORUM" snapshot "$d" >/dev/null && stub_run "$PR_QUORUM" pg6 "$d" >/dev/null || { echo "snapshot or pg6 failed"; return 1; }
+  rc=0; stub_run "$PR_QUORUM" reply demo 1 111000 "$d/pre-polish/summary.md" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 1 ] && [ "$(stub_replies)" = 0 ] || { echo "pre-polish body: exit $rc, replies $(stub_replies)"; return 1; }
+  mkdir -p "$d/x"; printf 'later text\n' > "$d/x/a"$'\n'"b.md"
+  rc=0; stub_reply >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] && [ "$(stub_replies)" = 0 ] || { echo "newline name: exit $rc, replies $(stub_replies)"; return 1; }
+}
+check "post T12c pre-polish body refused, newline name counted" t12c_pg6_excluded_and_newline
 # T13 — --accept records a pass for token-only differences, never for a changed comment
 t13_pg6_accept() {
   local rc d="$STUB_RUN/outputs/stage3"; stub_home

@@ -484,15 +484,16 @@ pg6_where() {  # pg6_where <stage folder> — "<meta.json>\t<folder under the ru
   printf '%s\t%s\n' "$runs/${rest%%/*}/meta.json" "${rest#*/}"
 }
 post_text_sum() {  # post_text_sum <stage folder> — one checksum over every file under the folder that a post can carry: not pre-polish/,
-  # not posting-*.json (post-review writes it there), and not a subfolder with its own pre-polish/ (a later pass, checked on its own)
-  local d="$1" f n skip list
-  skip="$(cd "$d" && { find . -mindepth 2 -type d -name pre-polish 2>/dev/null || true; } | sed 's|^\./||; s|/pre-polish$|/|')"
-  list="$(cd "$d" && { find . -type f -not -path './pre-polish/*' -not -name 'posting-*.json' 2>/dev/null || true; } | sed 's|^\./||' | LC_ALL=C sort)"
-  while IFS= read -r f; do
-    [ -n "$f" ] || continue
-    while IFS= read -r n; do [ -z "$n" ] || [ "${f#"$n"}" = "$f" ] || continue 2; done <<<"$skip"
-    echo "== $f"; cat "$d/$f"
-  done <<<"$list" | cksum | tr -d ' \t'
+  # not posting-*.json (post-review writes it there), and not a subfolder with its own pre-polish/ (a later pass, checked on its own).
+  # Names are read NUL-separated, so a newline in a name cannot split one entry into two. Fails (1) if any file cannot be read
+  local d="$1" f n files=() skip=()
+  while IFS= read -r -d '' n; do skip+=("${n%/pre-polish}/"); done < <(cd "$d" && find . -mindepth 2 -type d -name pre-polish -print0 2>/dev/null)
+  while IFS= read -r -d '' f; do
+    for n in ${skip[@]+"${skip[@]}"}; do [ "${f#"$n"}" = "$f" ] || continue 2; done
+    [ -r "$d/$f" ] || return 1
+    files+=("$f")
+  done < <(cd "$d" && find . -type f -not -path './pre-polish/*' -not -name 'posting-*.json' -print0 2>/dev/null | LC_ALL=C sort -z)
+  for f in ${files[@]+"${files[@]}"}; do printf '== %s\0' "$f"; cat "$d/$f" || return 1; done | cksum | tr -d ' \t'
 }
 snapshot_folder_of() {  # snapshot_folder_of <file to post> — the nearest folder above it, up to the run's outputs/, that has pre-polish/; nothing if none.
   # Resolved from the real path, so a body in a sibling or nested folder (or behind a link) is still checked against its stage's snapshot
@@ -506,11 +507,15 @@ snapshot_folder_of() {  # snapshot_folder_of <file to post> — the nearest fold
   done
 }
 require_pg6() {  # require_pg6 <file to post>
-  local d w m rel
+  local d w m rel sum real
+  # The checksum leaves out pre-polish/ and posting-*.json, so a body there could change after the pass unseen — never post from them
+  real="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)/$(basename "$1")"
+  case "/$real/" in */pre-polish/*|*/posting-*.json/) die "$E_USAGE" "a body under pre-polish/ or a posting-*.json file is not posted: $1" ;; esac
   d="$(snapshot_folder_of "$1")"; [ -n "$d" ] || return 0
   w="$(pg6_where "$d")"; [ -n "$w" ] || return 0
   m="${w%%$'\t'*}"; rel="${w#*$'\t'}"
-  [ "$(jq -r --arg r "$rel" '.pg6_pass[$r].sum // empty' "$m")" = "$(post_text_sum "$d")" ] \
+  sum="$(post_text_sum "$d")" || die "$E_GATE" "a file under $d cannot be read, so PG6's record cannot be checked — nothing was posted"
+  [ "$(jq -r --arg r "$rel" '.pg6_pass[$r].sum // empty' "$m")" = "$sum" ] \
     || die "$E_GATE" "PG6 has not passed on the text in $d as it is now — run pr-quorum.sh pg6 on that folder after the last edit, then post. If a later gate (PG5) made you change a comment, take the snapshot again first. Nothing was posted"
 }
 pg6_record() {  # pg6_record <stage folder> [accepted reason]
@@ -518,7 +523,8 @@ pg6_record() {  # pg6_record <stage folder> [accepted reason]
   [ -z "${PR_QUORUM_PG6_NO_RECORD:-}" ] || return 0
   w="$(pg6_where "$1")"; [ -n "$w" ] || return 0
   m="${w%%$'\t'*}"; rel="${w#*$'\t'}"
-  jq --arg r "$rel" --arg s "$(post_text_sum "$1")" --arg at "$(now_iso)" --arg a "${2:-}" \
+  local sum; sum="$(post_text_sum "$1")" || die "$E_GATE" "PG6 passed but a file under $1 cannot be read, so the pass was not recorded"
+  jq --arg r "$rel" --arg s "$sum" --arg at "$(now_iso)" --arg a "${2:-}" \
     '.pg6_pass[$r] = ({sum:$s, at:$at} + (if $a == "" then {} else {accepted:$a} end))' "$m" > "$m.tmp.$$" && mv "$m.tmp.$$" "$m" \
     || die "$E_API" "PG6 passed but could not be recorded in $m — run pg6 again"
 }
