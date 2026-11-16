@@ -53,6 +53,7 @@
       "Bash(date:*)",
       "Bash(mkdir:*)",
       "Bash(git show:*)",
+      "Bash(git ls-tree:*)",
       "Bash(git status:*)"
     ],
     "deny": [
