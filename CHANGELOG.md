@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.21.0
+
+No new `config.json` keys.
+
+- The risk scorecard names, under the score, the tests the merge gate read and the CI checks on the scored commit: the newest author pass that ran tests (its result and commit, written by the author session from the harness wrapper's run), or the green CI that replaced it under `ci_clears_test_fail`, and `chain.ci` when it is for the scored commit. A person the chain stops for no longer looks them up in the run folder or the Actions tab. The scorecard is posted at any level, so `ready` and `merged` PRs get the line too.
+- `doctor.sh` warns when `auto_merge` is on and a repository has no `repos.<name>.required_checks`: a head with no CI checks attached passes the merge gate's CI part. A warning, not a failure, since some repositories have no CI.
+- `risk-audit.sh` counts reverts and fix candidates in separate columns, per PR and per level. A revert undoes the PR; a fix candidate only shares a non-document file and a title starting with fix, so it is not a defect count until a person reads it.
+- `selftest.sh` pins the merge gate's order when reasons overlap: a merge gate reason keeps the PR `blocked` before the judges, Stage 3, and pre-existing checks and the risk score run (G40–G43). New cases also cover the scorecard line (R7a–R7c), the doctor warning (D4e), and `risk-audit.sh` on a fixed PR list (A1).
+
 ## 0.20.1
 
 - Review sessions allow `git ls-tree`. In the 0.19.0 trial runs it was the most common command refused in the review session itself (5 of 9), from the step that finds `CLAUDE.md` and `REVIEW.md` at the base commit. It reads nothing `git show <sha>:<path>` could not already read. `author-settings.json` is unchanged.

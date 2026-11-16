@@ -273,8 +273,18 @@ cmd_risk() {
                                                                then .risk.commented_sha else null end)})' \
     --slurpfile r "$tmp/risk.json"
 
+  # The tests and CI the merge gate read, under the score, so a person need not open the run folder or the Actions tab.
+  # Tests: the newest author pass that ran them, read like the merge gate (skip and "not measured" are read past).
+  # CI: chain.ci, which the merge gate writes before the risk gate — left out when it is for another commit
+  local f res tests='null' unmeasured=false
+  while IFS= read -r f; do
+    res="$(jq -r '.tests.result // empty' "$f" 2>/dev/null)" || { tests="$(jq -n --arg f "${f##*/}" '{unreadable:$f}')"; break; }
+    case "$res" in ""|skip) continue ;; "not measured") unmeasured=true; continue ;; esac
+    tests="$(jq -c --arg f "${f##*/}" '{result:.tests.result, sha:(.to_sha // ""), file:$f}' "$f")"; break
+  done < <(find "$d/outputs/author" -name 'round-*.json' 2>/dev/null | sort -r)
+
   # The scorecard wording follows the auto_merge setting. When it is off, the chain does not merge even a low PR
-  jq -r --arg am "$(cfg '.auto_merge == true')" '
+  jq -r --arg am "$(cfg '.auto_merge == true')" --argjson tests "$tests" --argjson unm "$unmeasured" --slurpfile meta "$m" '
     def action: {low: (if $am == "true" then "Merges automatically once every other merge gate passes."
                        else "Auto-merge is off. A person merges once every other merge gate passes." end),
                  medium: "Not auto-merging. One person checks it and merges manually.",
@@ -282,7 +292,21 @@ cmd_risk() {
                  critical: "Not auto-merging. A person first decides whether to split the PR."}[.level];
     def files: if length == 0 then "" elif length <= 2 then " — " + (map("`\(.)`") | join(", "))
                else " — `\(.[0])` and \(length - 1) more" end;
+    def s7: if . == "" or . == null then "?" else .[0:7] end;
+    # tests_from_ci is written only when a green CI replaced the result of a pass on the gate head, so the SHA match is enough
+    def records: ($meta[0].chain // {}) as $ch | .sha as $sha
+      | (if $tests == null then (if $unm then "not measured — no author pass could run them" else "no author pass ran them" end)
+         elif $tests.unreadable then "author pass record \($tests.unreadable) could not be read"
+         elif ($ch.tests_from_ci.sha // "") != "" and $ch.tests_from_ci.sha == $tests.sha
+           then "`\($tests.result)` at `\($tests.sha | s7)` (\($tests.file)), replaced by green CI on that commit (\($ch.tests_from_ci.checks) check(s), `ci_clears_test_fail`)"
+         else "`\($tests.result)` at `\($tests.sha | s7)` — run through the harness wrapper, result written by the author session (\($tests.file))"
+              + (if $unm then "; a later author pass could not measure them" else "" end) end) as $t
+      | "Tests: \($t)"
+        + (if ($ch.ci.sha // "") == $sha
+           then " · CI: \($ch.ci.checks) check(s) on `\($sha | s7)`, \($ch.ci.failing | length) failing, \($ch.ci.pending | length) pending"
+           else "" end);
     "**Auto-merge risk \(.score) / 100 — `\(.level)`** · scored commit `\(.sha[0:7])`\n",
+    "\(records)\n",
     # One line per override reason (risk.jq joins them with "; "). A secret replaces the level action; an owner-listed path keeps it
     ((.override // "") | split("; ")[] | select(. != "")
      | if startswith("Plaintext secret") then "**\(.).** Not auto-merging. Remove the secret, rotate any value already pushed, then a person reviews again.\n"
