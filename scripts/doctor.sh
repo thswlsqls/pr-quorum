@@ -136,6 +136,10 @@ for r in $(cfg '.repos | keys[]'); do
   # risk.jq's path patterns were written for the first repository; with auto-merge on, a sensitive path they miss merges as low
   [ "$(cfg '.auto_merge == true')" = true ] && [ "$(cfg --arg r "$r" '.repos[$r].always_human // [] | length')" = 0 ] \
     && warn "$r has auto_merge on and no always_human — list this repository's sensitive paths, or check the risk patterns fit it (rules/03-risk.md)"
+  # Without required_checks a head with no CI checks attached has nothing failing or pending, so it passes the merge gate's CI part and merges
+  # untested by CI. Only a warning: some repositories have no CI
+  [ "$(cfg '.auto_merge == true')" = true ] && [ "$(cfg --arg r "$r" '.repos[$r].required_checks // [] | length')" = 0 ] \
+    && warn "$r has auto_merge on and no required_checks — a head with no CI checks at all passes the merge gate; list this repository's CI check names in repos.$r.required_checks"
   # ./X must exist in path (commands run at the worktree root). npm and friends often run in a subfolder (--prefix, cd app), so only a warning
   [ -n "$pok" ] || continue
   while IFS=$'\t' read -r k c; do

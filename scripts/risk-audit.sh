@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# risk-audit.sh — puts each merged PR's risk score next to any fix or revert PR that touched the same files within 14 days of the merge.
+# risk-audit.sh — puts each merged PR's risk score next to any revert or fix PR that touched the same files within 14 days of the merge.
 # It exists so the auto-merge threshold is tuned from records, not gut feeling (rules/03-risk.md "Threshold tuning"). Writes nothing to GitHub.
+# Reverts and fixes are counted apart: a revert undoes the PR, while a fix shares as little as one file and is only a candidate until a person reads it
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/config.sh"
@@ -32,19 +33,22 @@ jq -r --slurpfile s "$TMP/scored.json" --argjson w "$WINDOW_DAYS" '
   | ($s[0] | map({(.number | tostring): .}) | add) as $by
   | map(. + $by[.number | tostring] + {t: (.mergedAt | fromdateiso8601)}) as $prs
   | [ $prs[] | . as $a
+      | [ $prs[] | select(.t > $a.t and .t <= $a.t + $w * 86400 and ([.files[] | IN($a.files[])] | any)) ] as $near
       | $a + {
-          followups: [ $prs[] | select(.t > $a.t and .t <= $a.t + $w * 86400
-                                       and (.title | test("^\\s*(fix|revert)"; "i"))
-                                       and ([.files[] | IN($a.files[])] | any)) | .number ],
+          reverts: [ $near[] | select(.title | test("^\\s*revert"; "i")) | .number ],
+          fixes: [ $near[] | select(.title | test("^\\s*fix"; "i")) | .number ],
           watching: ($now < $a.t + $w * 86400) } ] as $rows
-  | "| PR | Level | Score | Chain auto-merged | fix/revert PRs within 14 days |",
-    "|---|---|---|---|---|",
+  | def cell($l): if ($l | length) > 0 then $l | map("#\(.)") | join(", ") elif .watching then "watching" else "none" end;
+    "| PR | Level | Score | Chain auto-merged | Revert PRs within 14 days | Fix candidates within 14 days |",
+    "|---|---|---|---|---|---|",
     ($rows | sort_by(-.t)[]
-      | "| #\(.number) | \(.level) | \(.score) | \(if .auto then "yes" else "-" end) | \(if (.followups | length) > 0 then (.followups | map("#\(.)") | join(", ")) elif .watching then "watching" else "none" end) |"),
+      | "| #\(.number) | \(.level) | \(.score) | \(if .auto then "yes" else "-" end) | \(cell(.reverts)) | \(cell(.fixes)) |"),
     "",
-    "| Level | Merged | With follow-up fixes | Watching (excluded from the previous two columns) |",
-    "|---|---|---|---|",
+    "| Level | Merged | With a revert | With fix candidates | Watching (excluded from the previous three columns) |",
+    "|---|---|---|---|---|",
     ($rows | group_by(.level)[]
-      | ([.[] | select((.watching | not) or (.followups | length) > 0)]) as $done   # A follow-up already attached means the outcome is known
-      | "| \(.[0].level) | \($done | length) | \([$done[] | select((.followups | length) > 0)] | length) | \(length - ($done | length)) |")
+      | ([.[] | select((.watching | not) or (.reverts + .fixes | length) > 0)]) as $done   # A follow-up already attached means the outcome is known
+      | "| \(.[0].level) | \($done | length) | \([$done[] | select((.reverts | length) > 0)] | length) | \([$done[] | select((.fixes | length) > 0)] | length) | \(length - ($done | length)) |"),
+    "",
+    "A fix candidate shares at least one non-document file with the PR and has a title starting with fix — it is not a defect count until a person reads it."
 ' "$TMP/prs.json"

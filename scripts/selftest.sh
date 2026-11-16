@@ -155,6 +155,8 @@ case "$1" in
   search) cat "$S/search" 2>/dev/null || echo '[]'; exit 0 ;;    # watch.sh --once: no review requests unless $S/search holds some
   repo) [ -e "$S/push" ] && { echo main; exit 0; }; exit 1 ;;
   pr)
+    # risk-audit.sh (A1): the merged PR list is $S/merged.json
+    [ "$2" != list ] || { cat "$S/merged.json" 2>/dev/null || echo '[]'; exit 0; }
     # author-push.sh test (H2): a same-repository PR on branch pr whose head on GitHub is the SHA in $S/push
     if [ -e "$S/push" ]; then
       case "$*" in *isCrossRepository*) echo false ;; *headRefName*) echo pr ;; *headRefOid*) cat "$S/push" ;; esac
@@ -224,6 +226,9 @@ case "$path" in
     jq --argjson id $((500 + n)) --argjson p "$b" '. + [{id:$id, user:{login:"quorum-bot"}, body:$p.body}]' "$S/issues.json" > "$S/t" && mv "$S/t" "$S/issues.json"
     [ ! -e "$S/fail-icomment" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     echo "{\"id\":$((500 + n))}" | out ;;
+  */pulls/*/files)   # risk-audit.sh (A1): PR <n>'s files are $S/files-<n>.json
+    n="${path%/files}"; n="${n##*/}"; [ -f "$S/files-$n.json" ] || { echo "HTTP 404: Not Found" >&2; exit 1; }
+    out < "$S/files-$n.json" ;;
   repos/acme/demo)
     [ ! -e "$S/fail-repo" ] || { echo "HTTP 502: Bad Gateway" >&2; exit 1; }
     [ -e "$S/repo-ok" ] && exit 0
@@ -849,6 +854,52 @@ g36c_required_check_green() { g_home . "$G_GREEN"; req_checks_on; g_run 0 ready 
 check "chain G36 required_checks, no CI checks on the head → blocked" g36_required_check_missing
 check "chain G36b required_checks, only another check is green → blocked" g36b_required_check_other_name
 check "chain G36c required_checks, the named check is green → ready" g36c_required_check_green
+# R7a–R7c — the scorecard's line under the score: the tests the merge gate read and the head's CI checks (chain.ci), in the comment the PR gets
+risk_line() { sed -n 3p "$STUB_RUN/outputs/risk.md"; }
+r7_want() {  # r7_want <expected line 3> — also on the scorecard comment the chain posted, when there is one
+  [ "$(risk_line)" = "$1" ] || { echo "line 3: $(risk_line)"; echo "want:   $1"; return 1; }
+  [ "$(jq length "$STUB/state/issues.json")" = 0 ] || jq -e --arg l "$1" '.[-1].body | contains($l)' "$STUB/state/issues.json" >/dev/null \
+    || { echo "the posted scorecard does not hold the line"; return 1; }
+}
+r7a_records_line() {
+  g_home . "$G_GREEN"; g_run 0 ready '' || return 1
+  r7_want 'Tests: `pass` at `aaaaaaa` — run through the harness wrapper, result written by the author session (round-02.json) · CI: 1 check(s) on `aaaaaaa`, 0 failing, 0 pending'
+}
+r7b_records_from_ci() {
+  g_home . "$G_GREEN"; author_tests pass fail; ci_clears_on; g_run 0 ready '' || return 1
+  r7_want 'Tests: `fail` at `aaaaaaa` (round-02.json), replaced by green CI on that commit (1 check(s), `ci_clears_test_fail`) · CI: 1 check(s) on `aaaaaaa`, 0 failing, 0 pending'
+}
+# Called by hand: no author pass, and a chain.ci from another commit is left out
+r7c_records_none() {
+  local out
+  stub_home; jq '.chain.ci = {sha:"dddddddddddddddddddddddddddddddddddddddd", checks:2, failing:[], pending:[]}' "$STUB_RUN/meta.json" > "$STUB/t" && mv "$STUB/t" "$STUB_RUN/meta.json"
+  out="$(stub_run "$PR_QUORUM" risk demo 1 2>&1)" || { echo "$out"; return 1; }
+  r7_want 'Tests: no author pass ran them' || return 1
+  mkdir -p "$STUB_RUN/outputs/author"; echo '{"pushed":false,"tests":{"result":"not measured"}}' > "$STUB_RUN/outputs/author/round-01.json"
+  out="$(stub_run "$PR_QUORUM" risk demo 1 2>&1)" || { echo "$out"; return 1; }
+  r7_want 'Tests: not measured — no author pass could run them'
+}
+check "risk R7a scorecard names the tests and CI the gate read"  r7a_records_line
+check "risk R7b scorecard names a test result replaced by CI"    r7b_records_from_ci
+check "risk R7c scorecard with no author pass and stale CI"      r7c_records_none
+# A1 — risk-audit.sh on a fixed merged PR list (stub gh): a revert and a fix touching the PR's file within 14 days land in their own columns;
+# a fix on another file and one after the window attach to nothing
+a1_risk_audit_split() {
+  local out f
+  stub_home
+  jq -n '[{number:10, title:"feat: price", mergedAt:"2026-01-01T00:00:00Z"}, {number:11, title:"Revert \"feat: price\"", mergedAt:"2026-01-03T00:00:00Z"},
+          {number:12, title:"Fix rounding", mergedAt:"2026-01-05T00:00:00Z"}, {number:13, title:"fix: other", mergedAt:"2026-01-06T00:00:00Z"},
+          {number:14, title:"fix: late", mergedAt:"2026-02-01T00:00:00Z"}]' > "$STUB/state/merged.json"
+  for f in 10:src/a.ts 11:src/a.ts 12:src/a.ts 13:src/b.ts 14:src/a.ts; do
+    jq -n --arg f "${f#*:}" '[{filename:$f, status:"modified", additions:5, deletions:0, patch:"+x"}]' > "$STUB/state/files-${f%%:*}.json"
+  done
+  out="$(stub_run bash "$HARNESS_DIR/scripts/risk-audit.sh" demo 5 2>&1)" || { echo "$out"; return 1; }
+  grep -q '^| #10 | .* | #11 | #12 |$' <<<"$out" && grep -q '^| #11 | .* | none | #12 |$' <<<"$out" && grep -q '^| #13 | .* | none | none |$' <<<"$out" \
+    && grep -q '^| #12 | .* | none | none |$' <<<"$out" && grep -q '^| Level | Merged | With a revert | With fix candidates |' <<<"$out" \
+    && [ "$(jq -Rn '[inputs | select(test("^\\| (low|medium|high|critical) \\|")) | split(" | ") | .[2] | tonumber] | add' <<<"$out")" = 1 ] \
+    || { echo "$out"; return 1; }
+}
+check "risk-audit A1 revert and fix candidates in their own columns" a1_risk_audit_split
 # O1 — origins accepts {code: {class, grade}} and refuses an unknown class
 o1_origins() {
   local f="$STUB_RUN/outputs/stage3/origins.json" rc=0; stub_home
@@ -871,6 +922,24 @@ check "chain G19b uncounted try, then a try with 0 → ready"      g19b_died_try
 check "chain G17 Stage 1 subagent count unknown → ready"         g17_unknown_count
 check "chain G18 Stage 1 with 4 subagents → ready"               g18_judges
 check "chain G19 Stage 1 retry launched judges → ready"          g19_retry_judges
+# G40–G43 — reasons that overlap: any merge gate reason makes the PR blocked before the needs-human checks and the risk score run,
+# so a later check (judges, Stage 3 grades, pre-existing defects) never turns a blocked PR into needs-human; between needs-human
+# checks the earlier one names the stop
+NOJUDGE='.chain.sessions = [{step:"stage1", try:1, subagents:0}]'
+g40_regressed_no_judges() { g_home ".stage1[0].comments = [{code:\"C-02\", grade:\"minor\", blocking:false}] | .stage2[0].verdicts = {\"C-02\":\"regressed\"} | $NOJUDGE"; g_run 3 blocked 'latest verdict is regressed: C-02'; }
+g41_fail_missed_major() { g_home '.stage3 = {comments:[{code:"P-01", grade:"major"}]}'; author_tests pass fail; g_run 3 blocked 'tests failed in the last author pass that ran them'; }
+g42_no_judges_pre_existing() { g_home "$NOJUDGE | .stage1[0].summary_items = [{code:\"C-07\", grade:\"critical\", blocking:false, pre_existing:true}]"; g_run 3 needs-human 'Stage 1 ran without judges'; }
+g43_regressed_ci_red() {
+  g_home '.stage1[0].comments = [{code:"C-02", grade:"minor", blocking:false}] | .stage2[0].verdicts = {"C-02":"regressed"}' \
+    '[{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE"}]'
+  g_run 3 blocked 'latest verdict is regressed: C-02' || return 1
+  grep -qF 'CI check build is FAILURE' <<<"$(stub_meta '.chain.reason')" || { echo "reason '$(stub_meta '.chain.reason')' does not name the CI check"; return 1; }
+  [ "$(stub_meta '.risk // "none"')" = none ] || { echo "the risk gate scored a blocked PR: $(stub_meta -c .risk)"; return 1; }
+}
+check "chain G40 regressed + 0 judges → blocked"                 g40_regressed_no_judges
+check "chain G41 tests fail + Stage 3 missed major → blocked"     g41_fail_missed_major
+check "chain G42 0 judges + pre-existing critical → judges stop" g42_no_judges_pre_existing
+check "chain G43 regressed + red CI → blocked, both named, no score" g43_regressed_ci_red
 # S1–S2 — run_session counts the subagent transcripts in the session's Claude Code project folder, or records null when there is none
 s_count() {  # s_count <transcripts to create, or "none"> <want: unique subagents of the session records>
   local key i
@@ -1266,6 +1335,16 @@ d4d_required_checks_type() {
   ! grep -q 'required_checks' <<<"$out" || { echo "array: $out"; return 1; }
 }
 check "doctor D4d repos.<name>.required_checks must be strings" d4d_required_checks_type
+# D4e — auto_merge on with no required_checks warns (a head with no CI checks passes the gate); filled, or auto_merge off, does not
+d4e_auto_merge_no_required_checks() {
+  local out; doctor_home '.auto_merge = true' || return 1; out="$(stub_doctor)"
+  grep -q '^warn — demo has auto_merge on and no required_checks' <<<"$out" || { echo "empty: $out"; return 1; }
+  doctor_home '.auto_merge = true | .repos.demo.required_checks = ["checks"]' || return 1; out="$(stub_doctor)"
+  ! grep -q 'no required_checks' <<<"$out" || { echo "filled: $out"; return 1; }
+  doctor_home || return 1; out="$(stub_doctor)"
+  ! grep -q 'no required_checks' <<<"$out" || { echo "auto_merge off: $out"; return 1; }
+}
+check "doctor D4e auto_merge with no required_checks warns"      d4e_auto_merge_no_required_checks
 
 # D5–D7 — doctor with gh logged in: a wrapper over the stub gh answers auth status, `user` (alice, or quorum-bot for the bot token),
 # repos/acme/demo (404 to the bot token when $STUB/state/bot-404 exists) and the bot's collaborator GET; the rest goes to the stub gh
