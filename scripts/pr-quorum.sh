@@ -483,22 +483,31 @@ pg6_where() {  # pg6_where <stage folder> — "<meta.json>\t<folder under the ru
   [ -f "$runs/${rest%%/*}/meta.json" ] || return 0
   printf '%s\t%s\n' "$runs/${rest%%/*}/meta.json" "${rest#*/}"
 }
-post_text_sum() {  # post_text_sum <stage folder> — one checksum over the text a post can carry: comments.json, summary-items.json,
-  # every .md in the folder, replies/, patches/ (not posting-*.json, which post-review itself writes there)
-  local d="$1" f list
-  list="$(cd "$d" && { find . -maxdepth 1 -type f -name '*.md'; find replies patches -type f 2>/dev/null || true; } | sed 's|^\./||' | LC_ALL=C sort)"
-  { for f in comments.json summary-items.json; do [ ! -f "$d/$f" ] || { echo "== $f"; cat "$d/$f"; }; done
-    while IFS= read -r f; do [ -z "$f" ] || { echo "== $f"; cat "$d/$f"; }; done <<<"$list"; } | cksum | tr -d ' \t'
+post_text_sum() {  # post_text_sum <stage folder> — one checksum over every file under the folder that a post can carry: not pre-polish/,
+  # not posting-*.json (post-review writes it there), and not a subfolder with its own pre-polish/ (a later pass, checked on its own)
+  local d="$1" f n skip list
+  skip="$(cd "$d" && { find . -mindepth 2 -type d -name pre-polish 2>/dev/null || true; } | sed 's|^\./||; s|/pre-polish$|/|')"
+  list="$(cd "$d" && { find . -type f -not -path './pre-polish/*' -not -name 'posting-*.json' 2>/dev/null || true; } | sed 's|^\./||' | LC_ALL=C sort)"
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    while IFS= read -r n; do [ -z "$n" ] || [ "${f#"$n"}" = "$f" ] || continue 2; done <<<"$skip"
+    echo "== $f"; cat "$d/$f"
+  done <<<"$list" | cksum | tr -d ' \t'
 }
-stage_folder_of() {  # stage_folder_of <file to post> — the folder holding it, or the one above replies/ or patches/
-  local d; d="$(dirname "$1")"
-  case "$(basename "$d")" in replies|patches) d="$(dirname "$d")" ;; esac
-  echo "$d"
+snapshot_folder_of() {  # snapshot_folder_of <file to post> — the nearest folder above it, up to the run's outputs/, that has pre-polish/; nothing if none.
+  # Resolved from the real path, so a body in a sibling or nested folder (or behind a link) is still checked against its stage's snapshot
+  local runs d
+  runs="$(cd "$RUNS_DIR" 2>/dev/null && pwd -P)" || return 0
+  d="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)" || return 0
+  while :; do
+    case "$d/" in "$runs"/*/outputs/?*) ;; *) return 0 ;; esac
+    [ ! -d "$d/pre-polish" ] || { echo "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
 }
 require_pg6() {  # require_pg6 <file to post>
   local d w m rel
-  d="$(stage_folder_of "$1")"
-  [ -d "$d/pre-polish" ] || return 0
+  d="$(snapshot_folder_of "$1")"; [ -n "$d" ] || return 0
   w="$(pg6_where "$d")"; [ -n "$w" ] || return 0
   m="${w%%$'\t'*}"; rel="${w#*$'\t'}"
   [ "$(jq -r --arg r "$rel" '.pg6_pass[$r].sum // empty' "$m")" = "$(post_text_sum "$d")" ] \
@@ -796,7 +805,7 @@ cmd_post_review() {
 
   cmd_pg5 "$sfile" "$cfile" "$stage"
   require_pg6 "$cfile"
-  [ "$(stage_folder_of "$sfile")" = "$(stage_folder_of "$cfile")" ] || require_pg6 "$sfile"
+  require_pg6 "$sfile"
 
   # Stage 1's summary-body findings, [{code, grade, blocking, path, line}], written by the session next to summary.md. Optional
   local items=""

@@ -498,6 +498,18 @@ t12_pg6_before_post() {
   [ "$rc" = 3 ] && [ "$(stub_replies)" = 1 ] || { echo "after an edit: exit $rc, replies $(stub_replies): $out"; return 1; }
 }
 check "post T12 PG6 must pass on the current text before a post" t12_pg6_before_post
+# T12b — a body in a subfolder of a stage folder with a snapshot is checked against that snapshot's pass: a file written after pg6 passed
+# changes the checksum, so the reply is refused until pg6 runs again
+t12b_pg6_nested_body() {
+  local rc out d="$STUB_RUN/outputs/stage3"; stub_home
+  stub_run "$PR_QUORUM" snapshot "$d" >/dev/null && stub_run "$PR_QUORUM" pg6 "$d" >/dev/null || { echo "snapshot or pg6 failed"; return 1; }
+  mkdir -p "$d/x"; printf 'A reply written after PG6.\n' > "$d/x/reply.md"
+  rc=0; out="$(stub_run "$PR_QUORUM" reply demo 1 111000 "$d/x/reply.md" 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && [ "$(stub_replies)" = 0 ] || { echo "nested body: exit $rc, replies $(stub_replies): $out"; return 1; }
+  stub_run "$PR_QUORUM" pg6 "$d" >/dev/null || { echo "pg6 rerun failed"; return 1; }
+  out="$(stub_run "$PR_QUORUM" reply demo 1 111000 "$d/x/reply.md" 2>&1)" && [ "$(stub_replies)" = 1 ] || { echo "after pg6: $out"; return 1; }
+}
+check "post T12b body in a subfolder of a snapshot folder is checked" t12b_pg6_nested_body
 # T13 — --accept records a pass for token-only differences, never for a changed comment
 t13_pg6_accept() {
   local rc d="$STUB_RUN/outputs/stage3"; stub_home
