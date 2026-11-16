@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.1
+
+No new `config.json` keys.
+
+- `dream.sh` proposals get a new kind, `move to harness code`: a learnings row whose rule a script could judge (output format, a file's existence, a SHA or path, a condition before posting) is proposed as a check in `scripts/` with a draft `selftest.sh` case, instead of more rule text. The dream session still only reads; a human opens the harness PR and then demotes the row. Only the dream session reads `rules/04-dream.md`, so review sessions get no new text.
+
 ## 0.21.0
 
 No new `config.json` keys.
