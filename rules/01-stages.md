@@ -321,7 +321,8 @@ The chain also keeps `lock`, `attempts`, `chain`, and the posting timestamps in 
 **The machine-countable part of PG6** runs in one line: `pr-quorum.sh pg6 <outputs/<stage>[/round-NN]>`. A mismatch exits with 3.
 Do not assemble the comparison yourself — permissions deny it (L0-42·L0-51). The script checks `comments.json` (count, the fields above, the body's first line) and `summary-items.json` (count and fields) against the snapshot,
 and prints the anchor and number tokens of `summary.md` · `replies/*.md` · `patches/*.md` that exist only in the snapshot. Revert a changed comment from the snapshot; for a printed token, **reducing an anchor written twice to once while merging sentences
-is a pass**, but if an evidence `file:line` or a number dropped out entirely, revert.
+is a pass** — rerun with `pg6 <folder> --accept "<reason>"` — but if an evidence `file:line` or a number dropped out entirely, revert.
+A pass is recorded, and `reply`·`patch`·`post-review` refuse a file from a folder with a snapshot until PG6 has passed on its text as it is now: run PG6 after the last edit, and not in the same tool batch as the post. If a later gate made you change a comment (PG5), take the snapshot again before PG6.
 
 Whether impact (②) and direction (④) survived cannot be counted. **Reread each item** to judge.
 

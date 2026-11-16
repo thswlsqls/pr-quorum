@@ -87,7 +87,7 @@ If you are not sure, do not raise a finding; write it under `unverified concern`
 | **`major`** | Forces rework, or breaks under the stated traffic | `issue (blocking)` / `issue (non-blocking)` |
 | `minor` | An alternative is better, but the current code is valid — non-blocking | `suggestion` |
 | `nit` | Taste · naming · formatting — non-blocking | `nitpick (non-blocking)` |
-| — | Praise | `praise` (at least 1 required in a Stage 1 post) |
+| — | Praise | `praise` (at least 1 required in a Stage 1 post; not counted in the minor·nit budget) |
 
 **Do not use points, deductions, totals, or pass marks.** The evaluation target does not change, so a score would be a constant every round,
 and a constant is not a check. Only the four grades remain in the verdict.

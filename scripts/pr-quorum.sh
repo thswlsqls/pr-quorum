@@ -38,7 +38,8 @@ usage: pr-quorum.sh <subcommand> <repo> <pr> [args]
     gate1      <repo> <pr> <sha> <comments.json>   PG1 — check that anchors are inside the diff
     risk       <repo> <pr>                   auto-merge risk score (rules/03-risk.md). 3 if not low
     pg5        <summary.md> <comments.json> [stage1|stage2|stage3]   PG5 mechanical check (the same one post-review runs right before posting)
-    pg6        <outputs/stage dir>           PG6 — compare against the pre-edit copy (pre-polish/)
+    pg6        <outputs/stage dir> [--accept <reason>]   PG6 — compare against the pre-edit copy (pre-polish/); a pass is recorded,
+                                             and reply·patch·post-review from a folder with a copy need it on the current text
     snapshot   <outputs/stage dir>           save the pre-edit copy to pre-polish/ (under runs/ only)
 
   State
@@ -444,9 +445,11 @@ cmd_pg5() {
     local pr='`praise`|\*\*praise\*\*|^praise([^a-z]|$)'
     grep -qE "$pr" "$sfile" || jq -e --arg r "$pr" '[.[] | select(.body | test($r; "m"))] | length > 0' "$cfile" >/dev/null \
       || die "$E_GATE" "PG5 violation — no praise comment"
-    # Budget: at most 5 minor·nit (rules/01-stages.md §1 Budget) — the cap that keeps noise down, counted rather than left to the session
-    local mn; mn="$(jq '[.[] | select(.grade // "" | IN("minor", "nit"))] | length' "$cfile")"
-    [ "$mn" -le 5 ] || die "$E_GATE" "PG5 violation — $mn minor·nit comments (budget 5)"
+    # Budget: at most 5 minor·nit (rules/01-stages.md §1 Budget) — the cap that keeps noise down, counted rather than left to the session.
+    # Praise is not a finding (rules/00-criteria.md §3 gives it no grade): an inline praise graded nit does not use a slot, or a real
+    # finding is dropped to make room for it (dream 2026-11-16 D-02, spec-owner #299)
+    local mn; mn="$(jq --arg r "$pr" '[.[] | select((.grade // "" | IN("minor", "nit")) and ((.body // "" | split("\n")[0]) | test($r) | not))] | length' "$cfile")"
+    [ "$mn" -le 5 ] || die "$E_GATE" "PG5 violation — $mn minor·nit comments (budget 5, praise not counted)"
   fi
   jq -e '[.[] | select((.code|not) or (.axis|not) or (.body|not))] | length == 0' "$cfile" >/dev/null \
     || die "$E_GATE" "PG5 violation — a comment is missing code/axis/body"
@@ -467,11 +470,58 @@ cmd_pg5() {
   echo "PG5 passed — $cfile"
 }
 
+# PG6 pass record (dream 2026-11-16 D-05). pg6 used only to print its result, so a post sent in the same tool batch as a failing pg6
+# went up anyway (spec-owner #299). A pass now records a checksum of the folder's post text in meta.json (sessions cannot write it),
+# and reply · patch · post-review refuse a file from a folder that has a snapshot unless that record matches the text as it is now.
+# A folder with no snapshot is not checked, as before. PR_QUORUM_PG6_NO_RECORD=1 skips the record (selftest's replay of past runs)
+pg6_where() {  # pg6_where <stage folder> — "<meta.json>\t<folder under the run>", or nothing when it is not under runs/ or has no meta.json
+  local runs real rest
+  runs="$(cd "$RUNS_DIR" 2>/dev/null && pwd -P)" || return 0
+  real="$(cd "$1" 2>/dev/null && pwd -P)" || return 0
+  case "$real/" in "$runs"/*/*) ;; *) return 0 ;; esac
+  rest="${real#"$runs"/}"
+  [ -f "$runs/${rest%%/*}/meta.json" ] || return 0
+  printf '%s\t%s\n' "$runs/${rest%%/*}/meta.json" "${rest#*/}"
+}
+post_text_sum() {  # post_text_sum <stage folder> — one checksum over the text a post can carry: comments.json, summary-items.json,
+  # every .md in the folder, replies/, patches/ (not posting-*.json, which post-review itself writes there)
+  local d="$1" f list
+  list="$(cd "$d" && { find . -maxdepth 1 -type f -name '*.md'; find replies patches -type f 2>/dev/null || true; } | sed 's|^\./||' | LC_ALL=C sort)"
+  { for f in comments.json summary-items.json; do [ ! -f "$d/$f" ] || { echo "== $f"; cat "$d/$f"; }; done
+    while IFS= read -r f; do [ -z "$f" ] || { echo "== $f"; cat "$d/$f"; }; done <<<"$list"; } | cksum | tr -d ' \t'
+}
+stage_folder_of() {  # stage_folder_of <file to post> — the folder holding it, or the one above replies/ or patches/
+  local d; d="$(dirname "$1")"
+  case "$(basename "$d")" in replies|patches) d="$(dirname "$d")" ;; esac
+  echo "$d"
+}
+require_pg6() {  # require_pg6 <file to post>
+  local d w m rel
+  d="$(stage_folder_of "$1")"
+  [ -d "$d/pre-polish" ] || return 0
+  w="$(pg6_where "$d")"; [ -n "$w" ] || return 0
+  m="${w%%$'\t'*}"; rel="${w#*$'\t'}"
+  [ "$(jq -r --arg r "$rel" '.pg6_pass[$r].sum // empty' "$m")" = "$(post_text_sum "$d")" ] \
+    || die "$E_GATE" "PG6 has not passed on the text in $d as it is now — run pr-quorum.sh pg6 on that folder after the last edit, then post. If a later gate (PG5) made you change a comment, take the snapshot again first. Nothing was posted"
+}
+pg6_record() {  # pg6_record <stage folder> [accepted reason]
+  local w m rel
+  [ -z "${PR_QUORUM_PG6_NO_RECORD:-}" ] || return 0
+  w="$(pg6_where "$1")"; [ -n "$w" ] || return 0
+  m="${w%%$'\t'*}"; rel="${w#*$'\t'}"
+  jq --arg r "$rel" --arg s "$(post_text_sum "$1")" --arg at "$(now_iso)" --arg a "${2:-}" \
+    '.pg6_pass[$r] = ({sum:$s, at:$at} + (if $a == "" then {} else {accepted:$a} end))' "$m" > "$m.tmp.$$" && mv "$m.tmp.$$" "$m" \
+    || die "$E_API" "PG6 passed but could not be recorded in $m — run pg6 again"
+}
+
 # PG6 — did the pre-post edit cut meaning (rules/01-stages.md §7). <dir> is the outputs/<stage>[/round-NN] that contains pre-polish/.
 # When sessions ran the document's two lines themselves, permissions blocked them and they fell back to comparing by eye (L0-42, L0-51). This moves it to a one-line call.
 # Whether impact (②) and direction (④) survived cannot be counted, so it is not checked here.
 cmd_pg6() {
-  local dir="${1%/}" pre bad=0
+  local dir="${1%/}" pre bad=0 tokbad=0 accept=""
+  # --accept <reason>: the only difference is anchor or number tokens a person-readable reason explains (an anchor written twice merged
+  # into one, a count spelled as a word). JSON differences are never accepted
+  if [ "${2:-}" = --accept ]; then accept="${3:-}"; [ -n "$accept" ] || die "$E_USAGE" "--accept needs a reason"; fi
   pre="$dir/pre-polish"
   [ -d "$pre" ] || die "$E_USAGE" "copy folder is missing: $pre"
 
@@ -512,11 +562,18 @@ cmd_pg6() {
     missing="$(comm -23 <(tok "${md_pre[@]}") <(tok ${md_cur[@]+"${md_cur[@]}"}))"
     if [ -n "$missing" ]; then
       echo "PG6 violation — tokens only in the copy (check each one for a dropped evidence file:line or number):"
-      sed 's/^/  /' <<<"$missing"; bad=1
+      sed 's/^/  /' <<<"$missing"; tokbad=1
     fi
   fi
 
   [ "$bad" = 0 ] || return "$E_GATE"
+  if [ "$tokbad" = 1 ]; then
+    [ -n "$accept" ] || { echo "If every token above is the same anchor merged or a number kept in words, rerun with --accept \"<reason>\"; otherwise revert it"; return "$E_GATE"; }
+    pg6_record "$dir" "$accept"
+    echo "PG6 accepted — $dir (token differences only: $accept)"
+    return 0
+  fi
+  pg6_record "$dir"
   echo "PG6 passed — $dir (JSON fields and first lines, markdown anchors and numbers)"
 }
 
@@ -738,6 +795,8 @@ cmd_post_review() {
   cmd_gate1 "$repo" "$pr" "$sha" "$cfile" || return "$E_GATE"
 
   cmd_pg5 "$sfile" "$cfile" "$stage"
+  require_pg6 "$cfile"
+  [ "$(stage_folder_of "$sfile")" = "$(stage_folder_of "$cfile")" ] || require_pg6 "$sfile"
 
   # Stage 1's summary-body findings, [{code, grade, blocking, path, line}], written by the session next to summary.md. Optional
   local items=""
@@ -863,6 +922,7 @@ cmd_reply() {
   local repo="$1" pr="$2" cid="$3" bfile="$4" rid m head mk known
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
   need_meta "$repo" "$pr"
+  require_pg6 "$bfile"
   load_bot_token
   m="$(meta_path "$repo" "$pr")"
   # Adoption, as in post-review — a bot reply carrying this thread/stage/head marker that meta.json does not know went up in an
@@ -922,6 +982,7 @@ record_reply() {
 cmd_patch() {
   local repo="$1" pr="$2" cid="$3" bfile="$4"
   [ -f "$bfile" ] || die "$E_USAGE" "body file is missing: $bfile"
+  require_pg6 "$bfile"
   load_bot_token
   jq -n --rawfile b "$bfile" '{body:$b}' \
     | gh api -X PATCH "repos/$SLUG/pulls/comments/$cid" --input - --jq '.id' \
@@ -998,7 +1059,7 @@ case "$sub" in
   gate1)       [ $# -eq 4 ] || usage; need_sha "$3"; cmd_gate1 "$@" ;;
   risk)        [ $# -eq 2 ] || usage; cmd_risk "$@" ;;
   pg5)         [ $# -ge 2 ] && [ $# -le 3 ] || usage; cmd_pg5 "$@" ;;
-  pg6)         [ $# -eq 1 ] || usage; cmd_pg6 "$@" ;;
+  pg6)         [ $# -eq 1 ] || { [ $# -eq 3 ] && [ "$2" = --accept ]; } || usage; cmd_pg6 "$@" ;;
   snapshot)    [ $# -eq 1 ] || usage; cmd_snapshot "$@" ;;
   init)        [ $# -ge 2 ] && [ $# -le 3 ] || usage; cmd_init "$@" ;;
   lock)        [ $# -eq 3 ] || usage; cmd_lock "$@" ;;

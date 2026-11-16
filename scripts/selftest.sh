@@ -423,6 +423,18 @@ t10_pg5_budget_praise() {
   [ "$rc" = 3 ] || { echo "pg5 with only the word praise: exit $rc (want 3)"; return 1; }
 }
 check "post T10 PG5 minor·nit budget and praise label"  t10_pg5_budget_praise
+# T11 — an inline praise graded nit does not use a budget slot (dream D-02): 5 nits + a praise nit pass; 6 non-praise nits still fail
+t11_praise_outside_budget() {
+  local d="$STUB/pg5b" rc
+  mkdir -p "$d"; printf 'Legend `R-A`\n' > "$d/s.md"
+  jq -n '[range(5) | {code:"C-0\(.)", axis:"R-A", grade:"nit", body:"R-A (Readability) — x"}]
+         + [{code:"C-09", axis:"R-A", grade:"nit", body:"**C-09** `praise` · R-A (Readability)\nclear names"}]' > "$d/c.json"
+  "$PR_QUORUM" pg5 "$d/s.md" "$d/c.json" >/dev/null 2>&1 || { echo "5 nits + praise nit failed: $("$PR_QUORUM" pg5 "$d/s.md" "$d/c.json" 2>&1)"; return 1; }
+  jq '.[-1].body = "R-A (Readability) — y"' "$d/c.json" > "$d/six.json"; printf 'Legend `R-A`\n`praise` clear names\n' > "$d/s.md"
+  rc=0; "$PR_QUORUM" pg5 "$d/s.md" "$d/six.json" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "6 non-praise nits: exit $rc (want 3)"; return 1; }
+}
+check "post T11 PG5 praise nit outside the budget"       t11_praise_outside_budget
 
 # R1–R3 — reply and comment adoption: a lost response is adopted on rerun, a deliberate second post still goes up
 stub_reply() { stub_run "$PR_QUORUM" reply demo 1 111000 "$STUB_RUN/outputs/stage3/reply.md"; }
@@ -470,6 +482,36 @@ r3_deliberate_reposts() {
 check "reply R1 lost response, rerun adopts"         r1_reply_lost
 check "comment R2 same key, rerun posts nothing"     r2_comment_same_key
 check "reply/comment R3 deliberate reposts still post" r3_deliberate_reposts
+# T12 — posts need PG6 to have passed on the text as it is now (dream D-05): a folder with a snapshot refuses reply before pg6,
+# posts after it, refuses again once the body changes; a folder with no snapshot posts as before
+t12_pg6_before_post() {
+  local rc out; stub_home
+  stub_reply >/dev/null 2>&1 || { echo "reply with no snapshot failed"; return 1; }
+  stub_home; stub_run "$PR_QUORUM" snapshot "$STUB_RUN/outputs/stage3" >/dev/null || return 1
+  rc=0; out="$(stub_reply 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && grep -q 'PG6 has not passed' <<<"$out" && [ "$(stub_replies)" = 0 ] || { echo "before pg6: exit $rc, replies $(stub_replies): $out"; return 1; }
+  out="$(stub_run "$PR_QUORUM" pg6 "$STUB_RUN/outputs/stage3" 2>&1)" || { echo "pg6: $out"; return 1; }
+  [ -n "$(stub_meta '.pg6_pass["outputs/stage3"].sum // empty')" ] || { echo "no pg6_pass record: $(stub_meta -c .pg6_pass)"; return 1; }
+  out="$(stub_reply 2>&1)" && [ "$(stub_replies)" = 1 ] || { echo "after pg6: replies $(stub_replies): $out"; return 1; }
+  printf 'Fixed in the latest push, edited.\n' > "$STUB_RUN/outputs/stage3/reply.md"
+  rc=0; out="$(stub_reply 2>&1)" || rc=$?
+  [ "$rc" = 3 ] && [ "$(stub_replies)" = 1 ] || { echo "after an edit: exit $rc, replies $(stub_replies): $out"; return 1; }
+}
+check "post T12 PG6 must pass on the current text before a post" t12_pg6_before_post
+# T13 — --accept records a pass for token-only differences, never for a changed comment
+t13_pg6_accept() {
+  local rc d="$STUB_RUN/outputs/stage3"; stub_home
+  printf 'Seen in src/a.txt:2 and src/a.txt:2, 3 cases.\n' > "$d/summary.md"; stub_run "$PR_QUORUM" snapshot "$d" >/dev/null || return 1
+  printf 'Seen in src/a.txt:2, three cases.\n' > "$d/summary.md"
+  rc=0; stub_run "$PR_QUORUM" pg6 "$d" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "token diff: exit $rc (want 3)"; return 1; }
+  stub_run "$PR_QUORUM" pg6 "$d" --accept "count kept as a word" >/dev/null 2>&1 \
+    && [ "$(stub_meta -r '.pg6_pass["outputs/stage3"].accepted')" = "count kept as a word" ] || { echo "accept: $(stub_meta -c .pg6_pass)"; return 1; }
+  jq '.[0].grade = "major"' "$d/comments.json" > "$STUB/t" && mv "$STUB/t" "$d/comments.json"
+  rc=0; stub_run "$PR_QUORUM" pg6 "$d" --accept "x" >/dev/null 2>&1 || rc=$?
+  [ "$rc" = 3 ] || { echo "JSON change accepted: exit $rc"; return 1; }
+}
+check "post T13 PG6 --accept only for token differences"   t13_pg6_accept
 
 # C1–C3 — chain.sh on a PR whose records already reach the merge gate (Stage 1 posted, Stage 2 and 3 done, two author passes,
 # the last one pushing nothing), so no session runs. A GitHub read failing at the gate must stop at blocked (exit 4) with one stop notice
@@ -1552,7 +1594,7 @@ while IFS= read -r p; do
   d="$(dirname "$p")"
   # A copy directly under outputs/ is the layout from before per-stage folders (L0-15). The original moved to stage1/, so there is nothing to compare against
   [ "$(basename "$d")" = outputs ] && { echo "skipped — ${d#"$RUNS"/}/pre-polish (layout from before per-stage folders)"; continue; }
-  check "pg6 ${d#"$RUNS"/}" "$PR_QUORUM" pg6 "$d"
+  check "pg6 ${d#"$RUNS"/}" env PR_QUORUM_PG6_NO_RECORD=1 "$PR_QUORUM" pg6 "$d"   # replay only: leave the past runs' meta.json as it is
 done < <(find "$RUNS"/*/outputs -type d -name pre-polish | sort)
 
 echo "selftest — passed $pass · failed $fail"

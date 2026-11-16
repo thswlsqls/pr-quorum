@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.22.0
+
+No new `config.json` keys. From the first `dream.sh` run with the `move to harness code` kind (2026-11-16, 20 spec-owner runs).
+
+- PG5 no longer counts a praise comment in the minor·nit budget. An inline praise graded `nit` took one of the 5 slots, and in one run a real finding was dropped to make room for it. A comment counts as praise by its first line's label, the same test the praise check uses.
+- Posts now need PG6 to have passed on the text as it is. `pr-quorum.sh pg6` records a pass in `meta.json` (`pg6_pass`) with a checksum of the folder's post text, and `post-review`, `reply`, and `patch` refuse (exit 3, nothing posted) a file from a folder that has a `pre-polish/` copy until that record matches. Before, PG6 only printed its result, and a reply sent in the same tool batch as a failing PG6 went up. A folder with no copy is not checked, as before.
+- `pg6 <folder> --accept "<reason>"` records a pass when only markdown anchor or number tokens differ (an anchor written twice merged into one, a count kept as a word), which the rules already treated as a pass. A changed comment or summary item is never accepted. The rule and skill text say to use it, and to take the snapshot again when a later gate (PG5) changes a comment.
+
 ## 0.21.1
 
 No new `config.json` keys.

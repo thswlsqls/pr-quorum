@@ -133,7 +133,8 @@ After editing, check with PG6. Do not assemble commands yourself; call the scrip
 ${CLAUDE_PLUGIN_ROOT}/scripts/pr-quorum.sh pg6 ~/.pr-quorum/runs/<repo>-pr<N>/outputs/$0     # for a pass folder, …/$0/round-NN
 ```
 
-If it exits with 3, revert that item from the snapshot and tighten it again. If the printed tokens only show the same anchor reduced to one occurrence while merging sentences, treat it as a pass.
+If it exits with 3, revert that item from the snapshot and tighten it again. If the printed tokens only show the same anchor reduced to one occurrence while merging sentences, rerun it with `--accept "<reason>"`.
+Posting commands refuse text PG6 has not passed as it is now, so run it after the last edit and before the post, not in the same batch.
 The script cannot see whether impact (②) and direction (④) survived — reread each item.
 Then recheck the gates that depend on wording — PG2·PG5 for Stage 1, PG3 and the cross-check between outputs for Stage 2·3.
 Record the before → after length and the number of reverted items in the log.
